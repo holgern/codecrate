@@ -33,7 +33,6 @@ def parse_unified_diff(diff_text: str) -> list[FileDiff]:
         if not m_from:
             i += 1
             continue
-        from_path = m_from.group(1)
         if i + 1 >= len(lines):
             break
         m_to = _TO_RE.match(lines[i + 1])
@@ -109,7 +108,7 @@ def apply_hunks_to_text(old_text: str, hunks: list[list[str]]) -> str:
                         if next_line.startswith("+"):
                             add_line = next_line[1:]  # Full add line with indentation
                             break
-                    # If current line matches what we'd add (both with and without stripping),
+                    # If current line matches what we'd add (with/without stripping),
                     # skip the delete operation
                     if add_line is not None:
                         current_matches_add = old_lines[old_i] == add_line

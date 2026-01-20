@@ -50,14 +50,15 @@ def parse_packed_markdown(text: str) -> PackedMarkdown:
         raise ValueError("No codecrate-manifest block found")
 
     # 2) parse canonical library blocks by scanning headings "### <ID> —"
-    # We use a simple heuristic: in the Function Library section, python fenced blocks appear
-    # and the immediately preceding heading contains the ID at the start.
+    # We use a simple heuristic: in the Function Library section, python fenced
+    # blocks appear and immediately preceding heading contains the ID at the start.
     text_lines = text.splitlines()
     for idx, line in enumerate(text_lines):
         if line.startswith("### ") and " — " in line:
             # Try to extract the leading token as ID
             maybe_id = line.split(" — ", 1)[0].replace("###", "").strip()
-            # look ahead for a python fence (may have blank lines or other content in between)
+            # look ahead for a python fence (may have blank lines
+            # or other content in between)
             j = idx + 1
             while j < len(text_lines) and text_lines[j].strip() != "```python":
                 j += 1
