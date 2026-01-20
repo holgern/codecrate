@@ -32,11 +32,11 @@ def test_patch_apply_roundtrip(tmp_path: Path):
         "## Manifest\n\n"
         "```codecrate-manifest\n"
         "{\n"
-        "  \"format\": \"codecrate.v3\",\n"
-        "  \"root\": \".\",\n"
-        "  \"files\": [\n"
-        "    {\"path\": \"a.py\", \"module\": \"a\", \"line_count\": 2, \"classes\": [],\n"
-        "     \"defs\": [{\"path\": \"a.py\", \"module\": \"a\", \"qualname\": \"f\", \"id\": \"ID\", \"local_id\": \"ID\", \"kind\": \"function\", \"decorator_start\": 1, \"def_line\": 1, \"body_start\": 2, \"end_line\": 2, \"doc_start\": null, \"doc_end\": null, \"is_single_line\": false}]}\n"
+        '  "format": "codecrate.v3",\n'
+        '  "root": ".",\n'
+        '  "files": [\n'
+        '    {"path": "a.py", "module": "a", "line_count": 2, "classes": [],\n'
+        '     "defs": [{"path": "a.py", "module": "a", "qualname": "f", "id": "ID", "local_id": "ID", "kind": "function", "decorator_start": 1, "def_line": 1, "body_start": 2, "end_line": 2, "doc_start": null, "doc_end": null, "is_single_line": false}]}\n'
         "  ]\n"
         "}\n"
         "```\n\n"
@@ -63,4 +63,3 @@ def test_patch_apply_roundtrip(tmp_path: Path):
     apply_file_diffs(diffs, root)
 
     assert f.read_text(encoding="utf-8") == "def f():\n    return 2\n"
-

@@ -100,8 +100,33 @@ def apply_hunks_to_text(old_text: str, hunks: list[list[str]]) -> str:
                 new_lines.append(payload)
                 old_i += 1
             elif tag == "-":
-                if old_i >= len(old_lines) or old_lines[old_i] != payload:
-                    raise ValueError("Delete mismatch while applying patch")
+                # Check if current line matches what we'd add (file already modified)
+                current_line_matches_target = False
+                if old_i < len(old_lines) and old_lines[old_i] != payload:
+                    # Look ahead to find what we're adding
+                    add_line = None
+                    for next_line in hunk[1:]:
+                        if next_line.startswith("+"):
+                            add_line = next_line[1:]  # Full add line with indentation
+                            break
+                    # If current line matches what we'd add (both with and without stripping),
+                    # skip the delete operation
+                    if add_line is not None:
+                        current_matches_add = old_lines[old_i] == add_line
+                        current_matches_add_stripped = (
+                            old_lines[old_i].strip() == add_line.strip()
+                        )
+                        if current_matches_add or current_matches_add_stripped:
+                            current_line_matches_target = True
+
+                if not current_line_matches_target:
+                    # Use original payload for comparison, but also try stripped version
+                    if old_i < len(old_lines) and old_lines[old_i] != payload:
+                        # Try stripped versions for fuzzy matching
+                        old_stripped = old_lines[old_i].strip()
+                        payload_stripped = payload.strip()
+                        if old_stripped != payload_stripped:
+                            raise ValueError("Delete mismatch while applying patch")
                 old_i += 1
             elif tag == "+":
                 new_lines.append(payload)

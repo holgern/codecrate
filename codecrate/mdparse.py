@@ -57,14 +57,17 @@ def parse_packed_markdown(text: str) -> PackedMarkdown:
         if line.startswith("### ") and " — " in line:
             # Try to extract the leading token as ID
             maybe_id = line.split(" — ", 1)[0].replace("###", "").strip()
-            # look ahead for a python fence
-            if idx + 1 < len(text_lines) and text_lines[idx + 1].strip() == "```python":
+            # look ahead for a python fence (may have blank lines or other content in between)
+            j = idx + 1
+            while j < len(text_lines) and text_lines[j].strip() != "```python":
+                j += 1
+            if j < len(text_lines) and text_lines[j].strip() == "```python":
                 # collect until closing fence
-                j = idx + 2
+                k = j + 1
                 buf = []
-                while j < len(text_lines) and text_lines[j].strip() != "```":
-                    buf.append(text_lines[j])
-                    j += 1
+                while k < len(text_lines) and text_lines[k].strip() != "```":
+                    buf.append(text_lines[k])
+                    k += 1
                 if buf:
                     canonical_sources[maybe_id] = "\n".join(buf).rstrip() + "\n"
 
@@ -73,12 +76,12 @@ def parse_packed_markdown(text: str) -> PackedMarkdown:
     i = 0
     while i < len(text_lines):
         line = text_lines[i]
-        if line.startswith("### `") and line.endswith(")`") is False and "`" in line:
-            # extract between backticks
+        if line.startswith("### `") and "`" in line:
+            # extract between backticks (first one is the path)
             start = line.find("`") + 1
             end = line.find("`", start)
             rel = line[start:end]
-            # find next ```python
+            # find next ```python (may have blank lines or other content in between)
             j = i + 1
             while j < len(text_lines) and text_lines[j].strip() != "```python":
                 j += 1

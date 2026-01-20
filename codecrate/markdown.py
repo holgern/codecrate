@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+
+from .manifest import to_manifest
 from .model import FilePack, PackResult
 
 
@@ -76,6 +79,12 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
     lines: list[str] = []
     lines.append("# Codecrate Context Pack\n\n")
     lines.append(f"Root: `{pack.root.as_posix()}`\n\n")
+
+    manifest = to_manifest(pack)
+    lines.append("## Manifest\n\n")
+    lines.append("```codecrate-manifest\n")
+    lines.append(json.dumps(manifest, indent=2) + "\n")
+    lines.append("```\n\n")
 
     rel_paths = [f.path.relative_to(pack.root).as_posix() for f in pack.files]
     lines.append("## Directory Tree\n\n")

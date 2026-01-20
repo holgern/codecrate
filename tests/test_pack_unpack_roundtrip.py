@@ -21,12 +21,15 @@ def test_pack_unpack_roundtrip(tmp_path: Path):
         encoding="utf-8",
     )
 
-    disc = discover_python_files(root, include=["**/*.py"], exclude=[], respect_gitignore=False)
+    disc = discover_python_files(
+        root, include=["**/*.py"], exclude=[], respect_gitignore=False
+    )
     pack, canon = pack_repo(disc.root, disc.files, keep_docstrings=True, dedupe=False)
     md = render_markdown(pack, canon)
 
     out_dir = tmp_path / "out"
     unpack_to_dir(md, out_dir)
 
-    assert (out_dir / "a.py").read_text(encoding="utf-8") == (root / "a.py").read_text(encoding="utf-8")
-
+    assert (out_dir / "a.py").read_text(encoding="utf-8") == (root / "a.py").read_text(
+        encoding="utf-8"
+    )
