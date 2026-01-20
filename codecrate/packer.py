@@ -34,7 +34,6 @@ def pack_repo(
 
     for path in files:
         text = path.read_text(encoding="utf-8", errors="replace")
-
         classes, defs = parse_symbols(path=path, root=root, text=text)
         file_module = module_name_for(path, root)
 

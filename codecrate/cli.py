@@ -4,18 +4,22 @@ import argparse
 from pathlib import Path
 
 from .config import load_config
+from .diffgen import generate_patch_markdown
 from .discover import discover_python_files
 from .markdown import render_markdown
 from .packer import pack_repo
 from .token_budget import split_by_max_chars
+from .udiff import apply_file_diffs, parse_unified_diff
+from .unpacker import unpack_to_dir
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="codecrate", description="Pack Python code into Markdown for LLM context."
+        prog="codecrate", description="Pack/unpack/patch/apply for Python codebases."
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    # pack
     pack = sub.add_parser("pack", help="Pack a repository/directory into Markdown.")
     pack.add_argument("root", type=Path, help="Root directory to scan")
     pack.add_argument(
@@ -25,7 +29,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("context.md"),
         help="Output markdown path",
     )
-
     pack.add_argument(
         "--dedupe", action="store_true", help="Deduplicate identical function bodies"
     )
@@ -41,22 +44,74 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Respect .gitignore (default: true via config)",
     )
-
     pack.add_argument(
         "--include", action="append", default=None, help="Include glob (repeatable)"
     )
     pack.add_argument(
         "--exclude", action="append", default=None, help="Exclude glob (repeatable)"
     )
-
     pack.add_argument(
         "--split-max-chars",
         type=int,
         default=None,
-        help="If >0, split output into multiple .partN.md files by character count",
+        help="Split output into .partN.md files",
     )
 
+    # unpack
+    unpack = sub.add_parser(
+        "unpack", help="Reconstruct files from a packed context Markdown."
+    )
+    unpack.add_argument("markdown", type=Path, help="Packed Markdown file from `pack`")
+    unpack.add_argument(
+        "-o",
+        "--out-dir",
+        type=Path,
+        required=True,
+        help="Output directory for reconstructed files",
+    )
+
+    # patch
+    patch = sub.add_parser(
+        "patch",
+        help="Generate a diff-only patch Markdown from old pack + current repo.",
+    )
+    patch.add_argument(
+        "old_markdown", type=Path, help="Older packed Markdown (baseline)"
+    )
+    patch.add_argument("root", type=Path, help="Current repo root to compare against")
+    patch.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=Path("patch.md"),
+        help="Output patch markdown",
+    )
+
+    # apply
+    apply = sub.add_parser("apply", help="Apply a diff-only patch Markdown to a repo.")
+    apply.add_argument(
+        "patch_markdown", type=Path, help="Patch Markdown containing ```diff blocks"
+    )
+    apply.add_argument("root", type=Path, help="Repo root to apply patch to")
+
     return p
+
+
+def _extract_diff_blocks(md_text: str) -> str:
+    """
+    Extract only diff fences from markdown and concatenate to a unified diff string.
+    """
+    lines = md_text.splitlines()
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if lines[i].strip() == "```diff":
+            i += 1
+            while i < len(lines) and lines[i].strip() != "```":
+                out.append(lines[i])
+                i += 1
+        i += 1
+    return "\n".join(out) + "\n"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -81,7 +136,6 @@ def main(argv: list[str] | None = None) -> None:
             else bool(args.respect_gitignore)
         )
         dedupe = bool(args.dedupe) or bool(cfg.dedupe)
-
         split_max_chars = (
             cfg.split_max_chars
             if args.split_max_chars is None
@@ -94,23 +148,33 @@ def main(argv: list[str] | None = None) -> None:
             exclude=exclude,
             respect_gitignore=respect_gitignore,
         )
-
         pack, canonical = pack_repo(
             disc.root, disc.files, keep_docstrings=keep_docstrings, dedupe=dedupe
         )
         md = render_markdown(pack, canonical)
 
-        out = args.output
-        parts = split_by_max_chars(md, out, split_max_chars)
+        parts = split_by_max_chars(md, args.output, split_max_chars)
         for part in parts:
             part.path.write_text(part.content, encoding="utf-8")
+        print(f"Wrote {len(parts)} file(s).")
 
-        if len(parts) == 1:
-            print(f"Wrote {parts[0].path}")
-        else:
-            print(f"Wrote {len(parts)} parts:")
-            for part in parts:
-                print(f" - {part.path}")
+    elif args.cmd == "unpack":
+        md_text = args.markdown.read_text(encoding="utf-8", errors="replace")
+        unpack_to_dir(md_text, args.out_dir)
+        print(f"Unpacked into {args.out_dir}")
+
+    elif args.cmd == "patch":
+        old_md = args.old_markdown.read_text(encoding="utf-8", errors="replace")
+        patch_md = generate_patch_markdown(old_md, args.root)
+        args.output.write_text(patch_md, encoding="utf-8")
+        print(f"Wrote {args.output}")
+
+    elif args.cmd == "apply":
+        md_text = args.patch_markdown.read_text(encoding="utf-8", errors="replace")
+        diff_text = _extract_diff_blocks(md_text)
+        diffs = parse_unified_diff(diff_text)
+        changed = apply_file_diffs(diffs, args.root)
+        print(f"Applied patch to {len(changed)} file(s).")
 
 
 if __name__ == "__main__":

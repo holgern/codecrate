@@ -7,7 +7,7 @@ from typing import Any
 try:
     import tomllib  # py311+
 except ModuleNotFoundError:  # pragma: no cover
-    import tomli as tomllib
+    import tomli as tomllib  # type: ignore
 
 
 @dataclass
@@ -21,9 +21,6 @@ class Config:
 
 
 def load_config(root: Path) -> Config:
-    """
-    Loads `codecrate.toml` from root if present.
-    """
     cfg_path = root / "codecrate.toml"
     if not cfg_path.exists():
         return Config()

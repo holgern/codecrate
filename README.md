@@ -1,9 +1,11 @@
 # codecrate
 
-Convert a Python repository into a Markdown "context pack" for LLMs:
+`codecrate` turns a Python repo into a Markdown “context pack” for LLMs, and supports round-tripping:
 
-- **Function Library**: bodies appear once, each referenced by a stable short ID.
-- **Files View**: original files preserved, with function bodies replaced by ID markers.
+- `pack`: repo → context.md
+- `unpack`: context.md → reconstructed files
+- `patch`: old context.md + current repo → diff-only patch.md
+- `apply`: patch.md → apply changes to repo
 
 ## Install
 

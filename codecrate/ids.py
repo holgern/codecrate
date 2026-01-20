@@ -5,19 +5,11 @@ from pathlib import Path
 
 
 def stable_location_id(path: Path, qualname: str, lineno: int) -> str:
-    """
-    Stable ID tied to a specific location in a repository.
-    Suitable for traceability and indexing.
-    """
     payload = f"{path.as_posix()}::{qualname}::{lineno}".encode()
     return hashlib.sha1(payload).hexdigest()[:8].upper()
 
 
 def stable_body_hash(code: str) -> str:
-    """
-    Hash used for optional deduplication. Normalizes line endings and trims
-    trailing spaces to reduce accidental mismatches.
-    """
     norm = "\n".join(
         line.rstrip()
         for line in code.replace("\r\n", "\n").replace("\r", "\n").split("\n")

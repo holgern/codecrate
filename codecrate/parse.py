@@ -10,12 +10,8 @@ from .model import ClassRef, DefRef
 def module_name_for(path: Path, root: Path) -> str:
     rel = path.resolve().relative_to(root.resolve())
     parts = list(rel.parts)
-
-    # Support common "src layout" even when scanning from repo root.
-    # If you scan a repo root that contains src/codecrate/..., strip leading "src".
     if parts and parts[0] == "src":
         parts = parts[1:]
-
     if parts and parts[-1].endswith(".py"):
         parts[-1] = parts[-1][:-3]
     if parts and parts[-1] == "__init__":
@@ -32,19 +28,19 @@ class _Visitor(ast.NodeVisitor):
         self.defs: list[DefRef] = []
         self.classes: list[ClassRef] = []
 
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+    def visit_ClassDef(self, node: ast.ClassDef):
         self._add_class(node)
         self.stack.append(node.name)
         self.generic_visit(node)
         self.stack.pop()
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+    def visit_FunctionDef(self, node: ast.FunctionDef):
         self._add_def(node, kind="function")
         self.stack.append(node.name)
         self.generic_visit(node)
         self.stack.pop()
 
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
         self._add_def(node, kind="async_function")
         self.stack.append(node.name)
         self.generic_visit(node)
@@ -52,8 +48,7 @@ class _Visitor(ast.NodeVisitor):
 
     def _decorator_start(self, node: ast.AST, default_line: int) -> int:
         start = default_line
-        decs = getattr(node, "decorator_list", []) or []
-        for d in decs:
+        for d in getattr(node, "decorator_list", []) or []:
             if hasattr(d, "lineno"):
                 start = min(start, int(d.lineno))
         return start
@@ -94,7 +89,6 @@ class _Visitor(ast.NodeVisitor):
 
         if body:
             body_start = int(getattr(body[0], "lineno", def_line))
-            # docstring if first stmt is Expr(Constant(str))
             if (
                 isinstance(body[0], ast.Expr)
                 and isinstance(getattr(body[0], "value", None), ast.Constant)
@@ -109,7 +103,7 @@ class _Visitor(ast.NodeVisitor):
 
         rel_path = self.path.resolve().relative_to(self.root.resolve())
         local_id = stable_location_id(rel_path, qual, def_line)
-        canonical_id = local_id  # may be remapped during dedupe
+        canonical_id = local_id
 
         self.defs.append(
             DefRef(
@@ -133,7 +127,6 @@ class _Visitor(ast.NodeVisitor):
 def parse_symbols(
     path: Path, root: Path, text: str
 ) -> tuple[list[ClassRef], list[DefRef]]:
-    """Parse python file text and return (classes, defs)."""
     tree = ast.parse(text)
     v = _Visitor(path=path, root=root)
     v.visit(tree)

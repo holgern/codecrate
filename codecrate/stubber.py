@@ -11,24 +11,19 @@ def _indent_of(line: str) -> str:
 
 
 def _rewrite_single_line_def(line: str, marker: str) -> list[str]:
-    """Keep one-liners as one-liners to preserve line numbers."""
     src = line if line.endswith("\n") else line + "\n"
     tokens = list(tokenize.generate_tokens(io.StringIO(src).readline))
-
     colon_col = None
     for tok in tokens:
         if tok.type == tokenize.OP and tok.string == ":":
             colon_col = tok.end[1]
     if colon_col is None:
         return [line]
-
     head = line[:colon_col].rstrip()
-    # marker already starts with '#', so this becomes an inline comment
     return [f"{head} ...  {marker}\n"]
 
 
 def _replacement_lines(indent: str, marker: str, n: int) -> list[str]:
-    """Create exactly n lines of stub replacement."""
     if n <= 0:
         return []
     if n == 1:
@@ -40,7 +35,6 @@ def _replacement_lines(indent: str, marker: str, n: int) -> list[str]:
 
 
 def stub_file_text(text: str, defs: list[DefRef], keep_docstrings: bool = True) -> str:
-    """Return stubbed version of file text, preserving original line count."""
     lines = text.splitlines(keepends=True)
     defs_sorted = sorted(
         defs, key=lambda d: (d.def_line, d.body_start, d.end_line), reverse=True
@@ -60,7 +54,7 @@ def stub_file_text(text: str, defs: list[DefRef], keep_docstrings: bool = True) 
             start_line = d.doc_end + 1
 
         i0 = max(0, start_line - 1)
-        i1 = min(len(lines), d.end_line)  # inclusive end_line -> exclusive slice end
+        i1 = min(len(lines), d.end_line)
 
         if i0 >= i1:
             insert_at = min(len(lines), (d.doc_end or d.body_start))

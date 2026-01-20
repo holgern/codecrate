@@ -10,7 +10,7 @@ name = "codecrate"
 authors = [
   { name="Holger Nahrstaedt", email="nahrstaedt@gmail.com" },
 ]
-description = "Converts code into plan markdown documents which are easy to digest for LLMs."
+description = "Pack Python codebases into Markdown optimized for LLM context delivery (pack/unpack/patch/apply)"
 keywords = ["code", "llm", "markdown"]
 urls = { Homepage = "https://github.com/holgern/codecrate" }
 readme = "README.md"
@@ -36,6 +36,12 @@ codecrate = "codecrate.cli:main"
 
 [tool.setuptools_scm]
 write_to = "codecrate/_version.py"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.5.0",
+]
 
 [tool.tox]
 legacy_tox_ini = """
