@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["codecrate"]
+
+[project]
+name = "codecrate"
+authors = [
+  { name="Holger Nahrstaedt", email="nahrstaedt@gmail.com" },
+]
+description = "Converts code into plan markdown documents which are easy to digest for LLMs."
+keywords = ["code", "llm", "markdown"]
+urls = { Homepage = "https://github.com/holgern/codecrate" }
+readme = "README.md"
+requires-python = ">3.9.0"
+dependencies = [
+]
+license = {file = "LICENSE"}
+classifiers=[
+    'Intended Audience :: Developers',
+    'License :: OSI Approved :: MIT License',
+    'Operating System :: OS Independent',
+    'Programming Language :: Python :: 3',
+    'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+    'Topic :: Software Development :: Libraries',
+]
+
+dynamic=["version"]
+
+[project.scripts]
+codecrate = "codecrate.cli:main"
+
+[tool.setuptools_scm]
+write_to = "codecrate/_version.py"
+
+[tool.tox]
+legacy_tox_ini = """
+
+[testenv]
+deps =
+    pytest
+    pytest-cov[all]
+commands =
+    pytest
+"""
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+exclude = [
+]
+
+[[tool.mypy.overrides]]
+module = ["tomllib", "tomli"]
+ignore_missing_imports = true
