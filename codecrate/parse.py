@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Optional
 
 from .ids import stable_location_id
 from .model import ClassRef, DefRef
@@ -33,19 +32,19 @@ class _Visitor(ast.NodeVisitor):
         self.defs: list[DefRef] = []
         self.classes: list[ClassRef] = []
 
-    def visit_ClassDef(self, node: ast.ClassDef):
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self._add_class(node)
         self.stack.append(node.name)
         self.generic_visit(node)
         self.stack.pop()
 
-    def visit_FunctionDef(self, node: ast.FunctionDef):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._add_def(node, kind="function")
         self.stack.append(node.name)
         self.generic_visit(node)
         self.stack.pop()
 
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._add_def(node, kind="async_function")
         self.stack.append(node.name)
         self.generic_visit(node)
@@ -90,8 +89,8 @@ class _Visitor(ast.NodeVisitor):
 
         body = getattr(node, "body", []) or []
         body_start = def_line
-        doc_start: Optional[int] = None
-        doc_end: Optional[int] = None
+        doc_start: int | None = None
+        doc_end: int | None = None
 
         if body:
             body_start = int(getattr(body[0], "lineno", def_line))
@@ -131,7 +130,9 @@ class _Visitor(ast.NodeVisitor):
         )
 
 
-def parse_symbols(path: Path, root: Path, text: str) -> tuple[list[ClassRef], list[DefRef]]:
+def parse_symbols(
+    path: Path, root: Path, text: str
+) -> tuple[list[ClassRef], list[DefRef]]:
     """Parse python file text and return (classes, defs)."""
     tree = ast.parse(text)
     v = _Visitor(path=path, root=root)

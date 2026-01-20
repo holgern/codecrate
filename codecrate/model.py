@@ -2,37 +2,38 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass(frozen=True)
 class DefRef:
     """Represents a function/method definition discovered in a file."""
+
     path: Path
-    module: str            # e.g. "codecrate.config"
-    qualname: str          # e.g. "load_config" or "Class.method"
-    id: str                # canonical id (dedupe may redirect)
-    local_id: str          # id for this location (unique per location)
-    kind: str              # "function" | "async_function"
-    decorator_start: int   # 1-based
-    def_line: int          # 1-based
-    body_start: int        # 1-based (first stmt in body)
-    end_line: int          # 1-based (end of def)
-    doc_start: Optional[int] = None  # 1-based, if docstring exists
-    doc_end: Optional[int] = None    # 1-based, if docstring exists
-    is_single_line: bool = False     # def header and body on one line
+    module: str  # e.g. "codecrate.config"
+    qualname: str  # e.g. "load_config" or "Class.method"
+    id: str  # canonical id (dedupe may redirect)
+    local_id: str  # id for this location (unique per location)
+    kind: str  # "function" | "async_function"
+    decorator_start: int  # 1-based
+    def_line: int  # 1-based
+    body_start: int  # 1-based (first stmt in body)
+    end_line: int  # 1-based (end of def)
+    doc_start: int | None = None  # 1-based, if docstring exists
+    doc_end: int | None = None  # 1-based, if docstring exists
+    is_single_line: bool = False  # def header and body on one line
 
 
 @dataclass(frozen=True)
 class ClassRef:
     """Represents a class definition discovered in a file."""
+
     path: Path
-    module: str           # e.g. "codecrate.config"
-    qualname: str         # e.g. "Config" or "Outer.Inner"
-    id: str               # stable id for linking/indexing
+    module: str  # e.g. "codecrate.config"
+    qualname: str  # e.g. "Config" or "Outer.Inner"
+    id: str  # stable id for linking/indexing
     decorator_start: int  # 1-based
-    class_line: int       # 1-based (line with 'class ...')
-    end_line: int         # 1-based (end of class)
+    class_line: int  # 1-based (line with 'class ...')
+    end_line: int  # 1-based (end of class)
 
 
 @dataclass(frozen=True)

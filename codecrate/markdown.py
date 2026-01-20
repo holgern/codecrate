@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-from .model import DefRef, FilePack, PackResult
+from .model import FilePack, PackResult
 
 
 def _anchor_for(defn_id: str, module: str, qualname: str) -> str:
@@ -45,7 +43,9 @@ def _render_tree(paths: list[str]) -> str:
     return "\n".join(walk(root))
 
 
-def _split_preamble_outline(fp: FilePack) -> tuple[tuple[int, int, str], tuple[int, int, str]]:
+def _split_preamble_outline(
+    fp: FilePack,
+) -> tuple[tuple[int, int, str], tuple[int, int, str]]:
     lines = fp.stubbed_text.splitlines(keepends=True)
 
     first = None
@@ -53,7 +53,9 @@ def _split_preamble_outline(fp: FilePack) -> tuple[tuple[int, int, str], tuple[i
         first = c.decorator_start if first is None else min(first, c.decorator_start)
     for d in fp.defs:
         if "." not in d.qualname:
-            first = d.decorator_start if first is None else min(first, d.decorator_start)
+            first = (
+                d.decorator_start if first is None else min(first, d.decorator_start)
+            )
 
     if first is None:
         pre = fp.stubbed_text
@@ -87,21 +89,24 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
         rel = fp.path.relative_to(pack.root).as_posix()
         fa = _file_anchor(rel)
         lines.append(f"### `{rel}` (L1–L{fp.line_count})\n")
-        lines.append(f"<a id=\"{fa}\"></a>\n\n")
+        lines.append(f'<a id="{fa}"></a>\n\n')
 
         for c in sorted(fp.classes, key=lambda c: (c.class_line, c.qualname)):
             depth = c.qualname.count(".")
             indent = "  " * depth
-            lines.append(f"- {indent}`class {c.qualname.split('.')[-1]}` (L{c.class_line}–L{c.end_line})\n")
+            class_name = c.qualname.split(".")[-1]
+            lines.append(
+                f"- {indent}`class {class_name}` (L{c.class_line}–L{c.end_line})\n"
+            )
 
         for d in sorted(fp.defs, key=lambda d: (d.def_line, d.qualname)):
             anchor = _anchor_for(d.id, d.module, d.qualname)
             depth = d.qualname.count(".")
             indent = "  " * depth
             label = d.qualname.split(".")[-1]
-            lines.append(
-                f"- {indent}`{label}` → **{d.id}** (L{d.def_line}–L{d.end_line}) — [jump](#{anchor})\n"
-            )
+            loc = f"L{d.def_line}–L{d.end_line}"
+            jump_link = f" — [jump](#{anchor})\n"
+            lines.append(f"- {indent}`{label}` → **{d.id}** ({loc}){jump_link}")
         lines.append("\n")
 
     lines.append("## Function Library\n\n")
@@ -111,10 +116,10 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
             continue
         rel = rep.path.relative_to(pack.root).as_posix()
         anchor = _anchor_for(rep.id, rep.module, rep.qualname)
-        lines.append(
-            f"### {cid} — `{rep.module}.{rep.qualname}` ({rel}:L{rep.def_line}–L{rep.end_line})\n"
-        )
-        lines.append(f"<a id=\"{anchor}\"></a>\n\n")
+        loc = f"L{rep.def_line}–L{rep.end_line}"
+        header = f"{cid} — `{rep.module}.{rep.qualname}` ({rel}:{loc})"
+        lines.append(f"### {header}\n")
+        lines.append(f'<a id="{anchor}"></a>\n\n')
         lines.append("```python\n")
         lines.append(canonical_sources[cid].rstrip() + "\n")
         lines.append("```\n\n")
@@ -143,9 +148,9 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
         lines.append("**Symbols**\n\n")
         for d in sorted(fp.defs, key=lambda x: (x.def_line, x.qualname)):
             anchor = _anchor_for(d.id, d.module, d.qualname)
-            lines.append(
-                f"- `{d.module}.{d.qualname}` → **{d.id}** (L{d.def_line}–L{d.end_line}) — [jump](#{anchor})\n"
-            )
+            loc = f"L{d.def_line}–L{d.end_line}"
+            link = f" — [jump](#{anchor})\n"
+            lines.append(f"- `{d.module}.{d.qualname}` → **{d.id}** ({loc}){link}")
         lines.append("\n")
 
     return "".join(lines)

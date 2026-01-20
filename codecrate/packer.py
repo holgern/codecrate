@@ -82,7 +82,9 @@ def pack_repo(
         filepacks2: list[FilePack] = []
         for fp in filepacks:
             defs2 = defs_by_file.get(fp.path, [])
-            stubbed2 = stub_file_text(fp.original_text, defs2, keep_docstrings=keep_docstrings)
+            stubbed2 = stub_file_text(
+                fp.original_text, defs2, keep_docstrings=keep_docstrings
+            )
             filepacks2.append(
                 FilePack(
                     path=fp.path,

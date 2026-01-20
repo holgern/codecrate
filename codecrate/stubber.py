@@ -42,7 +42,9 @@ def _replacement_lines(indent: str, marker: str, n: int) -> list[str]:
 def stub_file_text(text: str, defs: list[DefRef], keep_docstrings: bool = True) -> str:
     """Return stubbed version of file text, preserving original line count."""
     lines = text.splitlines(keepends=True)
-    defs_sorted = sorted(defs, key=lambda d: (d.def_line, d.body_start, d.end_line), reverse=True)
+    defs_sorted = sorted(
+        defs, key=lambda d: (d.def_line, d.body_start, d.end_line), reverse=True
+    )
 
     for d in defs_sorted:
         marker = f"# ↪ FUNC:{d.id} (L{d.def_line}–L{d.end_line})"
@@ -50,7 +52,7 @@ def stub_file_text(text: str, defs: list[DefRef], keep_docstrings: bool = True) 
         if d.is_single_line:
             i = d.def_line - 1
             if 0 <= i < len(lines):
-                lines[i:i+1] = _rewrite_single_line_def(lines[i], marker)
+                lines[i : i + 1] = _rewrite_single_line_def(lines[i], marker)
             continue
 
         start_line = d.body_start

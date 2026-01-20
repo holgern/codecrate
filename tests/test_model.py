@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codecrate.model import DefRef, FilePack, PackResult
+from codecrate.model import ClassRef, DefRef, FilePack, PackResult
 
 
 def test_defref_dataclass_frozen() -> None:
@@ -50,6 +50,8 @@ def test_filepack_dataclass_frozen() -> None:
         module="test",
         original_text="original",
         stubbed_text="stubbed",
+        line_count=1,
+        classes=[],
         defs=[],
     )
 
@@ -58,6 +60,8 @@ def test_filepack_dataclass_frozen() -> None:
     assert file_pack.module == "test"
     assert file_pack.original_text == "original"
     assert file_pack.stubbed_text == "stubbed"
+    assert file_pack.line_count == 1
+    assert file_pack.classes == []
     assert file_pack.defs == []
 
 
@@ -66,12 +70,14 @@ def test_packresult_dataclass_frozen() -> None:
     pack = PackResult(
         root=Path("/"),
         files=[],
+        classes=[],
         defs=[],
     )
 
     # Verify that all fields are set correctly
     assert pack.root == Path("/")
     assert pack.files == []
+    assert pack.classes == []
     assert pack.defs == []
 
 
@@ -95,3 +101,25 @@ def test_defref_required_fields() -> None:
     assert def_ref.doc_start is None
     assert def_ref.doc_end is None
     assert def_ref.is_single_line is False
+
+
+def test_classref_required_fields() -> None:
+    """Test that all required ClassRef fields are present."""
+    path = Path("test.py")
+    class_ref = ClassRef(
+        path=path,
+        module="test",
+        qualname="MyClass",
+        id="CLASS123",
+        decorator_start=1,
+        class_line=1,
+        end_line=5,
+    )
+
+    assert class_ref.path == path
+    assert class_ref.module == "test"
+    assert class_ref.qualname == "MyClass"
+    assert class_ref.id == "CLASS123"
+    assert class_ref.decorator_start == 1
+    assert class_ref.class_line == 1
+    assert class_ref.end_line == 5
