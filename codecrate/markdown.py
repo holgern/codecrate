@@ -22,6 +22,10 @@ def _file_anchor(rel_path: str) -> str:
     return safe.strip("-")
 
 
+def _file_range(line_count: int) -> str:
+    return "(empty)" if line_count == 0 else f"(L1–L{line_count})"
+
+
 def _render_tree(paths: list[str]) -> str:
     root: dict[str, object] = {}
     for p in paths:
@@ -49,6 +53,9 @@ def _render_tree(paths: list[str]) -> str:
 def _split_preamble_outline(
     fp: FilePack,
 ) -> tuple[tuple[int, int, str], tuple[int, int, str]]:
+    if fp.line_count == 0 or not fp.stubbed_text:
+        return (0, 0, ""), (0, 0, "")
+
     lines = fp.stubbed_text.splitlines(keepends=True)
 
     first = None
@@ -62,17 +69,21 @@ def _split_preamble_outline(
 
     if first is None:
         pre = fp.stubbed_text
-        return (1, fp.line_count, pre.rstrip()), (fp.line_count + 1, fp.line_count, "")
+        return (1, fp.line_count, pre), (fp.line_count + 1, fp.line_count, "")
 
     pre_lines = lines[: max(0, first - 1)]
     out_lines = lines[max(0, first - 1) :]
 
-    pre_text = "".join(pre_lines).rstrip()
-    out_text = "".join(out_lines).rstrip()
+    pre_text = "".join(pre_lines)
+    out_text = "".join(out_lines)
 
     pre_start, pre_end = 1, max(0, first - 1)
     out_start, out_end = first, fp.line_count
     return (pre_start, pre_end, pre_text), (out_start, out_end, out_text)
+
+
+def _ensure_nl(s: str) -> str:
+    return s if (not s or s.endswith("\n")) else (s + "\n")
 
 
 def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
@@ -97,7 +108,7 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
     for fp in sorted(pack.files, key=lambda x: x.path.as_posix()):
         rel = fp.path.relative_to(pack.root).as_posix()
         fa = _file_anchor(rel)
-        lines.append(f"### `{rel}` (L1–L{fp.line_count})\n")
+        lines.append(f"### `{rel}` {_file_range(fp.line_count)}\n")
         lines.append(f'<a id="{fa}"></a>\n\n')
 
         for c in sorted(fp.classes, key=lambda c: (c.class_line, c.qualname)):
@@ -137,7 +148,7 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
     for fp in sorted(pack.files, key=lambda x: x.path.as_posix()):
         rel = fp.path.relative_to(pack.root).as_posix()
         fa = _file_anchor(rel)
-        lines.append(f"### `{rel}` (L1–L{fp.line_count})\n")
+        lines.append(f"### `{rel}` {_file_range(fp.line_count)}\n")
         lines.append(f"[jump to index](#{fa})\n\n")
 
         (ps, pe, pre), (os, oe, outline) = _split_preamble_outline(fp)
@@ -145,13 +156,13 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
         if pre.strip():
             lines.append(f"**Preamble (L{ps}–L{pe})**\n\n")
             lines.append("```python\n")
-            lines.append(pre.rstrip() + "\n")
+            lines.append(_ensure_nl(pre))
             lines.append("```\n\n")
 
         if outline.strip():
             lines.append(f"**Outline (L{os}–L{oe})**\n\n")
             lines.append("```python\n")
-            lines.append(outline.rstrip() + "\n")
+            lines.append(_ensure_nl(outline))
             lines.append("```\n\n")
 
         lines.append("**Symbols**\n\n")

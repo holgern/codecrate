@@ -26,12 +26,13 @@ def _rewrite_single_line_def(line: str, marker: str) -> list[str]:
 def _replacement_lines(indent: str, marker: str, n: int) -> list[str]:
     if n <= 0:
         return []
+    # Always keep the body syntactically valid:
+    # first line is an Ellipsis statement with a marker comment.
+    first = f"{indent}...  {marker}\n"
     if n == 1:
-        return [f"{indent}{marker}\n"]
-    if n == 2:
-        return [f"{indent}{marker}\n", f"{indent}...\n"]
-    filler = [f"{indent}# …\n"] * (n - 2)
-    return [f"{indent}{marker}\n", f"{indent}...\n"] + filler
+        return [first]
+    filler = [f"{indent}# …\n"] * (n - 1)
+    return [first] + filler
 
 
 def stub_file_text(text: str, defs: list[DefRef], keep_docstrings: bool = True) -> str:
@@ -55,12 +56,16 @@ def stub_file_text(text: str, defs: list[DefRef], keep_docstrings: bool = True) 
 
         i0 = max(0, start_line - 1)
         i1 = min(len(lines), d.end_line)
-
         if i0 >= i1:
-            insert_at = min(len(lines), (d.doc_end or d.body_start))
-            base_line = lines[insert_at - 1] if 0 <= insert_at - 1 < len(lines) else ""
-            indent = _indent_of(base_line) if base_line else " " * 4
-            lines[insert_at:insert_at] = [f"{indent}{marker}\n", f"{indent}...\n"]
+            # No body lines to replace without changing line count.
+            # If we kept the docstring, annotate the docstring closing line instead.
+            if keep_docstrings and d.doc_end is not None:
+                idx = d.doc_end - 1
+                if 0 <= idx < len(lines):
+                    ln = lines[idx]
+                    base = ln[:-1] if ln.endswith("\n") else ln
+                    if marker not in base:
+                        lines[idx] = base + f"  {marker}\n"
             continue
 
         n = i1 - i0
