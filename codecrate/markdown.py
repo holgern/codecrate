@@ -26,6 +26,10 @@ def _file_range(line_count: int) -> str:
     return "(empty)" if line_count == 0 else f"(L1–L{line_count})"
 
 
+def _ensure_nl(s: str) -> str:
+    return s if (not s or s.endswith("\n")) else (s + "\n")
+
+
 def _render_tree(paths: list[str]) -> str:
     root: dict[str, object] = {}
     for p in paths:
@@ -55,7 +59,6 @@ def _split_preamble_outline(
 ) -> tuple[tuple[int, int, str], tuple[int, int, str]]:
     if fp.line_count == 0 or not fp.stubbed_text:
         return (0, 0, ""), (0, 0, "")
-
     lines = fp.stubbed_text.splitlines(keepends=True)
 
     first = None
@@ -80,10 +83,6 @@ def _split_preamble_outline(
     pre_start, pre_end = 1, max(0, first - 1)
     out_start, out_end = first, fp.line_count
     return (pre_start, pre_end, pre_text), (out_start, out_end, out_text)
-
-
-def _ensure_nl(s: str) -> str:
-    return s if (not s or s.endswith("\n")) else (s + "\n")
 
 
 def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:

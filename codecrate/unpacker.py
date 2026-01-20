@@ -55,7 +55,9 @@ def unpack_to_dir(markdown_text: str, out_dir: Path) -> None:
     for f in manifest.get("files", []):
         rel = f["path"]
         stub = packed.stubbed_files.get(rel)
-        if stub is None:
+        exp = f.get("line_count")
+        exp_n = int(exp) if exp is not None else None
+        if stub is None or (exp_n and exp_n > 0 and not stub.strip()):
             missing.append(rel)
             continue
 
@@ -66,17 +68,17 @@ def unpack_to_dir(markdown_text: str, out_dir: Path) -> None:
                 exp_n = int(exp)
                 got_n = len(stub.splitlines()) if stub else 0
                 if exp_n != got_n:
-                    warnings.warn(
-                        f"Stub line count mismatch for {rel}: manifest={exp_n}, stub={got_n}",
-                        RuntimeWarning,
+                    msg = (
+                        f"Stub line count mismatch for {rel}: "
+                        f"manifest={exp_n}, stub={got_n}"
                     )
+                    warnings.warn(msg, RuntimeWarning, stacklevel=2)
             except Exception:
                 pass
 
         defs = f.get("defs", [])
         reconstructed = _apply_canonical_into_stub(stub, defs, packed.canonical_sources)
 
-        target = out_dir / rel
         # Prevent path traversal / writing outside out_dir
         target = (out_dir / rel).resolve()
         if out_dir != target and out_dir not in target.parents:
@@ -85,9 +87,8 @@ def unpack_to_dir(markdown_text: str, out_dir: Path) -> None:
         target.write_text(reconstructed, encoding="utf-8")
 
     if missing:
-        warnings.warn(
-            f"Missing stubbed file blocks for {len(missing)} file(s): "
-            + ", ".join(missing[:10])
-            + ("..." if len(missing) > 10 else ""),
-            RuntimeWarning,
-        )
+        files_str = ", ".join(missing[:10])
+        if len(missing) > 10:
+            files_str += "..."
+        msg = f"Missing stubbed file blocks for {len(missing)} file(s): {files_str}"
+        warnings.warn(msg, RuntimeWarning, stacklevel=2)
