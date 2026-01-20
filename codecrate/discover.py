@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pathspec
 
+
 DEFAULT_EXCLUDES = [
     "**/__pycache__/**",
     "**/*.pyc",
@@ -29,29 +30,22 @@ def _load_gitignore(root: Path) -> pathspec.PathSpec:
     gi = root / ".gitignore"
     if not gi.exists():
         return pathspec.PathSpec.from_lines("gitwildmatch", [])
-    return pathspec.PathSpec.from_lines(
-        "gitwildmatch", gi.read_text(encoding="utf-8").splitlines()
-    )
+    return pathspec.PathSpec.from_lines("gitwildmatch", gi.read_text(encoding="utf-8").splitlines())
 
 
 def discover_python_files(
     root: Path,
-    include: list[str],
-    exclude: list[str],
+    include: list[str] | None,
+    exclude: list[str] | None,
     respect_gitignore: bool = True,
 ) -> Discovery:
-    """
-    Walks directory and returns python files, honoring include/exclude patterns
-    and optionally .gitignore.
-    """
     root = root.resolve()
-    gi = (
-        _load_gitignore(root)
-        if respect_gitignore
-        else pathspec.PathSpec.from_lines("gitwildmatch", [])
-    )
-    inc = pathspec.PathSpec.from_lines("gitwildmatch", include or [])
-    exc = pathspec.PathSpec.from_lines("gitwildmatch", exclude or DEFAULT_EXCLUDES)
+
+    gi = _load_gitignore(root) if respect_gitignore else pathspec.PathSpec.from_lines("gitwildmatch", [])
+    inc = pathspec.PathSpec.from_lines("gitwildmatch", include or ["**/*.py"])
+
+    effective_exclude = DEFAULT_EXCLUDES + (exclude or [])
+    exc = pathspec.PathSpec.from_lines("gitwildmatch", effective_exclude)
 
     out: list[Path] = []
     for p in root.rglob("*.py"):

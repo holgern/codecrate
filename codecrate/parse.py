@@ -2,70 +2,100 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import Optional
 
 from .ids import stable_location_id
-from .model import DefRef
+from .model import ClassRef, DefRef
 
 
 def module_name_for(path: Path, root: Path) -> str:
     rel = path.resolve().relative_to(root.resolve())
     parts = list(rel.parts)
+
     # Support common "src layout" even when scanning from repo root.
     # If you scan a repo root that contains src/codecrate/..., strip leading "src".
     if parts and parts[0] == "src":
         parts = parts[1:]
-    if parts[-1].endswith(".py"):
+
+    if parts and parts[-1].endswith(".py"):
         parts[-1] = parts[-1][:-3]
-    if parts[-1] == "__init__":
+    if parts and parts[-1] == "__init__":
         parts = parts[:-1]
     return ".".join(parts)
 
 
-class _DefVisitor(ast.NodeVisitor):
+class _Visitor(ast.NodeVisitor):
     def __init__(self, path: Path, root: Path):
         self.path = path
         self.root = root
         self.module = module_name_for(path, root)
         self.stack: list[str] = []
         self.defs: list[DefRef] = []
+        self.classes: list[ClassRef] = []
 
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+    def visit_ClassDef(self, node: ast.ClassDef):
+        self._add_class(node)
         self.stack.append(node.name)
         self.generic_visit(node)
         self.stack.pop()
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        self._add(node, kind="function")
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        self._add_def(node, kind="function")
         self.stack.append(node.name)
         self.generic_visit(node)
         self.stack.pop()
 
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        self._add(node, kind="async_function")
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+        self._add_def(node, kind="async_function")
         self.stack.append(node.name)
         self.generic_visit(node)
         self.stack.pop()
 
-    def _add(self, node: ast.AST, kind: str) -> None:
-        name = getattr(node, "name", "<anon>")
-        qual = ".".join(self.stack + [name]) if self.stack else name
-
-        decorator_start = int(getattr(node, "lineno", 1))
+    def _decorator_start(self, node: ast.AST, default_line: int) -> int:
+        start = default_line
         decs = getattr(node, "decorator_list", []) or []
         for d in decs:
             if hasattr(d, "lineno"):
-                decorator_start = min(decorator_start, int(d.lineno))
+                start = min(start, int(d.lineno))
+        return start
+
+    def _add_class(self, node: ast.ClassDef) -> None:
+        qual = ".".join(self.stack + [node.name]) if self.stack else node.name
+        class_line = int(getattr(node, "lineno", 1))
+        end_line = int(getattr(node, "end_lineno", class_line))
+        decorator_start = self._decorator_start(node, class_line)
+
+        rel_path = self.path.resolve().relative_to(self.root.resolve())
+        cid = stable_location_id(rel_path, f"class:{qual}", class_line)
+
+        self.classes.append(
+            ClassRef(
+                path=self.path,
+                module=self.module,
+                qualname=qual,
+                id=cid,
+                decorator_start=decorator_start,
+                class_line=class_line,
+                end_line=end_line,
+            )
+        )
+
+    def _add_def(self, node: ast.AST, kind: str) -> None:
+        name = getattr(node, "name", "<anon>")
+        qual = ".".join(self.stack + [name]) if self.stack else name
 
         def_line = int(getattr(node, "lineno", 1))
         end_line = int(getattr(node, "end_lineno", def_line))
+        decorator_start = self._decorator_start(node, def_line)
 
         body = getattr(node, "body", []) or []
         body_start = def_line
-        doc_start: int | None = None
-        doc_end: int | None = None
+        doc_start: Optional[int] = None
+        doc_end: Optional[int] = None
 
         if body:
             body_start = int(getattr(body[0], "lineno", def_line))
+            # docstring if first stmt is Expr(Constant(str))
             if (
                 isinstance(body[0], ast.Expr)
                 and isinstance(getattr(body[0], "value", None), ast.Constant)
@@ -80,7 +110,7 @@ class _DefVisitor(ast.NodeVisitor):
 
         rel_path = self.path.resolve().relative_to(self.root.resolve())
         local_id = stable_location_id(rel_path, qual, def_line)
-        canonical_id = local_id
+        canonical_id = local_id  # may be remapped during dedupe
 
         self.defs.append(
             DefRef(
@@ -101,8 +131,9 @@ class _DefVisitor(ast.NodeVisitor):
         )
 
 
-def parse_defs(path: Path, root: Path, text: str) -> list[DefRef]:
+def parse_symbols(path: Path, root: Path, text: str) -> tuple[list[ClassRef], list[DefRef]]:
+    """Parse python file text and return (classes, defs)."""
     tree = ast.parse(text)
-    v = _DefVisitor(path=path, root=root)
+    v = _Visitor(path=path, root=root)
     v.visit(tree)
-    return v.defs
+    return v.classes, v.defs
