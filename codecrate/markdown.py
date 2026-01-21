@@ -31,6 +31,27 @@ def _file_range(line_count: int) -> str:
 def _ensure_nl(s: str) -> str:
     return s if (not s or s.endswith("\n")) else (s + "\n")
 
+def _has_dedupe_effect(pack: PackResult) -> bool:
+    """
+    True iff at least one definition has local_id != id (meaning dedupe actually
+    collapsed identical bodies and rewrote canonical ids).
+    """
+    for fp in pack.files:
+        for d in fp.defs:
+            local_id = getattr(d, "local_id", d.id)
+            if local_id != d.id:
+                return True
+    return False
+
+
+def _read_full_text(fp) -> str:
+    """
+    Read file contents from disk for 'full' layout.
+    """
+    try:
+        return fp.path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
 
 def _render_tree(paths: list[str]) -> str:
     root: dict[str, object] = {}
@@ -56,10 +77,20 @@ def _render_tree(paths: list[str]) -> str:
     return "\n".join(walk(root))
 
 
-def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
+def render_markdown(
+    pack: PackResult, canonical_sources: dict[str, str], layout: str = "auto"
+) -> str:
     lines: list[str] = []
     lines.append("# Codecrate Context Pack\n\n")
     lines.append(f"Root: `{pack.root.as_posix()}`\n\n")
+    layout_norm = (layout or "auto").strip().lower()
+    if layout_norm not in {"auto", "stubs", "full"}:
+        layout_norm = "auto"
+    use_stubs = layout_norm == "stubs" or (
+        layout_norm == "auto" and _has_dedupe_effect(pack)
+    )
+    resolved_layout = "stubs" if use_stubs else "full"
+    lines.append(f"Layout: `{resolved_layout}`\n\n")
 
     lines.append("## How to Use This Pack\n\n")
     lines.append(
@@ -82,6 +113,9 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
         "  configured).\n"
         "- `local_id` is unique per definition occurrence. Multiple defs can\n"
         "  share the same `id` but must have different `local_id`.\n\n"
+        "**Layout behavior**\n"
+        "- If `Layout: full`, the **Files** section contains complete file contents.\n"
+        "- If `Layout: stubs`, use **Function Library** + `FUNC:<local_id>` markers.\n\n"
         "**How to mentally reconstruct a file**\n"
         "- For each `FUNC:<local_id>` marker in a file stub, use the per-file\n"
         "  mapping table (local_id → canonical id link) shown under that file in\n"
@@ -147,20 +181,22 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
             lines.append(f"- {indent}`{label}` → {id_display} ({loc}){jump_link}")
         lines.append("\n")
 
-    lines.append("## Function Library\n\n")
-    for cid in sorted(canonical_sources.keys()):
-        rep = next((d for d in pack.defs if d.id == cid), None)
-        if rep is None:
-            continue
-        rel = rep.path.relative_to(pack.root).as_posix()
-        anchor = _anchor_for(rep.id, rep.module, rep.qualname)
-        loc = f"L{rep.def_line}–L{rep.end_line}"
-        header = f"{cid} — `{rep.module}.{rep.qualname}` ({rel}:{loc})"
-        lines.append(f"### {header}\n")
-        lines.append(f'<a id="{anchor}"></a>\n\n')
-        lines.append("```python\n")
-        lines.append(canonical_sources[cid].rstrip() + "\n")
-        lines.append("```\n\n")
+    if use_stubs:
+        lines.append("## Function Library\n\n")
+        for cid in sorted(canonical_sources.keys()):
+            rep = next((d for d in pack.defs if d.id == cid), None)
+            if rep is None:
+                continue
+            rel = rep.path.relative_to(pack.root).as_posix()
+            anchor = _anchor_for(rep.id, rep.module, rep.qualname)
+            loc = f"L{rep.def_line}–L{rep.end_line}"
+            header = f"{cid} — `{rep.module}.{rep.qualname}` ({rel}:{loc})"
+            lines.append(f"### {header}\n")
+            lines.append(f'<a id="{anchor}"></a>\n\n')
+            lines.append("```python\n")
+            lines.append(canonical_sources[cid].rstrip() + "\n")
+            lines.append("```\n\n")
+ 
 
     lines.append("## Files\n\n")
     for fp in sorted(pack.files, key=lambda x: x.path.as_posix()):
@@ -168,22 +204,29 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
         fa = _file_anchor(rel)
         lines.append(f"### `{rel}` {_file_range(fp.line_count)}\n")
         lines.append(f"[jump to index](#{fa})\n\n")
-        # local_id → canonical id mapping (only when dedupe actually changed IDs)
-        mapping = []
-        for d in sorted(fp.defs, key=lambda x: (x.def_line, x.qualname)):
-            local_id = getattr(d, "local_id", d.id)
-            if local_id != d.id:
-                anchor = _anchor_for(d.id, d.module, d.qualname)
-                mapping.append((local_id, d.id, anchor))
-        if mapping:
-            lines.append("| local_id | canonical |\n")
-            lines.append("|---|---|\n")
-            for local_id, cid, anchor in mapping:
-                lines.append(f"| `{local_id}` | [`{cid}`](#{anchor}) |\n")
-            lines.append("\n")
+
+        if use_stubs:
+            # local_id → canonical id mapping (only when dedupe actually changed IDs)
+            mapping = []
+            for d in sorted(fp.defs, key=lambda x: (x.def_line, x.qualname)):
+                local_id = getattr(d, "local_id", d.id)
+                if local_id != d.id:
+                    anchor = _anchor_for(d.id, d.module, d.qualname)
+                    mapping.append((local_id, d.id, anchor))
+            if mapping:
+                lines.append("| local_id | canonical |\n")
+                lines.append("|---|---|\n")
+                for local_id, cid, anchor in mapping:
+                    lines.append(f"| `{local_id}` | [`{cid}`](#{anchor}) |\n")
+                lines.append("\n")
+
         # Compact stubs are not line-count aligned, so render as a single block.
+
         lines.append("```python\n")
-        lines.append(_ensure_nl(fp.stubbed_text))
+        if use_stubs:
+            lines.append(_ensure_nl(fp.stubbed_text))
+        else:
+            lines.append(_ensure_nl(_read_full_text(fp)))
         lines.append("```\n\n")
 
         lines.append("**Symbols**\n\n")
@@ -195,6 +238,10 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
             id_display = f"**{d.id}**"
             if getattr(d, "local_id", d.id) != d.id:
                 id_display += f" (local **{d.local_id}**)"
+            # In full layout, anchors must exist somewhere (no Function Library),
+            # so define them here (outside code fences) to keep jump links working.
+            if not use_stubs:
+                lines.append(f'<a id="{anchor}"></a>\n')
             lines.append(f"- `{d.qualname}` → {id_display} ({loc}){link}")
         lines.append("\n")
 

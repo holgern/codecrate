@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 try:
     import tomllib  # py311+
@@ -18,7 +18,12 @@ class Config:
     include: list[str] = field(default_factory=lambda: ["**/*.py"])
     exclude: list[str] = field(default_factory=list)
     split_max_chars: int = 0  # 0 means no splitting
-
+    # Output layout:
+    # - "stubs": always emit stubbed files + Function Library (current format)
+    # - "full":  emit full file contents (no Function Library)
+    # - "auto":  use "stubs" only if dedupe actually collapses something,
+    #            otherwise use "full" (best token efficiency when no duplicates)
+    layout: Literal["auto", "stubs", "full"] = "auto"
 
 def load_config(root: Path) -> Config:
     cfg_path = root / "codecrate.toml"
@@ -36,7 +41,12 @@ def load_config(root: Path) -> Config:
     cfg.respect_gitignore = bool(
         section.get("respect_gitignore", cfg.respect_gitignore)
     )
-
+    layout = section.get("layout", cfg.layout)
+    if isinstance(layout, str):
+        layout = layout.strip().lower()
+        if layout in {"auto", "stubs", "full"}:
+            cfg.layout = layout  # type: ignore[assignment]
+ 
     inc = section.get("include", cfg.include)
     exc = section.get("exclude", cfg.exclude)
     if isinstance(inc, list):

@@ -34,6 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--dedupe", action="store_true", help="Deduplicate identical function bodies"
     )
     pack.add_argument(
+        "--layout",
+        choices=["auto", "stubs", "full"],
+        default=None,
+        help="Output layout: auto|stubs|full (default: auto via config)",
+    )
+    pack.add_argument(
         "--keep-docstrings",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -154,7 +160,11 @@ def main(argv: list[str] | None = None) -> None:
             if args.split_max_chars is None
             else int(args.split_max_chars or 0)
         )
-
+        layout = (
+            str(args.layout).strip().lower()
+            if args.layout is not None
+            else str(getattr(cfg, "layout", "auto")).strip().lower()
+        )
         disc = discover_python_files(
             root=root,
             include=include,
@@ -164,7 +174,7 @@ def main(argv: list[str] | None = None) -> None:
         pack, canonical = pack_repo(
             disc.root, disc.files, keep_docstrings=keep_docstrings, dedupe=dedupe
         )
-        md = render_markdown(pack, canonical)
+        md = render_markdown(pack, canonical, layout=layout)
 
         parts = split_by_max_chars(md, args.output, split_max_chars)
         for part in parts:
