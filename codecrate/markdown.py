@@ -7,7 +7,9 @@ from .model import PackResult
 
 
 def _anchor_for(defn_id: str, module: str, qualname: str) -> str:
-    base = f"{defn_id}-{module}-{qualname}".lower()
+    # Anchors should be stable under dedupe: multiple defs can share the same
+    # canonical id, so we anchor by id only.
+    base = f"func-{defn_id}".lower()
     safe = "".join(ch if ch.isalnum() else "-" for ch in base)
     while "--" in safe:
         safe = safe.replace("--", "-")
@@ -59,6 +61,51 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
     lines.append("# Codecrate Context Pack\n\n")
     lines.append(f"Root: `{pack.root.as_posix()}`\n\n")
 
+    lines.append("## How to Use This Pack\n\n")
+    lines.append(
+        "This Markdown is a self-contained *context pack* for an LLM. It contains the\n"
+        "repository structure, a symbol index, full canonical definitions, and\n"
+        "compact file stubs. Use it like this:\n\n"
+        "**Suggested read order**\n"
+        "1. **Directory Tree**: get a mental map of the project.\n"
+        "2. **Symbol Index**: find the file / symbol you care about (with jump\n"
+        "   links).\n"
+        "3. **Function Library**: read the full implementation of a function by ID.\n"
+        "4. **Files**: read file-level context; function bodies may be stubbed.\n\n"
+        "**Stubs and markers**\n"
+        "- In the **Files** section, function bodies may be replaced with a compact\n"
+        "  placeholder line like `...  # ↪ FUNC:XXXXXXXX`.\n"
+        "- The 8-hex value after `FUNC:` is the function’s **local_id** (unique per\n"
+        "  occurrence in the repo).\n\n"
+        "**IDs (important for dedupe)**\n"
+        "- `id` is the **canonical** ID for a function body (deduped when\n"
+        "  configured).\n"
+        "- `local_id` is unique per definition occurrence. Multiple defs can\n"
+        "  share the same `id` but must have different `local_id`.\n\n"
+        "**How to mentally reconstruct a file**\n"
+        "- For each `FUNC:<local_id>` marker in a file stub, use the per-file\n"
+        "  mapping table (local_id → canonical id link) shown under that file in\n"
+        "  **Files** (only present when `local_id != id`, i.e. when dedupe\n"
+        "  actually changed IDs) to jump to the full implementation in the\n"
+        "  Function Library.\n\n"
+        "**When proposing changes**\n"
+        "- Reference changes by **file path** plus **function ID** (and local_id if\n"
+        "  shown).\n"
+        "- Prefer emitting a unified diff patch (`--- a/...` / `+++ b/...`).\n\n"
+        "**Unpack algorithm**\n"
+        "1. Parse **Manifest** JSON.\n"
+        "2. For each file: map `L[path][local_id]=id`.\n"
+        "3. Parse **Function Library**: map `C[id]=full snippet`.\n"
+        "4. For each file stub in **Files**:\n"
+        "- find markers `...  # ↪ FUNC:<local_id>`\n"
+        "- let `id=L[path][local_id]`\n"
+        "- let `body = C[id]` with everything up to and including the signature\n"
+        "  removed (also drop decorators)\n"
+        "- replace the marker line with `body` (indent already matches; methods\n"
+        "  stay indented)\n"
+        "5. Validate: reconstructed file sha256 == `sha256_original`.\n\n"
+    )
+
     manifest = to_manifest(pack)
     lines.append("## Manifest\n\n")
     lines.append("```codecrate-manifest\n")
@@ -94,7 +141,10 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
             label = d.qualname.split(".")[-1]
             loc = f"L{d.def_line}–L{d.end_line}"
             jump_link = f" — [jump](#{anchor})\n"
-            lines.append(f"- {indent}`{label}` → **{d.id}** ({loc}){jump_link}")
+            id_display = f"**{d.id}**"
+            if getattr(d, "local_id", d.id) != d.id:
+                id_display += f" (local **{d.local_id}**)"
+            lines.append(f"- {indent}`{label}` → {id_display} ({loc}){jump_link}")
         lines.append("\n")
 
     lines.append("## Function Library\n\n")
@@ -118,7 +168,19 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
         fa = _file_anchor(rel)
         lines.append(f"### `{rel}` {_file_range(fp.line_count)}\n")
         lines.append(f"[jump to index](#{fa})\n\n")
-
+        # local_id → canonical id mapping (only when dedupe actually changed IDs)
+        mapping = []
+        for d in sorted(fp.defs, key=lambda x: (x.def_line, x.qualname)):
+            local_id = getattr(d, "local_id", d.id)
+            if local_id != d.id:
+                anchor = _anchor_for(d.id, d.module, d.qualname)
+                mapping.append((local_id, d.id, anchor))
+        if mapping:
+            lines.append("| local_id | canonical |\n")
+            lines.append("|---|---|\n")
+            for local_id, cid, anchor in mapping:
+                lines.append(f"| `{local_id}` | [`{cid}`](#{anchor}) |\n")
+            lines.append("\n")
         # Compact stubs are not line-count aligned, so render as a single block.
         lines.append("```python\n")
         lines.append(_ensure_nl(fp.stubbed_text))
@@ -130,7 +192,10 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
             anchor = _anchor_for(d.id, d.module, d.qualname)
             loc = f"L{d.def_line}–L{d.end_line}"
             link = f" — [jump](#{anchor})\n"
-            lines.append(f"- `{d.qualname}` → **{d.id}** ({loc}){link}")
+            id_display = f"**{d.id}**"
+            if getattr(d, "local_id", d.id) != d.id:
+                id_display += f" (local **{d.local_id}**)"
+            lines.append(f"- `{d.qualname}` → {id_display} ({loc}){link}")
         lines.append("\n")
 
     return "".join(lines)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import warnings
 from pathlib import Path
@@ -21,14 +22,20 @@ def _apply_canonical_into_stub(
     Reconstruct original by locating FUNC:<id> markers in the stub and replacing the
     surrounding def region (decorators + def + stubbed body/docstring) with the
     canonical code. Does not rely on line-number alignment.
+
+    Marker semantics:
+    - New packs use local_id in stub markers (unique per occurrence).
+    - Canonical code is still fetched by id (deduped across identical bodies).
+    - For backwards compatibility, we also accept markers keyed by id.
     """
     lines = stub.splitlines(keepends=True)
 
-    marker_line_for: dict[str, int] = {}
+    # Allow multiple occurrences of the same marker id (older dedupe packs).
+    marker_lines_for: dict[str, list[int]] = {}
     for i, ln in enumerate(lines):
         m = _MARK_RE.search(ln)
         if m:
-            marker_line_for[m.group(1).upper()] = i
+            marker_lines_for.setdefault(m.group(1).upper(), []).append(i)
 
     # Apply bottom-up so indices remain stable.
     work: list[tuple[int, dict, str]] = []
@@ -36,19 +43,29 @@ def _apply_canonical_into_stub(
         cid = d.get("id") or d.get("local_id")
         if not cid:
             continue
-        mi = marker_line_for.get(str(cid).upper())
-        if mi is None:
+
+        # Prefer locating the marker by local_id (unique), but fall back to cid for
+        # older packs.
+        marker_key = d.get("local_id") or cid
+        idxs = marker_lines_for.get(str(marker_key).upper())
+        if not idxs and str(cid).upper() != str(marker_key).upper():
+            idxs = marker_lines_for.get(str(cid).upper())
+
+        if not idxs:
             continue
+
+        mi = idxs.pop()  # consume the bottom-most occurrence
         work.append((mi, d, str(cid)))
 
     work.sort(key=lambda t: t[0], reverse=True)
 
     for mi, d, cid in work:
+        # Fetch canonical by cid first, then fall back to local_id.
         code = canonical.get(cid)
         if code is None:
             alt = d.get("local_id")
             if alt:
-                code = canonical.get(alt)
+                code = canonical.get(str(alt))
         if code is None:
             continue
 
@@ -106,6 +123,16 @@ def unpack_to_dir(markdown_text: str, out_dir: Path) -> None:
 
         defs = f.get("defs", [])
         reconstructed = _apply_canonical_into_stub(stub, defs, packed.canonical_sources)
+
+        exp_sha = f.get("sha256_original")
+        if exp_sha:
+            got_sha = hashlib.sha256(reconstructed.encode("utf-8")).hexdigest()
+            if got_sha != exp_sha:
+                warnings.warn(
+                    f"SHA256 mismatch for {rel}: expected {exp_sha}, got {got_sha}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
 
         # Prevent path traversal / writing outside out_dir
         target = (out_dir / rel).resolve()

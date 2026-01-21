@@ -30,12 +30,26 @@ def _replacement_lines(indent: str, marker: str) -> list[str]:
 
 def stub_file_text(text: str, defs: list[DefRef], keep_docstrings: bool = True) -> str:
     lines = text.splitlines(keepends=True)
+    # IMPORTANT: Do not stub defs that are nested inside other defs.
+    # When using compact stubs, stubbing an inner def first can shift line
+    # positions and cause later outer-def replacements to overrun and truncate
+    # subsequent code (a common issue with nested helper functions).
+    outer_defs: list[DefRef] = []
+    stack: list[int] = []
+    for d in sorted(defs, key=lambda d: (d.decorator_start, -d.end_line)):
+        while stack and d.decorator_start > stack[-1]:
+            stack.pop()
+        if stack and d.end_line <= stack[-1]:
+            continue
+        outer_defs.append(d)
+        stack.append(d.end_line)
+
     defs_sorted = sorted(
-        defs, key=lambda d: (d.def_line, d.body_start, d.end_line), reverse=True
+        outer_defs, key=lambda d: (d.def_line, d.body_start, d.end_line), reverse=True
     )
 
     for d in defs_sorted:
-        marker = f"# ↪ FUNC:{d.id}"
+        marker = f"# ↪ FUNC:{d.local_id}"
 
         if d.is_single_line:
             i = d.def_line - 1

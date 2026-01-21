@@ -11,6 +11,7 @@ from .packer import pack_repo
 from .token_budget import split_by_max_chars
 from .udiff import apply_file_diffs, parse_unified_diff
 from .unpacker import unpack_to_dir
+from .validate import validate_pack_markdown
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -93,6 +94,18 @@ def build_parser() -> argparse.ArgumentParser:
         "patch_markdown", type=Path, help="Patch Markdown containing ```diff blocks"
     )
     apply.add_argument("root", type=Path, help="Repo root to apply patch to")
+    # validate-pack
+    vpack = sub.add_parser(
+        "validate-pack",
+        help="Validate a packed context Markdown (sha/markers/canonical consistency).",
+    )
+    vpack.add_argument("markdown", type=Path, help="Packed Markdown to validate")
+    vpack.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Optional repo root to compare reconstructed files against",
+    )
 
     return p
 
@@ -168,6 +181,20 @@ def main(argv: list[str] | None = None) -> None:
         patch_md = generate_patch_markdown(old_md, args.root)
         args.output.write_text(patch_md, encoding="utf-8")
         print(f"Wrote {args.output}")
+
+    elif args.cmd == "validate-pack":
+        md_text = args.markdown.read_text(encoding="utf-8", errors="replace")
+        report = validate_pack_markdown(md_text, root=args.root)
+        if report.warnings:
+            print("Warnings:")
+            for w in report.warnings:
+                print(f"- {w}")
+        if report.errors:
+            print("Errors:")
+            for e in report.errors:
+                print(f"- {e}")
+            raise SystemExit(1)
+        print("OK: pack is internally consistent.")
 
     elif args.cmd == "apply":
         md_text = args.patch_markdown.read_text(encoding="utf-8", errors="replace")
