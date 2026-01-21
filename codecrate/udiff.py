@@ -3,10 +3,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 _HUNK_RE = re.compile(r"^@@\s+-(\d+),?(\d*)\s+\+(\d+),?(\d*)\s+@@")
-_FROM_RE = re.compile(r"^---\s+a/(.+)$")
-_TO_RE = re.compile(r"^\+\+\+\s+b/(.+)$")
 
 
 def normalize_newlines(s: str) -> str:
@@ -21,6 +20,7 @@ def ensure_parent_dir(path: Path) -> None:
 class FileDiff:
     path: str
     hunks: list[list[str]]  # raw hunk lines including @@ header and +/-/space lines
+    op: Literal["add", "modify", "delete"]
 
 
 def parse_unified_diff(diff_text: str) -> list[FileDiff]:
@@ -29,23 +29,43 @@ def parse_unified_diff(diff_text: str) -> list[FileDiff]:
     out: list[FileDiff] = []
 
     while i < len(lines):
-        m_from = _FROM_RE.match(lines[i])
-        if not m_from:
+        if not lines[i].startswith("--- "):
             i += 1
             continue
         if i + 1 >= len(lines):
             break
-        m_to = _TO_RE.match(lines[i + 1])
-        if not m_to:
+        if not lines[i + 1].startswith("+++ "):
             i += 1
             continue
-        to_path = m_to.group(1)
-        path = to_path  # apply to b/<path>
+        from_raw = lines[i][4:].strip()
+        to_raw = lines[i + 1][4:].strip()
+
+        def _side(raw: str, prefix: str) -> str | None:
+            if raw == "/dev/null":
+                return None
+            return raw[len(prefix) :] if raw.startswith(prefix) else raw
+
+        from_path = _side(from_raw, "a/")
+        to_path = _side(to_raw, "b/")
+
+        if from_path is None and to_path is None:
+            i += 2
+            continue
+
+        if from_path is None:
+            op: Literal["add", "modify", "delete"] = "add"
+            path = to_path or ""
+        elif to_path is None:
+            op = "delete"
+            path = from_path
+        else:
+            op = "modify"
+            path = to_path
         i += 2
 
         hunks: list[list[str]] = []
         while i < len(lines):
-            if _FROM_RE.match(lines[i]):
+            if lines[i].startswith("--- "):
                 break
             if lines[i].startswith("@@"):
                 h = [lines[i]]
@@ -53,7 +73,7 @@ def parse_unified_diff(diff_text: str) -> list[FileDiff]:
                 while (
                     i < len(lines)
                     and not lines[i].startswith("@@")
-                    and not _FROM_RE.match(lines[i])
+                    and not lines[i].startswith("--- ")
                 ):
                     if lines[i].startswith((" ", "+", "-")):
                         h.append(lines[i])
@@ -62,7 +82,7 @@ def parse_unified_diff(diff_text: str) -> list[FileDiff]:
             else:
                 i += 1
 
-        out.append(FileDiff(path=path, hunks=hunks))
+        out.append(FileDiff(path=path, hunks=hunks, op=op))
 
     return out
 
@@ -134,7 +154,10 @@ def apply_hunks_to_text(old_text: str, hunks: list[list[str]]) -> str:
 
     # copy remainder
     new_lines.extend(old_lines[old_i:])
-    return "\n".join(new_lines) + ("\n" if old_text.endswith("\n") else "")
+    out = "\n".join(new_lines)
+    if old_text.endswith("\n") or (not old_text and out):
+        out += "\n"
+    return out
 
 
 def apply_file_diffs(diffs: list[FileDiff], root: Path) -> list[Path]:
@@ -146,6 +169,13 @@ def apply_file_diffs(diffs: list[FileDiff], root: Path) -> list[Path]:
 
     for fd in diffs:
         path = root / fd.path
+
+        if fd.op == "delete":
+            if path.exists():
+                path.unlink()
+            changed.append(path)
+            continue
+
         old = ""
         if path.exists():
             old = path.read_text(encoding="utf-8", errors="replace")

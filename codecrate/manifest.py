@@ -25,4 +25,5 @@ def to_manifest(pack: PackResult) -> dict[str, Any]:
                 "defs": [asdict(d) | {"path": rel} for d in fp.defs],
             }
         )
-    return {"format": "codecrate.v3", "root": pack.root.as_posix(), "files": files}
+    # v4: compact stubs + marker-based reconstruction
+    return {"format": "codecrate.v4", "root": pack.root.as_posix(), "files": files}

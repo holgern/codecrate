@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from .manifest import to_manifest
-from .model import FilePack, PackResult
+from .model import PackResult
 
 
 def _anchor_for(defn_id: str, module: str, qualname: str) -> str:
@@ -52,37 +52,6 @@ def _render_tree(paths: list[str]) -> str:
         return out
 
     return "\n".join(walk(root))
-
-
-def _split_preamble_outline(
-    fp: FilePack,
-) -> tuple[tuple[int, int, str], tuple[int, int, str]]:
-    if fp.line_count == 0 or not fp.stubbed_text:
-        return (0, 0, ""), (0, 0, "")
-    lines = fp.stubbed_text.splitlines(keepends=True)
-
-    first = None
-    for c in fp.classes:
-        first = c.decorator_start if first is None else min(first, c.decorator_start)
-    for d in fp.defs:
-        if "." not in d.qualname:
-            first = (
-                d.decorator_start if first is None else min(first, d.decorator_start)
-            )
-
-    if first is None:
-        pre = fp.stubbed_text
-        return (1, fp.line_count, pre), (fp.line_count + 1, fp.line_count, "")
-
-    pre_lines = lines[: max(0, first - 1)]
-    out_lines = lines[max(0, first - 1) :]
-
-    pre_text = "".join(pre_lines)
-    out_text = "".join(out_lines)
-
-    pre_start, pre_end = 1, max(0, first - 1)
-    out_start, out_end = first, fp.line_count
-    return (pre_start, pre_end, pre_text), (out_start, out_end, out_text)
 
 
 def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
@@ -150,26 +119,18 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
         lines.append(f"### `{rel}` {_file_range(fp.line_count)}\n")
         lines.append(f"[jump to index](#{fa})\n\n")
 
-        (ps, pe, pre), (os, oe, outline) = _split_preamble_outline(fp)
-
-        if pre.strip():
-            lines.append(f"**Preamble (L{ps}–L{pe})**\n\n")
-            lines.append("```python\n")
-            lines.append(_ensure_nl(pre))
-            lines.append("```\n\n")
-
-        if outline.strip():
-            lines.append(f"**Outline (L{os}–L{oe})**\n\n")
-            lines.append("```python\n")
-            lines.append(_ensure_nl(outline))
-            lines.append("```\n\n")
+        # Compact stubs are not line-count aligned, so render the stubbed file as a single block.
+        lines.append("```python\n")
+        lines.append(_ensure_nl(fp.stubbed_text))
+        lines.append("```\n\n")
 
         lines.append("**Symbols**\n\n")
+        lines.append(f"_Module_: `{fp.module}`\n\n")
         for d in sorted(fp.defs, key=lambda x: (x.def_line, x.qualname)):
             anchor = _anchor_for(d.id, d.module, d.qualname)
             loc = f"L{d.def_line}–L{d.end_line}"
             link = f" — [jump](#{anchor})\n"
-            lines.append(f"- `{d.module}.{d.qualname}` → **{d.id}** ({loc}){link}")
+            lines.append(f"- `{d.qualname}` → **{d.id}** ({loc}){link}")
         lines.append("\n")
 
     return "".join(lines)

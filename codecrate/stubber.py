@@ -23,16 +23,9 @@ def _rewrite_single_line_def(line: str, marker: str) -> list[str]:
     return [f"{head} ...  {marker}\n"]
 
 
-def _replacement_lines(indent: str, marker: str, n: int) -> list[str]:
-    if n <= 0:
-        return []
-    # Always keep the body syntactically valid:
-    # first line is an Ellipsis statement with a marker comment.
-    first = f"{indent}...  {marker}\n"
-    if n == 1:
-        return [first]
-    filler = [f"{indent}# …\n"] * (n - 1)
-    return [first] + filler
+def _replacement_lines(indent: str, marker: str) -> list[str]:
+    # Compact stub: single placeholder line.
+    return [f"{indent}...  {marker}\n"]
 
 
 def stub_file_text(text: str, defs: list[DefRef], keep_docstrings: bool = True) -> str:
@@ -42,7 +35,7 @@ def stub_file_text(text: str, defs: list[DefRef], keep_docstrings: bool = True) 
     )
 
     for d in defs_sorted:
-        marker = f"# ↪ FUNC:{d.id} (L{d.def_line}–L{d.end_line})"
+        marker = f"# ↪ FUNC:{d.id}"
 
         if d.is_single_line:
             i = d.def_line - 1
@@ -57,7 +50,7 @@ def stub_file_text(text: str, defs: list[DefRef], keep_docstrings: bool = True) 
         i0 = max(0, start_line - 1)
         i1 = min(len(lines), d.end_line)
         if i0 >= i1:
-            # No body lines to replace without changing line count.
+            # No body lines to replace.
             # If we kept the docstring, annotate the docstring closing line instead.
             if keep_docstrings and d.doc_end is not None:
                 idx = d.doc_end - 1
@@ -68,9 +61,8 @@ def stub_file_text(text: str, defs: list[DefRef], keep_docstrings: bool = True) 
                         lines[idx] = base + f"  {marker}\n"
             continue
 
-        n = i1 - i0
         sample = lines[i0] if 0 <= i0 < len(lines) else ""
         indent = _indent_of(sample) if sample else " " * 4
-        lines[i0:i1] = _replacement_lines(indent, marker, n)
+        lines[i0:i1] = _replacement_lines(indent, marker)
 
     return "".join(lines)

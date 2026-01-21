@@ -1,45 +1,88 @@
 from __future__ import annotations
 
+import re
 import warnings
 from pathlib import Path
 
 from .mdparse import parse_packed_markdown
 from .udiff import ensure_parent_dir
 
+_MARK_RE = re.compile(r"FUNC:([0-9A-Fa-f]{8})")
+
+
+def _ws_len(s: str) -> int:
+    return len(s) - len(s.lstrip(" \t"))
+
 
 def _apply_canonical_into_stub(
     stub: str, defs: list[dict], canonical: dict[str, str]
 ) -> str:
     """
-    Reconstruct original by replacing decorator_start..end_line with canonical code.
-    Works even if stubbed file contains placeholders; we replace whole def region.
+    Reconstruct original by locating FUNC:<id> markers in the stub and replacing the
+    surrounding def region (decorators + def + stubbed body/docstring) with the
+    canonical code. Does not rely on line-number alignment.
     """
     lines = stub.splitlines(keepends=True)
 
-    # apply bottom-up so indexes remain stable
-    defs_sorted = sorted(defs, key=lambda d: int(d["decorator_start"]), reverse=True)
-    for d in defs_sorted:
-        cid = d.get("id")  # canonical id after dedupe
-        if not cid or cid not in canonical:
-            # fallback: try local_id (older packs)
-            cid = d.get("local_id")
-        if not cid or cid not in canonical:
+    marker_line_for: dict[str, int] = {}
+    for i, ln in enumerate(lines):
+        m = _MARK_RE.search(ln)
+        if m:
+            marker_line_for[m.group(1).upper()] = i
+
+    # Apply bottom-up so indices remain stable.
+    work: list[tuple[int, dict, str]] = []
+    for d in defs:
+        cid = d.get("id") or d.get("local_id")
+        if not cid:
+            continue
+        mi = marker_line_for.get(str(cid).upper())
+        if mi is None:
+            continue
+        work.append((mi, d, str(cid)))
+
+    work.sort(key=lambda t: t[0], reverse=True)
+
+    for mi, d, cid in work:
+        code = canonical.get(cid)
+        if code is None:
+            alt = d.get("local_id")
+            if alt:
+                code = canonical.get(alt)
+        if code is None:
             continue
 
-        try:
-            i0 = max(0, int(d["decorator_start"]) - 1)
-            i1 = min(len(lines), int(d["end_line"]))  # inclusive -> exclusive
-        except Exception:
-            continue
-        if i0 > len(lines) or i1 > len(lines) or i0 >= i1:
-            # Stub layout doesn't match manifest line coordinates.
-            # Leave the stub region as-is rather than corrupting the file.
+        # Find the def line above (supports single-line defs where marker is on def line).
+        def_i = mi
+        while def_i >= 0:
+            s = lines[def_i].lstrip(" \t")
+            if s.startswith("def ") or s.startswith("async def "):
+                break
+            def_i -= 1
+        if def_i < 0:
             continue
 
-        repl = canonical[cid].splitlines(keepends=True)
+        def_indent = _ws_len(lines[def_i])
+
+        # Include decorators directly above the def.
+        start_i = def_i
+        j = def_i - 1
+        while j >= 0:
+            if _ws_len(lines[j]) == def_indent and lines[j].lstrip(" \t").startswith(
+                "@"
+            ):
+                start_i = j
+                j -= 1
+                continue
+            break
+
+        # Replace through the marker line (or just the def line for single-line defs).
+        end_i = (def_i + 1) if mi == def_i else (mi + 1)
+
+        repl = code.splitlines(keepends=True)
         if repl and not repl[-1].endswith("\n"):
             repl[-1] = repl[-1] + "\n"
-        lines[i0:i1] = repl
+        lines[start_i:end_i] = repl
 
     return "".join(lines)
 
@@ -47,7 +90,7 @@ def _apply_canonical_into_stub(
 def unpack_to_dir(markdown_text: str, out_dir: Path) -> None:
     packed = parse_packed_markdown(markdown_text)
     manifest = packed.manifest
-    if manifest.get("format") not in {"codecrate.v3", "codecrate.v2", "codecrate.v1"}:
+    if manifest.get("format") != "codecrate.v4":
         raise ValueError(f"Unsupported format: {manifest.get('format')}")
 
     out_dir = out_dir.resolve()
@@ -60,21 +103,6 @@ def unpack_to_dir(markdown_text: str, out_dir: Path) -> None:
         if stub is None or (exp_n and exp_n > 0 and not stub.strip()):
             missing.append(rel)
             continue
-
-        # Optional integrity check: stub line count should match manifest line count.
-        exp = f.get("line_count")
-        if exp is not None:
-            try:
-                exp_n = int(exp)
-                got_n = len(stub.splitlines()) if stub else 0
-                if exp_n != got_n:
-                    msg = (
-                        f"Stub line count mismatch for {rel}: "
-                        f"manifest={exp_n}, stub={got_n}"
-                    )
-                    warnings.warn(msg, RuntimeWarning, stacklevel=2)
-            except Exception:
-                pass
 
         defs = f.get("defs", [])
         reconstructed = _apply_canonical_into_stub(stub, defs, packed.canonical_sources)
