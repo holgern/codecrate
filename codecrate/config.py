@@ -25,6 +25,7 @@ class Config:
     #            otherwise use "full" (best token efficiency when no duplicates)
     layout: Literal["auto", "stubs", "full"] = "auto"
 
+
 def load_config(root: Path) -> Config:
     cfg_path = root / "codecrate.toml"
     if not cfg_path.exists():
@@ -46,7 +47,7 @@ def load_config(root: Path) -> Config:
         layout = layout.strip().lower()
         if layout in {"auto", "stubs", "full"}:
             cfg.layout = layout  # type: ignore[assignment]
- 
+
     inc = section.get("include", cfg.include)
     exc = section.get("exclude", cfg.exclude)
     if isinstance(inc, list):

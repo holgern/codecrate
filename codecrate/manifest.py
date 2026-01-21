@@ -7,22 +7,25 @@ from typing import Any
 from .model import PackResult
 
 
-def to_manifest(pack: PackResult) -> dict[str, Any]:
+def to_manifest(pack: PackResult, *, minimal: bool = False) -> dict[str, Any]:
     def sha256_text(s: str) -> str:
         return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
     files = []
     for fp in pack.files:
         rel = fp.path.relative_to(pack.root).as_posix()
-        files.append(
-            {
-                "path": rel,
+        entry: dict[str, Any] = {
+            "path": rel,
+            "line_count": fp.line_count,
+            "sha256_original": sha256_text(fp.original_text),
+        }
+        if not minimal:
+            entry |= {
                 "module": fp.module,
-                "line_count": fp.line_count,
-                "sha256_original": sha256_text(fp.original_text),
                 "sha256_stubbed": sha256_text(fp.stubbed_text),
                 "classes": [asdict(c) | {"path": rel} for c in fp.classes],
                 "defs": [asdict(d) | {"path": rel} for d in fp.defs],
             }
-        )
-    return {"format": "codecrate.v4", "root": pack.root.as_posix(), "files": files}
+        files.append(entry)
+    # Root is already shown at the top of the pack; keep manifest root stable + short.
+    return {"format": "codecrate.v4", "root": ".", "files": files}
