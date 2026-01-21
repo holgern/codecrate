@@ -104,7 +104,7 @@ def apply_hunks_to_text(old_text: str, hunks: list[list[str]]) -> str:
         old_start = int(m.group(1)) - 1  # 0-based
 
         # copy unchanged prefix
-        if old_start < old_i:
+        if old_start < old_i and not (old_i == 0 and len(old_lines) == 0):
             raise ValueError("Overlapping hunks")
         new_lines.extend(old_lines[old_i:old_start])
         old_i = old_start

@@ -52,7 +52,7 @@ def _apply_canonical_into_stub(
         if code is None:
             continue
 
-        # Find the def line above (supports single-line defs where marker is on def line).
+        # Find def line above (supports single-line defs where marker is on def line).
         def_i = mi
         while def_i >= 0:
             s = lines[def_i].lstrip(" \t")

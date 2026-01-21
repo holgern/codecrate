@@ -119,7 +119,7 @@ def render_markdown(pack: PackResult, canonical_sources: dict[str, str]) -> str:
         lines.append(f"### `{rel}` {_file_range(fp.line_count)}\n")
         lines.append(f"[jump to index](#{fa})\n\n")
 
-        # Compact stubs are not line-count aligned, so render the stubbed file as a single block.
+        # Compact stubs are not line-count aligned, so render as a single block.
         lines.append("```python\n")
         lines.append(_ensure_nl(fp.stubbed_text))
         lines.append("```\n\n")
