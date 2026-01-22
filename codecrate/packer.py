@@ -34,13 +34,20 @@ def pack_repo(
 
     for path in files:
         text = path.read_text(encoding="utf-8", errors="replace")
-        classes, defs = parse_symbols(path=path, root=root, text=text)
-        file_module = module_name_for(path, root)
 
-        for d in defs:
-            local_canon[d.local_id] = _extract_canonical_source(text, d)
+        if path.suffix.lower() == ".py":
+            classes, defs = parse_symbols(path=path, root=root, text=text)
+            file_module = module_name_for(path, root)
 
-        stubbed = stub_file_text(text, defs, keep_docstrings=keep_docstrings)
+            for d in defs:
+                local_canon[d.local_id] = _extract_canonical_source(text, d)
+
+            stubbed = stub_file_text(text, defs, keep_docstrings=keep_docstrings)
+        else:
+            # Non-Python files are included verbatim (no symbol parsing / stubbing).
+            classes, defs = [], []
+            file_module = ""
+            stubbed = text
 
         fp = FilePack(
             path=path,

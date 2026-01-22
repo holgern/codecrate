@@ -55,19 +55,28 @@ def _parse_function_library(text_lines: list[str]) -> dict[str, str]:
     fl_start, fl_end = _section_bounds("## Function Library", text_lines)
     for idx in range(fl_start, fl_end):
         line = text_lines[idx]
-        if line.startswith("### ") and " — " in line:
-            maybe_id = line.split(" — ", 1)[0].replace("###", "").strip()
-            j = idx + 1
-            while j < fl_end and text_lines[j].strip() != "```python":
-                j += 1
-            if j < len(text_lines) and text_lines[j].strip() == "```python":
-                k = j + 1
-                buf = []
-                while k < fl_end and text_lines[k].strip() != "```":
-                    buf.append(text_lines[k])
-                    k += 1
-                if buf:
-                    canonical_sources[maybe_id] = "\n".join(buf).rstrip() + "\n"
+        if not line.startswith("### "):
+            continue
+
+        # Support both header styles:
+        # - v4 current: "### <ID>"
+        # - older:      "### <ID> — <extra metadata>"
+        title = line.replace("###", "", 1).strip()
+        maybe_id = title.split(" — ", 1)[0].strip()
+        if not maybe_id:
+            continue
+
+        j = idx + 1
+        while j < fl_end and text_lines[j].strip() != "```python":
+            j += 1
+        if j < fl_end and text_lines[j].strip() == "```python":
+            k = j + 1
+            buf: list[str] = []
+            while k < fl_end and text_lines[k].strip() != "```":
+                buf.append(text_lines[k])
+                k += 1
+            if buf:
+                canonical_sources[maybe_id] = "\n".join(buf).rstrip() + "\n"
     return canonical_sources
 
 
@@ -86,7 +95,8 @@ def _parse_stubbed_files(text_lines: list[str]) -> dict[str, str]:
             while j < fs_end and not (
                 text_lines[j].startswith("### `") and "`" in text_lines[j]
             ):
-                if text_lines[j].strip() == "```python":
+                fence = text_lines[j].strip()
+                if fence.startswith("```") and fence != "```":
                     k = j + 1
                     buf: list[str] = []
                     while k < fs_end and text_lines[k].strip() != "```":

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .config import load_config
 from .diffgen import generate_patch_markdown
-from .discover import discover_python_files
+from .discover import discover_files
 from .markdown import render_markdown
 from .packer import pack_repo
 from .token_budget import split_by_max_chars
@@ -16,7 +16,8 @@ from .validate import validate_pack_markdown
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="codecrate", description="Pack/unpack/patch/apply for Python codebases."
+        prog="codecrate",
+        description="Pack/unpack/patch/apply for repositories  (Python + text files).",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -27,8 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
         "-o",
         "--output",
         type=Path,
-        default=Path("context.md"),
-        help="Output markdown path",
+        default=None,
+        help="Output markdown path (default: config 'output' or context.md)",
     )
     pack.add_argument(
         "--dedupe", action="store_true", help="Deduplicate identical function bodies"
@@ -165,7 +166,12 @@ def main(argv: list[str] | None = None) -> None:
             if args.layout is not None
             else str(getattr(cfg, "layout", "auto")).strip().lower()
         )
-        disc = discover_python_files(
+        out_path = (
+            args.output
+            if args.output is not None
+            else Path(getattr(cfg, "output", "context.md"))
+        )
+        disc = discover_files(
             root=root,
             include=include,
             exclude=exclude,
@@ -176,7 +182,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         md = render_markdown(pack, canonical, layout=layout)
 
-        parts = split_by_max_chars(md, args.output, split_max_chars)
+        parts = split_by_max_chars(md, out_path, split_max_chars)
         for part in parts:
             part.path.write_text(part.content, encoding="utf-8")
         print(f"Wrote {len(parts)} file(s).")
@@ -188,7 +194,14 @@ def main(argv: list[str] | None = None) -> None:
 
     elif args.cmd == "patch":
         old_md = args.old_markdown.read_text(encoding="utf-8", errors="replace")
-        patch_md = generate_patch_markdown(old_md, args.root)
+        cfg = load_config(args.root)
+        patch_md = generate_patch_markdown(
+            old_md,
+            args.root,
+            include=cfg.include,
+            exclude=cfg.exclude,
+            respect_gitignore=cfg.respect_gitignore,
+        )
         args.output.write_text(patch_md, encoding="utf-8")
         print(f"Wrote {args.output}")
 

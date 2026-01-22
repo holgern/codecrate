@@ -189,3 +189,21 @@ def test_pack_single_line_function(tmp_path: Path) -> None:
 
     assert len(pack.defs) == 1
     assert pack.defs[0].is_single_line is True
+
+
+def test_pack_non_python_file_verbatim(tmp_path: Path) -> None:
+    root = tmp_path
+    (root / "README.md").write_text("# Hello\n", encoding="utf-8")
+
+    pack, canonical = pack_repo(
+        root, [root / "README.md"], keep_docstrings=True, dedupe=False
+    )
+
+    assert len(pack.files) == 1
+    fp = pack.files[0]
+    assert fp.module == ""
+    assert fp.defs == []
+    assert fp.classes == []
+    assert fp.original_text == "# Hello\n"
+    assert fp.stubbed_text == fp.original_text
+    assert canonical == {}

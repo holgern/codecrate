@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
+from typing import Any
 
 from .manifest import to_manifest
-from .model import PackResult
+from .model import ClassRef, PackResult
+from .parse import parse_symbols
 
 
 def _anchor_for(defn_id: str, module: str, qualname: str) -> str:
@@ -34,11 +37,177 @@ def _file_src_anchor(rel_path: str) -> str:
 
 
 def _file_range(line_count: int) -> str:
-    return "(empty)" if line_count == 0 else f"(L1–L{line_count})"
+    return "(empty)" if line_count == 0 else f"(L1-{line_count})"
 
 
 def _ensure_nl(s: str) -> str:
     return s if (not s or s.endswith("\n")) else (s + "\n")
+
+
+def _fence_lang_for(rel_path: str) -> str:
+    ext = rel_path.rsplit(".", 1)[-1].lower() if "." in rel_path else ""
+    return {
+        "py": "python",
+        "toml": "toml",
+        "rst": "rst",
+        "md": "markdown",
+        "txt": "text",
+        "ini": "ini",
+        "cfg": "ini",
+        "yaml": "yaml",
+        "yml": "yaml",
+        "json": "json",
+    }.get(ext, "text")
+
+
+def _range_token(kind: str, key: str) -> str:
+    return f"<<CC:{kind}:{key}>>"
+
+
+def _format_range(start: int | None, end: int | None) -> str:
+    if start is None or end is None or start > end:
+        return "(empty)"
+    return f"(L{start}-{end})"
+
+
+def _extract_rel_path(line: str) -> str | None:
+    if not line.startswith("### `"):
+        return None
+    start = line.find("`") + 1
+    end = line.find("`", start)
+    if start <= 0 or end <= start:
+        return None
+    return line[start:end]
+
+
+def _scan_file_blocks(lines: list[str]) -> dict[str, tuple[int, int] | None]:
+    ranges: dict[str, tuple[int, int] | None] = {}
+    in_files = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip() == "## Files":
+            in_files = True
+            i += 1
+            continue
+        if in_files and line.startswith("## ") and line.strip() != "## Files":
+            break
+        if in_files and line.startswith("### `"):
+            rel = _extract_rel_path(line)
+            if rel is None:
+                i += 1
+                continue
+            j = i + 1
+            while j < len(lines) and not (
+                lines[j].strip().startswith("```") and lines[j].strip() != "```"
+            ):
+                j += 1
+            if j >= len(lines):
+                ranges[rel] = None
+                i = j
+                continue
+            start_line = j + 2
+            k = j + 1
+            while k < len(lines) and lines[k].strip() != "```":
+                k += 1
+            end_line = k
+            if start_line > end_line:
+                ranges[rel] = None
+            else:
+                ranges[rel] = (start_line, end_line)
+            i = k + 1
+            continue
+        i += 1
+    return ranges
+
+
+def _scan_function_library(lines: list[str]) -> dict[str, tuple[int, int] | None]:
+    ranges: dict[str, tuple[int, int] | None] = {}
+    in_lib = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.strip() == "## Function Library":
+            in_lib = True
+            i += 1
+            continue
+        if in_lib and line.startswith("## ") and line.strip() != "## Function Library":
+            break
+        if in_lib and line.startswith("### "):
+            defn_id = line.replace("###", "").strip()
+            j = i + 1
+            while j < len(lines) and lines[j].strip() != "```python":
+                j += 1
+            if j >= len(lines):
+                i += 1
+                continue
+            start_line = j + 2
+            k = j + 1
+            while k < len(lines) and lines[k].strip() != "```":
+                k += 1
+            end_line = k
+            if start_line > end_line:
+                ranges[defn_id] = None
+            else:
+                ranges[defn_id] = (start_line, end_line)
+            i = k + 1
+            continue
+        i += 1
+    return ranges
+
+
+def _apply_context_line_numbers(
+    text: str,
+    def_line_map: dict[str, tuple[int, int]],
+    class_line_map: dict[str, tuple[int, int]],
+    def_to_canon: dict[str, str],
+    def_to_file: dict[str, str],
+    class_to_file: dict[str, str],
+    use_stubs: bool,
+) -> str:
+    lines = text.splitlines()
+    file_ranges = _scan_file_blocks(lines)
+    func_ranges = _scan_function_library(lines) if use_stubs else {}
+
+    replacements: dict[str, str] = {}
+    for rel, rng in file_ranges.items():
+        token = _range_token("FILE", rel)
+        if rng is None:
+            replacements[token] = "(empty)"
+        else:
+            replacements[token] = _format_range(rng[0], rng[1])
+
+    for class_id, loc in class_line_map.items():
+        rel = class_to_file.get(class_id)
+        token = _range_token("CLASS", class_id)
+        file_range = file_ranges.get(rel) if rel else None
+        if file_range is None:
+            replacements[token] = _format_range(None, None)
+            continue
+        start = file_range[0] + loc[0] - 1
+        end = file_range[0] + loc[1] - 1
+        replacements[token] = _format_range(start, end)
+
+    for local_id, loc in def_line_map.items():
+        token = _range_token("DEF", local_id)
+        if use_stubs:
+            canon_id = def_to_canon.get(local_id)
+            canon_range = func_ranges.get(canon_id) if canon_id else None
+            if canon_range is not None:
+                replacements[token] = _format_range(canon_range[0], canon_range[1])
+                continue
+        rel = def_to_file.get(local_id)
+        file_range = file_ranges.get(rel) if rel else None
+        if file_range is None:
+            replacements[token] = _format_range(None, None)
+            continue
+        start = file_range[0] + loc[0] - 1
+        end = file_range[0] + loc[1] - 1
+        replacements[token] = _format_range(start, end)
+
+    for token, value in replacements.items():
+        text = text.replace(token, value)
+    return text
 
 
 def _has_dedupe_effect(pack: PackResult) -> bool:
@@ -55,25 +224,21 @@ def _has_dedupe_effect(pack: PackResult) -> bool:
 
 
 def _read_full_text(fp) -> str:
-    """
-    Read file contents from disk for 'full' layout.
-    """
-    try:
-        return fp.path.read_text(encoding="utf-8", errors="replace")
-    except Exception:
-        return ""
+    """Return the packed file contents."""
+    return fp.original_text
 
 
 def _render_tree(paths: list[str]) -> str:
-    root: dict[str, object] = {}
+    root: dict[str, Any] = {}
     for p in paths:
         cur = root
         parts = [x for x in p.split("/") if x]
         for part in parts[:-1]:
-            cur = cur.setdefault(part, {})  # type: ignore[assignment]
+            child = cur.setdefault(part, {})
+            cur = child if isinstance(child, dict) else {}
         cur.setdefault(parts[-1], None)
 
-    def walk(node: dict[str, object], prefix: str = "") -> list[str]:
+    def walk(node: dict[str, Any], prefix: str = "") -> list[str]:
         items = sorted(node.items(), key=lambda kv: (kv[1] is None, kv[0].lower()))
         out: list[str] = []
         for i, (name, child) in enumerate(items):
@@ -88,12 +253,13 @@ def _render_tree(paths: list[str]) -> str:
     return "\n".join(walk(root))
 
 
-def render_markdown(
+def render_markdown(  # noqa: C901
     pack: PackResult, canonical_sources: dict[str, str], layout: str = "auto"
 ) -> str:
     lines: list[str] = []
     lines.append("# Codecrate Context Pack\n\n")
-    lines.append(f"Root: `{pack.root.as_posix()}`\n\n")
+    # Do not leak absolute local paths; keep the header root stable + relative.
+    lines.append("Root: `.`\n\n")
     layout_norm = (layout or "auto").strip().lower()
     if layout_norm not in {"auto", "stubs", "full"}:
         layout_norm = "auto"
@@ -102,6 +268,44 @@ def render_markdown(
     )
     resolved_layout = "stubs" if use_stubs else "full"
     lines.append(f"Layout: `{resolved_layout}`\n\n")
+
+    def_line_map: dict[str, tuple[int, int]] = {}
+    class_line_map: dict[str, tuple[int, int]] = {}
+    def_to_canon: dict[str, str] = {}
+    def_to_file: dict[str, str] = {}
+    class_to_file: dict[str, str] = {}
+
+    for fp in pack.files:
+        rel = fp.path.relative_to(pack.root).as_posix()
+        for d in fp.defs:
+            def_line_map[d.local_id] = (d.def_line, d.end_line)
+            def_to_canon[d.local_id] = d.id
+            def_to_file[d.local_id] = rel
+        for c in fp.classes:
+            class_to_file[c.id] = rel
+
+    if use_stubs:
+        for fp in pack.files:
+            by_qualname: dict[str, list[ClassRef]] = defaultdict(list)
+            try:
+                parsed_classes, _ = parse_symbols(
+                    path=fp.path, root=pack.root, text=fp.stubbed_text
+                )
+            except SyntaxError:
+                parsed_classes = []
+            for c in parsed_classes:
+                by_qualname[c.qualname].append(c)
+            for c in sorted(fp.classes, key=lambda x: (x.class_line, x.qualname)):
+                matches = by_qualname.get(c.qualname)
+                if matches:
+                    match = matches.pop(0)
+                    class_line_map[c.id] = (match.class_line, match.end_line)
+                else:
+                    class_line_map[c.id] = (c.class_line, c.end_line)
+    else:
+        for fp in pack.files:
+            for c in fp.classes:
+                class_line_map[c.id] = (c.class_line, c.end_line)
 
     lines.append("## How to Use This Pack\n\n")
     if use_stubs:
@@ -131,6 +335,10 @@ def render_markdown(
             "- Reference changes by **file path** plus **function ID** (and\n"
             "  local_id if shown).\n"
             "- Prefer emitting a unified diff patch (`--- a/...` / `+++ b/...`).\n\n"
+            "**Line numbers**\n"
+            "- All `Lx-y` ranges refer to line numbers in this markdown file.\n"
+            "- File ranges/classes point into **Files**; function ranges point\n"
+            "  into **Function Library**.\n\n"
         )
     else:
         lines.append(
@@ -141,6 +349,9 @@ def render_markdown(
             "3. **Files** (full contents)\n\n"
             "**When proposing changes**\n"
             "- Prefer unified diffs (`--- a/...` / `+++ b/...`).\n\n"
+            "**Line numbers**\n"
+            "- `Lx-y` ranges refer to line numbers in this markdown file (the\n"
+            "  code blocks under **Files**).\n\n"
         )
 
     lines.append("## Manifest\n\n")
@@ -163,17 +374,17 @@ def render_markdown(
         rel = fp.path.relative_to(pack.root).as_posix()
         fa = _file_anchor(rel)
         sa = _file_src_anchor(rel)
-        if use_stubs:
-            lines.append(f"### `{rel}` {_file_range(fp.line_count)} — [jump](#{sa})\n")
-        else:
-            lines.append(f"### `{rel}` {_file_range(fp.line_count)}\n")
-        lines.append(f'<a id="{fa}"></a>\n\n')
+        file_range = _range_token("FILE", rel)
+        # Always provide a jump target to the file contents.
+        lines.append(f"### `{rel}` {file_range} — [jump](#{sa})\n")
+        lines.append(f'<a id="{fa}"></a>\n')
 
         for c in sorted(fp.classes, key=lambda x: (x.class_line, x.qualname)):
-            lines.append(f"- `class {c.qualname}` (L{c.class_line}–L{c.end_line})\n")
+            class_loc = _range_token("CLASS", c.id)
+            lines.append(f"- `class {c.qualname}` {class_loc}\n")
 
         for d in sorted(fp.defs, key=lambda d: (d.def_line, d.qualname)):
-            loc = f"L{d.def_line}–L{d.end_line}"
+            loc = _range_token("DEF", d.local_id)
             link = "\n"
             if use_stubs:
                 anchor = _anchor_for(d.id, d.module, d.qualname)
@@ -181,9 +392,9 @@ def render_markdown(
                 id_display = f"**{d.id}**"
                 if getattr(d, "local_id", d.id) != d.id:
                     id_display += f" (local **{d.local_id}**)"
-                lines.append(f"- `{d.qualname}` → {id_display} ({loc}){link}")
+                lines.append(f"- `{d.qualname}` → {id_display} {loc}{link}")
             else:
-                lines.append(f"- `{d.qualname}` → ({loc})\n")
+                lines.append(f"- `{d.qualname}` → {loc}\n")
         lines.append("\n")
 
     if use_stubs:
@@ -200,29 +411,40 @@ def render_markdown(
         rel = fp.path.relative_to(pack.root).as_posix()
         fa = _file_anchor(rel)
         sa = _file_src_anchor(rel)
-        lines.append(f"### `{rel}` {_file_range(fp.line_count)}\n")
-        if not use_stubs:
-            lines.append(f'<a id="{sa}"></a>\n')
+        file_range = _range_token("FILE", rel)
+        lines.append(f"### `{rel}` {file_range}\n")
+        lines.append(f'<a id="{sa}"></a>\n')
         lines.append(f"[jump to index](#{fa})\n\n")
 
         # Compact stubs are not line-count aligned, so render as a single block.
 
-        lines.append("```python\n")
+        lines.append(f"```{_fence_lang_for(rel)}\n")
         if use_stubs:
             lines.append(_ensure_nl(fp.stubbed_text))
         else:
             lines.append(_ensure_nl(_read_full_text(fp)))
         lines.append("```\n\n")
-        if use_stubs:
+        # Only emit the Symbols block when there are actually symbols.
+        if use_stubs and fp.defs:
             lines.append("**Symbols**\n\n")
-            lines.append(f"_Module_: `{fp.module}`\n\n")
+            if fp.module:
+                lines.append(f"_Module_: `{fp.module}`\n\n")
             for d in sorted(fp.defs, key=lambda x: (x.def_line, x.qualname)):
                 anchor = _anchor_for(d.id, d.module, d.qualname)
-                loc = f"L{d.def_line}–L{d.end_line}"
+                loc = _range_token("DEF", d.local_id)
                 link = f" — [jump](#{anchor})\n"
                 id_display = f"**{d.id}**"
                 if getattr(d, "local_id", d.id) != d.id:
                     id_display += f" (local **{d.local_id}**)"
-                lines.append(f"- `{d.qualname}` → {id_display} ({loc}){link}")
+                lines.append(f"- `{d.qualname}` → {id_display} {loc}{link}")
             lines.append("\n")
-    return "".join(lines)
+    text = "".join(lines)
+    return _apply_context_line_numbers(
+        text,
+        def_line_map=def_line_map,
+        class_line_map=class_line_map,
+        def_to_canon=def_to_canon,
+        def_to_file=def_to_file,
+        class_to_file=class_to_file,
+        use_stubs=use_stubs,
+    )

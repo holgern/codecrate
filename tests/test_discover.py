@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codecrate.discover import discover_python_files
+from codecrate.config import DEFAULT_INCLUDES
+from codecrate.discover import discover_files, discover_python_files
 
 
 def test_discover_basic(tmp_path: Path) -> None:
@@ -21,6 +22,26 @@ def test_discover_basic(tmp_path: Path) -> None:
     assert len(disc.files) == 2
     assert disc.root == tmp_path
     assert all(f.suffix == ".py" for f in disc.files)
+
+
+def test_discover_files_includes_non_py_defaults(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("# Hello\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "x.md").write_text("doc\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[tool]\n", encoding="utf-8")
+
+    disc = discover_files(
+        root=tmp_path,
+        include=DEFAULT_INCLUDES,
+        exclude=[],
+        respect_gitignore=False,
+    )
+    rels = {p.relative_to(tmp_path).as_posix() for p in disc.files}
+    assert "a.py" in rels
+    assert "README.md" in rels
+    assert "docs/x.md" in rels
+    assert "pyproject.toml" in rels
 
 
 def test_discover_nested_dirs(tmp_path: Path) -> None:

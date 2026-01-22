@@ -3,20 +3,33 @@ from __future__ import annotations
 import difflib
 from pathlib import Path
 
-from .discover import discover_python_files
+from .config import DEFAULT_INCLUDES
+from .discover import discover_files
 from .mdparse import parse_packed_markdown
 from .udiff import normalize_newlines
 from .unpacker import _apply_canonical_into_stub
 
 
-def generate_patch_markdown(old_pack_md: str, root: Path) -> str:
+def generate_patch_markdown(
+    old_pack_md: str,
+    root: Path,
+    *,
+    include: list[str] | None = None,
+    exclude: list[str] | None = None,
+    respect_gitignore: bool = True,
+) -> str:
+    # If caller doesn't pass include/exclude, use the same defaults as Config.
+    include = DEFAULT_INCLUDES.copy() if include is None else list(include)
+    exclude = [] if exclude is None else list(exclude)
+
     packed = parse_packed_markdown(old_pack_md)
     manifest = packed.manifest
     root = root.resolve()
 
     blocks: list[str] = []
     blocks.append("# Codecrate Patch\n\n")
-    blocks.append(f"Root: `{root.as_posix()}`\n\n")
+    # Do not leak absolute local paths; keep the header root stable + relative.
+    blocks.append("Root: `.`\n\n")
     blocks.append("This file contains unified diffs inside ```diff code fences.\n\n")
 
     any_changes = False
@@ -64,8 +77,11 @@ def generate_patch_markdown(old_pack_md: str, root: Path) -> str:
             blocks.append("```\n\n")
 
     # Added files (present in current repo, not in baseline manifest)
-    disc = discover_python_files(
-        root, include=["**/*.py"], exclude=[], respect_gitignore=True
+    disc = discover_files(
+        root,
+        include=include,
+        exclude=exclude,
+        respect_gitignore=respect_gitignore,
     )
     for p in disc.files:
         rel = p.relative_to(root).as_posix()
