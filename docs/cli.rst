@@ -19,7 +19,7 @@ Supported keys include (non-exhaustive):
    output = "context.md"
    include = ["**/*.py", "**/*.toml", "**/*.rst"]
    exclude = ["tests/**"]
-
+   manifest = true
 
 Overview
 --------
@@ -47,10 +47,12 @@ Useful flags:
 * ``--dedupe``: deduplicate identical function bodies
 * ``--layout auto|stubs|full``: choose layout (auto selects best token efficiency)
 * ``--keep-docstrings / --no-keep-docstrings``: keep docstrings in stubbed views
+* ``--manifest / --no-manifest``: include or omit the Manifest section (required for unpack/patch/validate-pack)
 * ``--respect-gitignore / --no-respect-gitignore``: include ignored files or not
 * ``--include GLOB`` (repeatable): include patterns
 * ``--exclude GLOB`` (repeatable): exclude patterns
-* ``--split-max-chars N``: split output into parts
+* ``--split-max-chars N``: additionally emit ``.partN.md`` files for LLMs (the
+main output stays
 * ``-o/--output PATH``: output path (defaults to config ``output`` or ``context.md``)
 
 

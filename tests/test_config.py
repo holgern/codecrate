@@ -15,6 +15,7 @@ def test_config_defaults() -> None:
     assert cfg.include == DEFAULT_INCLUDES
     assert cfg.exclude == []
     assert cfg.split_max_chars == 0
+    assert cfg.manifest is True
 
 
 def test_load_config_missing_file(tmp_path: Path) -> None:
@@ -41,6 +42,7 @@ def test_load_config_custom_values(tmp_path: Path) -> None:
 output = "my_context.md"
 keep_docstrings = false
 dedupe = true
+manifest = false
 respect_gitignore = false
 include = ["src/**/*.py"]
 exclude = ["tests/**"]
@@ -53,6 +55,7 @@ split_max_chars = 100000
     assert cfg.output == "my_context.md"
     assert cfg.keep_docstrings is False
     assert cfg.dedupe is True
+    assert cfg.manifest is False
     assert cfg.respect_gitignore is False
     assert cfg.include == ["src/**/*.py"]
     assert cfg.exclude == ["tests/**"]

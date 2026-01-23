@@ -53,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Respect .gitignore (default: true via config)",
     )
     pack.add_argument(
+        "--manifest",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include Manifest section (default: true via config)",
+    )
+    pack.add_argument(
         "--include", action="append", default=None, help="Include glob (repeatable)"
     )
     pack.add_argument(
@@ -150,6 +156,9 @@ def main(argv: list[str] | None = None) -> None:
             if args.keep_docstrings is None
             else bool(args.keep_docstrings)
         )
+        include_manifest = (
+            cfg.manifest if args.manifest is None else bool(args.manifest)
+        )
         respect_gitignore = (
             cfg.respect_gitignore
             if args.respect_gitignore is None
@@ -180,13 +189,23 @@ def main(argv: list[str] | None = None) -> None:
         pack, canonical = pack_repo(
             disc.root, disc.files, keep_docstrings=keep_docstrings, dedupe=dedupe
         )
-        md = render_markdown(pack, canonical, layout=layout)
+        md = render_markdown(
+            pack, canonical, layout=layout, include_manifest=include_manifest
+        )
+        # Always write the canonical, unsplit pack
+        # for machine parsing (unpack/validate).
+        out_path.write_text(md, encoding="utf-8")
 
+        # Additionally, write split parts for LLM consumption, if requested.
         parts = split_by_max_chars(md, out_path, split_max_chars)
-        for part in parts:
+        extra = [p for p in parts if p.path != out_path]
+        for part in extra:
             part.path.write_text(part.content, encoding="utf-8")
-        print(f"Wrote {len(parts)} file(s).")
 
+        if extra:
+            print(f"Wrote {out_path} and {len(extra)} split part file(s).")
+        else:
+            print(f"Wrote {out_path}.")
     elif args.cmd == "unpack":
         md_text = args.markdown.read_text(encoding="utf-8", errors="replace")
         unpack_to_dir(md_text, args.out_dir)

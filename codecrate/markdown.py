@@ -254,7 +254,11 @@ def _render_tree(paths: list[str]) -> str:
 
 
 def render_markdown(  # noqa: C901
-    pack: PackResult, canonical_sources: dict[str, str], layout: str = "auto"
+    pack: PackResult,
+    canonical_sources: dict[str, str],
+    layout: str = "auto",
+    *,
+    include_manifest: bool = True,
 ) -> str:
     lines: list[str] = []
     lines.append("# Codecrate Context Pack\n\n")
@@ -354,13 +358,16 @@ def render_markdown(  # noqa: C901
             "  code blocks under **Files**).\n\n"
         )
 
-    lines.append("## Manifest\n\n")
-    lines.append("```codecrate-manifest\n")
-    lines.append(
-        json.dumps(to_manifest(pack, minimal=not use_stubs), indent=2, sort_keys=False)
-        + "\n"
-    )
-    lines.append("```\n\n")
+    if include_manifest:
+        lines.append("## Manifest\n\n")
+        lines.append("```codecrate-manifest\n")
+        lines.append(
+            json.dumps(
+                to_manifest(pack, minimal=not use_stubs), indent=2, sort_keys=False
+            )
+            + "\n"
+        )
+        lines.append("```\n\n")
 
     rel_paths = [f.path.relative_to(pack.root).as_posix() for f in pack.files]
     lines.append("## Directory Tree\n\n")

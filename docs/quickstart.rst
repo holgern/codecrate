@@ -45,7 +45,8 @@ Common options:
 
 * ``--dedupe``: deduplicate identical function bodies (enables stub layout when effective)
 * ``--layout {auto,stubs,full}``: control output layout
-* ``--split-max-chars N``: split into ``.partN.md`` files
+* ``--manifest/--no-manifest``: include or omit the Manifest section (omit only for LLM-only packs)
+* ``--split-max-chars N``: keep the main output unsplit, and additionally emit ``.partN.md`` files for LLMs
 
 
 Unpack a context pack

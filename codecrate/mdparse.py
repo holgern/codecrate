@@ -128,7 +128,11 @@ def parse_packed_markdown(text: str) -> PackedMarkdown:
             manifest = json.loads(body)
             break
     if manifest is None:
-        raise ValueError("No codecrate-manifest block found")
+        raise ValueError(
+            "No codecrate-manifest block found. This pack cannot be used for "
+            "unpack/patch/validate-pack; re-run `codecrate pack` with --manifest "
+            "(or omit --no-manifest)."
+        )
 
     text_lines = text.splitlines()
     canonical_sources = _parse_function_library(text_lines)

@@ -5,5 +5,6 @@ dedupe = true
 respect_gitignore = true
 exclude = ["*/tests/*", "*/migrations/*", "*/.venv/*"]
 include = ["**/*.py", "**/*.toml", "**/*.rst"]
-split_max_chars = 250000
+split_max_chars = 0
+manifest = false
 layout = "full"

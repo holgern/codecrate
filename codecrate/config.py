@@ -35,6 +35,9 @@ class Config:
     include: list[str] = field(default_factory=lambda: DEFAULT_INCLUDES.copy())
     exclude: list[str] = field(default_factory=list)
     split_max_chars: int = 0  # 0 means no splitting
+    # Emit the `## Manifest` section (required for unpack/patch/validate-pack).
+    # Disable only for LLM-only packs to save tokens.
+    manifest: bool = True
     # Output layout:
     # - "stubs": always emit stubbed files + Function Library (current format)
     # - "full":  emit full file contents (no Function Library)
@@ -71,6 +74,8 @@ def load_config(root: Path) -> Config:
     cfg.respect_gitignore = bool(
         section.get("respect_gitignore", cfg.respect_gitignore)
     )
+    man = section.get("manifest", section.get("include_manifest", cfg.manifest))
+    cfg.manifest = bool(man)
     layout = section.get("layout", cfg.layout)
     if isinstance(layout, str):
         layout = layout.strip().lower()
