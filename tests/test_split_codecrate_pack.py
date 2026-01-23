@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codecrate.packer import pack_repo
 from codecrate.markdown import render_markdown
+from codecrate.packer import pack_repo
 from codecrate.token_budget import split_by_max_chars
 
 
@@ -16,13 +16,11 @@ def test_split_codecrate_pack_rewrites_symbol_index_links(tmp_path: Path) -> Non
     root.mkdir()
 
     (root / "a.py").write_text(
-        "def alpha():\n"
-        "    return 1\n",
+        "def alpha():\n" "    return 1\n",
         encoding="utf-8",
     )
     (root / "b.py").write_text(
-        "def beta():\n"
-        "    return 2\n",
+        "def beta():\n" "    return 2\n",
         encoding="utf-8",
     )
 
@@ -46,15 +44,14 @@ def test_split_codecrate_pack_rewrites_symbol_index_links(tmp_path: Path) -> Non
         assert _count_fence_lines(p.content) % 2 == 0
 
 
-def test_split_codecrate_pack_rewrites_func_links_in_stub_layout(tmp_path: Path) -> None:
+def test_split_codecrate_pack_rewrites_func_links_in_stub_layout(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "repo"
     root.mkdir()
 
     (root / "x.py").write_text(
-        "def f():\n"
-        "    return 123\n\n"
-        "def g():\n"
-        "    return 456\n",
+        "def f():\n" "    return 123\n\n" "def g():\n" "    return 456\n",
         encoding="utf-8",
     )
 
