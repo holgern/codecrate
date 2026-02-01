@@ -127,7 +127,9 @@ class _Visitor(ast.NodeVisitor):
 def parse_symbols(
     path: Path, root: Path, text: str
 ) -> tuple[list[ClassRef], list[DefRef]]:
-    tree = ast.parse(text)
+    # Pass filename so SyntaxWarnings (e.g. invalid escape sequences) point to
+    # the real file instead of "<unknown>".
+    tree = ast.parse(text, filename=path.as_posix())
     v = _Visitor(path=path, root=root)
     v.visit(tree)
     return v.classes, v.defs

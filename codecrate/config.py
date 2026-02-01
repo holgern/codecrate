@@ -61,10 +61,19 @@ def load_config(root: Path) -> Config:
         return Config()
 
     data = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
-    section: dict[str, Any] = (
-        data.get("codecrate", {}) if isinstance(data, dict) else {}
-    )
-
+    section: dict[str, Any] = {}
+    if isinstance(data, dict):
+        # Preferred: [codecrate]
+        cc = data.get("codecrate")
+        if isinstance(cc, dict):
+            section = cc
+        else:
+            # Also accept: [tool.codecrate] (common convention from pyproject.toml)
+            tool = data.get("tool")
+            if isinstance(tool, dict):
+                cc2 = tool.get("codecrate")
+                if isinstance(cc2, dict):
+                    section = cc2
     cfg = Config()
     out = section.get("output", cfg.output)
     if isinstance(out, str) and out.strip():

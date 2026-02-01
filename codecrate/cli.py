@@ -175,11 +175,12 @@ def main(argv: list[str] | None = None) -> None:
             if args.layout is not None
             else str(getattr(cfg, "layout", "auto")).strip().lower()
         )
-        out_path = (
-            args.output
-            if args.output is not None
-            else Path(getattr(cfg, "output", "context.md"))
-        )
+        if args.output is not None:
+            out_path = args.output
+        else:
+            out_path = Path(getattr(cfg, "output", "context.md"))
+            if not out_path.is_absolute():
+                out_path = root / out_path
         disc = discover_files(
             root=root,
             include=include,
