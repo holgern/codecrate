@@ -41,6 +41,12 @@ Pack a repository into ``context.md``:
 
    codecrate pack /path/to/repo -o context.md
 
+Pack multiple repositories into a single output:
+
+.. code-block:: console
+
+   codecrate pack --repo /path/to/repo1 --repo /path/to/repo2 -o multi.md
+
 Common options:
 
 * ``--dedupe``: deduplicate identical function bodies (enables stub layout when effective)

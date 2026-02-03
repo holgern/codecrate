@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 
-from .config import load_config
+from .config import Config, load_config
 from .diffgen import generate_patch_markdown
 from .discover import discover_files
 from .markdown import render_markdown
@@ -22,8 +23,22 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     # pack
-    pack = sub.add_parser("pack", help="Pack a repository/directory into Markdown.")
-    pack.add_argument("root", type=Path, help="Root directory to scan")
+    pack = sub.add_parser(
+        "pack", help="Pack one or more repositories/directories into Markdown."
+    )
+    pack.add_argument(
+        "root",
+        type=Path,
+        nargs="?",
+        help="Root directory to scan (omit when using --repo)",
+    )
+    pack.add_argument(
+        "--repo",
+        action="append",
+        default=None,
+        type=Path,
+        help="Additional repo root to pack (repeatable; use instead of ROOT)",
+    )
     pack.add_argument(
         "-o",
         "--output",
@@ -123,6 +138,135 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+@dataclass(frozen=True)
+class PackOptions:
+    include: list[str] | None
+    exclude: list[str] | None
+    keep_docstrings: bool
+    include_manifest: bool
+    respect_gitignore: bool
+    dedupe: bool
+    split_max_chars: int
+    layout: str
+
+
+@dataclass(frozen=True)
+class PackRun:
+    root: Path
+    label: str
+    slug: str
+    markdown: str
+    options: PackOptions
+    default_output: Path
+
+
+def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
+    include = args.include if args.include is not None else cfg.include
+    exclude = args.exclude if args.exclude is not None else cfg.exclude
+    keep_docstrings = (
+        cfg.keep_docstrings
+        if args.keep_docstrings is None
+        else bool(args.keep_docstrings)
+    )
+    include_manifest = cfg.manifest if args.manifest is None else bool(args.manifest)
+    respect_gitignore = (
+        cfg.respect_gitignore
+        if args.respect_gitignore is None
+        else bool(args.respect_gitignore)
+    )
+    dedupe = bool(args.dedupe) or bool(cfg.dedupe)
+    split_max_chars = (
+        cfg.split_max_chars
+        if args.split_max_chars is None
+        else int(args.split_max_chars or 0)
+    )
+    layout = (
+        str(args.layout).strip().lower()
+        if args.layout is not None
+        else str(getattr(cfg, "layout", "auto")).strip().lower()
+    )
+    return PackOptions(
+        include=include,
+        exclude=exclude,
+        keep_docstrings=keep_docstrings,
+        include_manifest=include_manifest,
+        respect_gitignore=respect_gitignore,
+        dedupe=dedupe,
+        split_max_chars=split_max_chars,
+        layout=layout,
+    )
+
+
+def _resolve_output_path(cfg: Config, args: argparse.Namespace, root: Path) -> Path:
+    if args.output is not None:
+        return args.output
+    out_path = Path(getattr(cfg, "output", "context.md"))
+    if not out_path.is_absolute():
+        out_path = root / out_path
+    return out_path
+
+
+def _default_repo_label(root: Path) -> str:
+    cwd = Path.cwd().resolve()
+    resolved = root.resolve()
+    try:
+        rel = resolved.relative_to(cwd).as_posix()
+        return rel or resolved.name or resolved.as_posix()
+    except ValueError:
+        return root.name or resolved.name or resolved.as_posix()
+
+
+def _unique_label(root: Path, used: set[str]) -> str:
+    base = _default_repo_label(root)
+    label = base
+    idx = 2
+    while label in used:
+        label = f"{base}-{idx}"
+        idx += 1
+    used.add(label)
+    return label
+
+
+def _slugify(label: str) -> str:
+    safe: list[str] = []
+    for ch in label:
+        if ch.isalnum() or ch in {"-", "_"}:
+            safe.append(ch)
+        else:
+            safe.append("-")
+    slug = "".join(safe).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return slug or "repo"
+
+
+def _unique_slug(label: str, used: set[str]) -> str:
+    base = _slugify(label)
+    slug = base
+    idx = 2
+    while slug in used:
+        slug = f"{base}-{idx}"
+        idx += 1
+    used.add(slug)
+    return slug
+
+
+def _prefix_repo_header(text: str, label: str) -> str:
+    header = f"# Repository: {label}\n\n"
+    if text.startswith(header):
+        return text
+    return header + text
+
+
+def _combine_pack_markdown(packs: list[PackRun]) -> str:
+    out: list[str] = []
+    for i, pack in enumerate(packs):
+        if i:
+            out.append("\n\n")
+        out.append(_prefix_repo_header(pack.markdown.rstrip() + "\n", pack.label))
+    return "".join(out).rstrip() + "\n"
+
+
 def _extract_diff_blocks(md_text: str) -> str:
     """
     Extract only diff fences from markdown and concatenate to a unified diff string.
@@ -140,73 +284,111 @@ def _extract_diff_blocks(md_text: str) -> str:
     return "\n".join(out) + "\n"
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> None:  # noqa: C901
     parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.cmd == "pack":
-        root: Path = args.root.resolve()
-        cfg = load_config(root)
-
-        include = args.include if args.include is not None else cfg.include
-        exclude = args.exclude if args.exclude is not None else cfg.exclude
-
-        keep_docstrings = (
-            cfg.keep_docstrings
-            if args.keep_docstrings is None
-            else bool(args.keep_docstrings)
-        )
-        include_manifest = (
-            cfg.manifest if args.manifest is None else bool(args.manifest)
-        )
-        respect_gitignore = (
-            cfg.respect_gitignore
-            if args.respect_gitignore is None
-            else bool(args.respect_gitignore)
-        )
-        dedupe = bool(args.dedupe) or bool(cfg.dedupe)
-        split_max_chars = (
-            cfg.split_max_chars
-            if args.split_max_chars is None
-            else int(args.split_max_chars or 0)
-        )
-        layout = (
-            str(args.layout).strip().lower()
-            if args.layout is not None
-            else str(getattr(cfg, "layout", "auto")).strip().lower()
-        )
-        if args.output is not None:
-            out_path = args.output
+        if args.repo:
+            if args.root is not None:
+                parser.error(
+                    "pack: specify either ROOT or --repo (repeatable), not both"
+                )
+            roots = [r.resolve() for r in args.repo]
         else:
-            out_path = Path(getattr(cfg, "output", "context.md"))
-            if not out_path.is_absolute():
-                out_path = root / out_path
-        disc = discover_files(
-            root=root,
-            include=include,
-            exclude=exclude,
-            respect_gitignore=respect_gitignore,
+            if args.root is None:
+                parser.error("pack: ROOT is required when --repo is not used")
+            roots = [args.root.resolve()]
+
+        used_labels: set[str] = set()
+        used_slugs: set[str] = set()
+        pack_runs: list[PackRun] = []
+
+        for root in roots:
+            cfg = load_config(root)
+            options = _resolve_pack_options(cfg, args)
+            label = _unique_label(root, used_labels)
+            slug = _unique_slug(label, used_slugs)
+
+            disc = discover_files(
+                root=root,
+                include=options.include,
+                exclude=options.exclude,
+                respect_gitignore=options.respect_gitignore,
+            )
+            pack, canonical = pack_repo(
+                disc.root,
+                disc.files,
+                keep_docstrings=options.keep_docstrings,
+                dedupe=options.dedupe,
+            )
+            md = render_markdown(
+                pack,
+                canonical,
+                layout=options.layout,
+                include_manifest=options.include_manifest,
+            )
+            default_output = _resolve_output_path(cfg, args, root)
+            pack_runs.append(
+                PackRun(
+                    root=root,
+                    label=label,
+                    slug=slug,
+                    markdown=md,
+                    options=options,
+                    default_output=default_output,
+                )
+            )
+
+        out_path = (
+            args.output if args.output is not None else pack_runs[0].default_output
         )
-        pack, canonical = pack_repo(
-            disc.root, disc.files, keep_docstrings=keep_docstrings, dedupe=dedupe
-        )
-        md = render_markdown(
-            pack, canonical, layout=layout, include_manifest=include_manifest
-        )
+        if len(pack_runs) == 1:
+            md = pack_runs[0].markdown
+        else:
+            md = _combine_pack_markdown(pack_runs)
+
         # Always write the canonical, unsplit pack
         # for machine parsing (unpack/validate).
         out_path.write_text(md, encoding="utf-8")
 
-        # Additionally, write split parts for LLM consumption, if requested.
-        parts = split_by_max_chars(md, out_path, split_max_chars)
-        extra = [p for p in parts if p.path != out_path]
-        for part in extra:
-            part.path.write_text(part.content, encoding="utf-8")
-
-        if extra:
-            print(f"Wrote {out_path} and {len(extra)} split part file(s).")
+        extra_count = 0
+        if len(pack_runs) == 1:
+            split_max_chars = pack_runs[0].options.split_max_chars
+            parts = split_by_max_chars(md, out_path, split_max_chars)
+            extra = [p for p in parts if p.path != out_path]
+            for part in extra:
+                part.path.write_text(part.content, encoding="utf-8")
+            extra_count += len(extra)
         else:
-            print(f"Wrote {out_path}.")
+            for pack in pack_runs:
+                if pack.options.split_max_chars <= 0:
+                    continue
+                repo_base = out_path.with_name(
+                    f"{out_path.stem}.{pack.slug}{out_path.suffix}"
+                )
+                parts = split_by_max_chars(
+                    pack.markdown, repo_base, pack.options.split_max_chars
+                )
+                extra = [p for p in parts if p.path != repo_base]
+                for part in extra:
+                    content = _prefix_repo_header(part.content, pack.label)
+                    part.path.write_text(content, encoding="utf-8")
+                extra_count += len(extra)
+
+        if extra_count:
+            if len(pack_runs) == 1:
+                print(f"Wrote {out_path} and {extra_count} split part file(s).")
+            else:
+                print(
+                    f"Wrote {out_path} and {extra_count} split part file(s) for "
+                    f"{len(pack_runs)} repos."
+                )
+        else:
+            if len(pack_runs) == 1:
+                print(f"Wrote {out_path}.")
+            else:
+                print(f"Wrote {out_path} for {len(pack_runs)} repos.")
     elif args.cmd == "unpack":
         md_text = args.markdown.read_text(encoding="utf-8", errors="replace")
         unpack_to_dir(md_text, args.out_dir)

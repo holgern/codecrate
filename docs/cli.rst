@@ -26,7 +26,7 @@ Overview
 
 .. code-block:: console
 
-   codecrate pack ROOT [options]
+   codecrate pack [ROOT] [--repo REPO ...] [options]
    codecrate unpack PACK.md -o OUT_DIR
    codecrate patch OLD_PACK.md ROOT [-o patch.md]
    codecrate apply PATCH.md ROOT
@@ -36,11 +36,14 @@ Overview
 pack
 ----
 
-Create a packed Markdown context file from a repository.
+Create a packed Markdown context file from one or more repositories.
 
 .. code-block:: console
 
    codecrate pack . -o context.md
+   codecrate pack --repo /path/to/repo1 --repo /path/to/repo2 -o multi.md
+
+When using ``--repo``, omit the positional ``ROOT``. Specifying both is an error.
 
 Useful flags:
 
@@ -52,7 +55,8 @@ Useful flags:
 * ``--include GLOB`` (repeatable): include patterns
 * ``--exclude GLOB`` (repeatable): exclude patterns
 * ``--split-max-chars N``: additionally emit ``.partN.md`` files for LLMs (the
-main output stays
+  main output stays unsplit). For multi-repo packs, parts are named
+  ``output.<repo>.partN.md``
 * ``-o/--output PATH``: output path (defaults to config ``output`` or ``context.md``)
 
 
@@ -107,7 +111,7 @@ Overview
 
 .. code-block:: console
 
-   codecrate pack ROOT [options]
+   codecrate pack [ROOT] [--repo REPO ...] [options]
    codecrate unpack PACK.md -o OUT_DIR
    codecrate patch OLD_PACK.md ROOT [-o patch.md]
    codecrate apply PATCH.md ROOT
@@ -117,11 +121,14 @@ Overview
 pack
 ----
 
-Create a packed Markdown context file from a repository.
+Create a packed Markdown context file from one or more repositories.
 
 .. code-block:: console
 
    codecrate pack . -o context.md
+   codecrate pack --repo /path/to/repo1 --repo /path/to/repo2 -o multi.md
+
+When using ``--repo``, omit the positional ``ROOT``. Specifying both is an error.
 
 Useful flags:
 
@@ -131,7 +138,9 @@ Useful flags:
 * ``--respect-gitignore / --no-respect-gitignore``: include ignored files or not
 * ``--include GLOB`` (repeatable): include patterns
 * ``--exclude GLOB`` (repeatable): exclude patterns
-* ``--split-max-chars N``: split output into parts
+* ``--split-max-chars N``: additionally emit ``.partN.md`` files for LLMs (the
+  main output stays unsplit). For multi-repo packs, parts are named
+  ``output.<repo>.partN.md``
 
 
 unpack
