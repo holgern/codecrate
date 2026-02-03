@@ -80,6 +80,38 @@ def _extract_rel_path(line: str) -> str | None:
     return line[start:end]
 
 
+def _next_non_empty_line_idx(lines: list[str], start: int) -> int | None:
+    for idx in range(start, len(lines)):
+        if lines[idx].strip():
+            return idx
+    return None
+
+
+def _is_file_block_end(lines: list[str], fence_end_idx: int) -> bool:
+    next_idx = _next_non_empty_line_idx(lines, fence_end_idx + 1)
+    if next_idx is None:
+        return True
+    next_line = lines[next_idx]
+    return (
+        next_line.startswith("### `")
+        or next_line.startswith("**Symbols**")
+        or next_line.startswith("# Repository:")
+    )
+
+
+def _is_function_block_end(lines: list[str], fence_end_idx: int) -> bool:
+    next_idx = _next_non_empty_line_idx(lines, fence_end_idx + 1)
+    if next_idx is None:
+        return True
+    next_line = lines[next_idx]
+    return (
+        next_line.startswith('<a id="func-')
+        or next_line.startswith("### ")
+        or next_line.startswith("## Files")
+        or next_line.startswith("# Repository:")
+    )
+
+
 def _scan_file_blocks(lines: list[str]) -> dict[str, tuple[int, int] | None]:
     ranges: dict[str, tuple[int, int] | None] = {}
     in_files = False
@@ -108,7 +140,9 @@ def _scan_file_blocks(lines: list[str]) -> dict[str, tuple[int, int] | None]:
                 continue
             start_line = j + 2
             k = j + 1
-            while k < len(lines) and lines[k].strip() != "```":
+            while k < len(lines):
+                if lines[k].strip() == "```" and _is_file_block_end(lines, k):
+                    break
                 k += 1
             end_line = k
             if start_line > end_line:
@@ -143,7 +177,9 @@ def _scan_function_library(lines: list[str]) -> dict[str, tuple[int, int] | None
                 continue
             start_line = j + 2
             k = j + 1
-            while k < len(lines) and lines[k].strip() != "```":
+            while k < len(lines):
+                if lines[k].strip() == "```" and _is_function_block_end(lines, k):
+                    break
                 k += 1
             end_line = k
             if start_line > end_line:

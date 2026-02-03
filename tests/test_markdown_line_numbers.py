@@ -111,3 +111,34 @@ def test_stub_layout_line_numbers(tmp_path: Path) -> None:
     assert file_start < f_start <= file_end
     assert lines[f_start - 1].lstrip().startswith("def f(")
     assert "FUNC:" in lines[f_end - 1]
+
+
+def test_full_layout_line_numbers_with_markdown_fences(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "README.md").write_text(
+        "# Title\n\n## Section\n\n```bash\necho hi\n```\n\n## More\n",
+        encoding="utf-8",
+    )
+    (root / "a.py").write_text(
+        "def f():\n    return 1\n",
+        encoding="utf-8",
+    )
+
+    pack, canon = pack_repo(
+        root,
+        [root / "README.md", root / "a.py"],
+        keep_docstrings=True,
+        dedupe=False,
+    )
+    md = render_markdown(pack, canon, layout="full")
+    lines = md.splitlines()
+
+    sym_start, sym_end = _section_bounds(lines, "## Symbol Index")
+    file_line = _find_line(lines, sym_start, sym_end, "### `a.py`")
+    _extract_range(file_line)
+    assert "(empty)" not in file_line
+    assert "<<CC:FILE:" not in file_line
+
+    def_line = _find_line(lines, sym_start, sym_end, "`f` →")
+    _extract_range(def_line)
