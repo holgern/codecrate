@@ -4,6 +4,7 @@ import argparse
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from .config import Config, load_config
 from .diffgen import generate_patch_markdown
@@ -61,6 +62,15 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["auto", "stubs", "full"],
         default=None,
         help="Output layout: auto|stubs|full (default: auto via config)",
+    )
+    pack.add_argument(
+        "--nav-mode",
+        choices=["auto", "compact", "full"],
+        default=None,
+        help=(
+            "Navigation density: auto|compact|full "
+            "(auto: compact unsplit, full when split outputs are requested)."
+        ),
     )
     pack.add_argument(
         "--keep-docstrings",
@@ -191,6 +201,7 @@ class PackOptions:
     dedupe: bool
     split_max_chars: int
     layout: str
+    nav_mode: str
 
     # CLI-only diagnostics
     token_report: bool
@@ -244,6 +255,11 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         if args.layout is not None
         else str(getattr(cfg, "layout", "auto")).strip().lower()
     )
+    nav_mode = (
+        str(args.nav_mode).strip().lower()
+        if args.nav_mode is not None
+        else str(getattr(cfg, "nav_mode", "auto")).strip().lower()
+    )
 
     # Token diagnostics (CLI-only)
     token_count_encoding = (
@@ -291,6 +307,7 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         dedupe=dedupe,
         split_max_chars=split_max_chars,
         layout=layout,
+        nav_mode=nav_mode,
         token_report=token_report,
         token_count_tree=token_count_tree,
         token_count_tree_threshold=token_count_tree_threshold,
@@ -400,6 +417,19 @@ def _pack_has_effective_dedupe(pack: object) -> bool:
     return False
 
 
+def _resolve_effective_nav_mode(
+    nav_mode: str, split_max_chars: int
+) -> Literal["compact", "full"]:
+    mode = nav_mode.strip().lower()
+    if mode == "auto":
+        return "full" if split_max_chars > 0 else "compact"
+    if mode == "compact":
+        return "compact"
+    if mode == "full":
+        return "full"
+    return "full"
+
+
 def _print_pack_summary(
     *,
     out_path: Path,
@@ -490,6 +520,9 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 pack,
                 canonical,
                 layout=options.layout,
+                nav_mode=_resolve_effective_nav_mode(
+                    options.nav_mode, options.split_max_chars
+                ),
                 include_manifest=options.include_manifest,
             )
             effective_layout = options.layout

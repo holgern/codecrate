@@ -50,6 +50,11 @@ class Config:
     token_count_tree_threshold: int = 0
     top_files_len: int = 5
     file_summary: bool = True
+    # Navigation density for markdown pack output.
+    # - "compact": omit file-level jump anchors/back-links to save tokens
+    # - "full": keep all navigation helpers
+    # - "auto": compact for unsplit packs, full when split outputs are requested
+    nav_mode: Literal["auto", "compact", "full"] = "auto"
 
 
 def _find_config_path(root: Path) -> Path | None:
@@ -131,5 +136,11 @@ def load_config(root: Path) -> Config:
 
     summary = section.get("file_summary", cfg.file_summary)
     cfg.file_summary = bool(summary)
+
+    nav_mode = section.get("nav_mode", cfg.nav_mode)
+    if isinstance(nav_mode, str):
+        nav_mode = nav_mode.strip().lower()
+        if nav_mode in {"auto", "compact", "full"}:
+            cfg.nav_mode = nav_mode  # type: ignore[assignment]
 
     return cfg

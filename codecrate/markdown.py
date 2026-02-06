@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from typing import Any
+from typing import Any, Literal
 
 from .manifest import to_manifest
 from .model import ClassRef, FilePack, PackResult
@@ -293,6 +293,7 @@ def render_markdown(  # noqa: C901
     pack: PackResult,
     canonical_sources: dict[str, str],
     layout: str = "auto",
+    nav_mode: Literal["compact", "full"] = "full",
     *,
     include_manifest: bool = True,
 ) -> str:
@@ -303,6 +304,10 @@ def render_markdown(  # noqa: C901
     layout_norm = (layout or "auto").strip().lower()
     if layout_norm not in {"auto", "stubs", "full"}:
         layout_norm = "auto"
+    nav_mode_norm = nav_mode.strip().lower()
+    if nav_mode_norm not in {"compact", "full"}:
+        nav_mode_norm = "full"
+    compact_nav = nav_mode_norm == "compact"
     use_stubs = layout_norm == "stubs" or (
         layout_norm == "auto" and _has_dedupe_effect(pack)
     )
@@ -415,12 +420,15 @@ def render_markdown(  # noqa: C901
 
     for fp in sorted(pack.files, key=lambda x: x.path.as_posix()):
         rel = fp.path.relative_to(pack.root).as_posix()
-        fa = _file_anchor(rel)
-        sa = _file_src_anchor(rel)
         file_range = _range_token("FILE", rel)
-        # Always provide a jump target to the file contents.
-        lines.append(f"### `{rel}` {file_range} — [jump](#{sa})\n")
-        lines.append(f'<a id="{fa}"></a>\n')
+        if compact_nav:
+            lines.append(f"### `{rel}` {file_range}\n")
+        else:
+            fa = _file_anchor(rel)
+            sa = _file_src_anchor(rel)
+            # Always provide a jump target to the file contents.
+            lines.append(f"### `{rel}` {file_range} — [jump](#{sa})\n")
+            lines.append(f'<a id="{fa}"></a>\n')
 
         for c in sorted(fp.classes, key=lambda x: (x.class_line, x.qualname)):
             class_loc = _range_token("CLASS", c.id)
@@ -452,12 +460,15 @@ def render_markdown(  # noqa: C901
     lines.append("## Files\n\n")
     for fp in pack.files:
         rel = fp.path.relative_to(pack.root).as_posix()
-        fa = _file_anchor(rel)
-        sa = _file_src_anchor(rel)
         file_range = _range_token("FILE", rel)
         lines.append(f"### `{rel}` {file_range}\n")
-        lines.append(f'<a id="{sa}"></a>\n')
-        lines.append(f"[jump to index](#{fa})\n\n")
+        if compact_nav:
+            lines.append("\n")
+        else:
+            fa = _file_anchor(rel)
+            sa = _file_src_anchor(rel)
+            lines.append(f'<a id="{sa}"></a>\n')
+            lines.append(f"[jump to index](#{fa})\n\n")
 
         # Compact stubs are not line-count aligned, so render as a single block.
 

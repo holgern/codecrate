@@ -115,6 +115,10 @@ respect_gitignore = true
 # - full: emit complete file contents
 layout = "auto"
 
+# Navigation density: "auto", "compact", or "full"
+# - auto: compact for unsplit packs, full when split outputs are requested
+nav_mode = "auto"
+
 # Split output into multiple files if char count exceeds this (0 = no split)
 split_max_chars = 0
 
@@ -139,6 +143,7 @@ codecrate pack <root> [OPTIONS]
 - `-o, --output PATH`: Output markdown path (default: `context.md`)
 - `--dedupe`: Deduplicate identical function bodies
 - `--layout {auto,stubs,full}`: Output layout mode
+- `--nav-mode {auto,compact,full}`: Navigation density mode
 - `--keep-docstrings` / `--no-keep-docstrings`: Keep docstrings in stubs
 - `--respect-gitignore` / `--no-respect-gitignore`: Respect `.gitignore`
 - `--include GLOB`: Include glob pattern (repeatable)

@@ -21,6 +21,7 @@ Supported keys include (non-exhaustive):
    exclude = ["tests/**"]
    manifest = true
    layout = "auto"
+   nav_mode = "auto"
 
    # Token diagnostics (printed to stderr, not added to output markdown)
    token_count_encoding = "o200k_base"
@@ -57,6 +58,8 @@ Useful flags:
 
 * ``--dedupe``: deduplicate identical function bodies
 * ``--layout auto|stubs|full``: choose layout (auto selects best token efficiency)
+* ``--nav-mode auto|compact|full``: navigation density; auto uses compact for
+  unsplit output and full when split outputs are requested
 * ``--keep-docstrings / --no-keep-docstrings``: keep docstrings in stubbed views
 * ``--manifest / --no-manifest``: include or omit the Manifest section
 * ``--respect-gitignore / --no-respect-gitignore``: include ignored files or not

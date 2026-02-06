@@ -151,6 +151,39 @@ file_summary = false
     assert "Pack Summary" not in captured.err
 
 
+def test_pack_nav_mode_auto_unsplit_is_compact(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert '<a id="src-' not in text
+    assert "[jump to index](#file-" not in text
+
+
+def test_pack_nav_mode_full_keeps_file_navigation(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path), "--nav-mode", "full"])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert '<a id="src-' in text
+    assert "[jump to index](#file-" in text
+
+
+def test_pack_nav_mode_auto_with_split_is_full(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path), "--split-max-chars", "80"])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert '<a id="src-' in text
+    assert "[jump to index](#file-" in text
+
+
 def test_pack_token_count_tree_before_root_recovers_root(
     tmp_path: Path, capsys
 ) -> None:
