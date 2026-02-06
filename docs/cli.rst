@@ -29,6 +29,9 @@ Supported keys include (non-exhaustive):
    manifest = true
    layout = "auto"
    nav_mode = "auto"
+   symbol_backend = "auto"
+   security_check = true
+   security_content_sniff = false
 
    # Token diagnostics (printed to stderr, not added to output markdown)
    token_count_encoding = "o200k_base"
@@ -67,9 +70,15 @@ Useful flags:
 * ``--layout auto|stubs|full``: choose layout (auto selects best token efficiency)
 * ``--nav-mode auto|compact|full``: navigation density; auto uses compact for
   unsplit output and full when split outputs are requested
+* ``--symbol-backend auto|python|tree-sitter|none``: optional non-Python symbol
+  extraction backend (Python files always use AST)
 * ``--keep-docstrings / --no-keep-docstrings``: keep docstrings in stubbed views
 * ``--manifest / --no-manifest``: include or omit the Manifest section
 * ``--respect-gitignore / --no-respect-gitignore``: include ignored files or not
+* ``--security-check / --no-security-check``: enable or disable sensitive-file
+  safety filtering
+* ``--security-content-sniff / --no-security-content-sniff``: optionally scan
+  file content for key/token patterns
 * ``.codecrateignore``: gitignore-style ignore file in repo root (always respected)
 * ``--include GLOB`` (repeatable): include patterns
 * ``--exclude GLOB`` (repeatable): exclude patterns
@@ -98,6 +107,8 @@ Token diagnostics notes:
 * A compact ``Pack Summary`` (files/tokens/chars/output path) is printed by
   default and can be disabled with ``--no-file-summary`` or
   ``file_summary = false`` in config.
+* File code fences are automatically widened when file content contains backticks,
+  so generated markdown remains parsable.
 
 
 unpack

@@ -7,6 +7,7 @@ from .ids import stable_body_hash
 from .model import ClassRef, DefRef, FilePack, PackResult
 from .parse import module_name_for, parse_symbols
 from .stubber import stub_file_text
+from .symbol_backend import extract_non_python_symbols
 
 
 def _extract_canonical_source(text: str, d: DefRef) -> str:
@@ -25,6 +26,7 @@ def pack_repo(
     files: list[Path],
     keep_docstrings: bool = True,
     dedupe: bool = False,
+    symbol_backend: str = "auto",
 ) -> tuple[PackResult, dict[str, str]]:
     filepacks: list[FilePack] = []
     all_defs: list[DefRef] = []
@@ -44,8 +46,16 @@ def pack_repo(
 
             stubbed = stub_file_text(text, defs, keep_docstrings=keep_docstrings)
         else:
-            # Non-Python files are included verbatim (no symbol parsing / stubbing).
-            classes, defs = [], []
+            # Non-Python files are included verbatim.
+            # Optional symbol extraction is index-only.
+            classes = []
+            sym = extract_non_python_symbols(
+                path=path,
+                root=root,
+                text=text,
+                backend=symbol_backend,
+            )
+            defs = sym.defs
             file_module = ""
             stubbed = text
 
@@ -64,13 +74,20 @@ def pack_repo(
 
     canonical_sources: dict[str, str] = {}
     if not dedupe:
-        canonical_sources = {d.local_id: local_canon[d.local_id] for d in all_defs}
+        canonical_sources = {
+            d.local_id: local_canon[d.local_id]
+            for d in all_defs
+            if d.local_id in local_canon
+        }
     else:
         seen_by_hash: dict[str, str] = {}
         remapped_defs: list[DefRef] = []
 
         for d in all_defs:
-            code = local_canon[d.local_id]
+            code = local_canon.get(d.local_id)
+            if code is None:
+                remapped_defs.append(d)
+                continue
             h = stable_body_hash(code)
             cid = seen_by_hash.get(h)
             if cid is None:
@@ -88,9 +105,14 @@ def pack_repo(
         filepacks2: list[FilePack] = []
         for fp in filepacks:
             defs2 = defs_by_file.get(fp.path, [])
-            stubbed2 = stub_file_text(
-                fp.original_text, defs2, keep_docstrings=keep_docstrings
-            )
+            if fp.path.suffix.lower() == ".py":
+                stubbed2 = stub_file_text(
+                    fp.original_text,
+                    defs2,
+                    keep_docstrings=keep_docstrings,
+                )
+            else:
+                stubbed2 = fp.original_text
             filepacks2.append(
                 FilePack(
                     path=fp.path,

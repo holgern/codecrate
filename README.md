@@ -125,6 +125,14 @@ layout = "auto"
 # - auto: compact for unsplit packs, full when split outputs are requested
 nav_mode = "auto"
 
+# Optional non-Python symbol extraction backend: auto|python|tree-sitter|none
+# (Python files always use built-in AST parsing)
+symbol_backend = "auto"
+
+# Sensitive file filtering
+security_check = true
+security_content_sniff = false
+
 # Split output into multiple files if char count exceeds this (0 = no split)
 split_max_chars = 0
 
@@ -150,8 +158,14 @@ codecrate pack <root> [OPTIONS]
 - `--dedupe`: Deduplicate identical function bodies
 - `--layout {auto,stubs,full}`: Output layout mode
 - `--nav-mode {auto,compact,full}`: Navigation density mode
+- `--symbol-backend {auto,python,tree-sitter,none}`: Non-Python symbol backend
 - `--keep-docstrings` / `--no-keep-docstrings`: Keep docstrings in stubs
 - `--respect-gitignore` / `--no-respect-gitignore`: Respect `.gitignore`
+- `--security-check` / `--no-security-check`: Scan for sensitive files (set
+  `--no-security-check` to skip scanning for sensitive data like API keys and
+  passwords)
+- `--security-content-sniff` / `--no-security-content-sniff`: Optional content
+  sniffing for key/token patterns
 - `--include GLOB`: Include glob pattern (repeatable)
 - `--exclude GLOB`: Exclude glob pattern (repeatable)
 - `--stdin`: Read file paths from stdin (one per line)
@@ -169,6 +183,9 @@ not applied, but exclude patterns and ignore files still apply.
 By default, codecrate prints a compact pack summary (total files, total tokens,
 total chars, output path). Disable it with `--no-file-summary` or
 `file_summary = false` in config.
+
+Code fences are automatically widened when file content contains backticks, so
+generated markdown remains parsable.
 
 ### `unpack` - Reconstruct Files from Markdown
 

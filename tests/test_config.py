@@ -22,7 +22,10 @@ def test_config_defaults() -> None:
     assert cfg.token_count_tree_threshold == 0
     assert cfg.top_files_len == 5
     assert cfg.file_summary is True
+    assert cfg.security_check is True
+    assert cfg.security_content_sniff is False
     assert cfg.nav_mode == "auto"
+    assert cfg.symbol_backend == "auto"
 
 
 def test_load_config_missing_file(tmp_path: Path) -> None:
@@ -95,7 +98,10 @@ token_count_tree = true
 token_count_tree_threshold = 42
 top_files_len = 12
 file_summary = false
+security_check = false
+security_content_sniff = true
 nav_mode = "compact"
+symbol_backend = "tree-sitter"
 """,
         encoding="utf-8",
     )
@@ -106,7 +112,10 @@ nav_mode = "compact"
     assert cfg.token_count_tree_threshold == 42
     assert cfg.top_files_len == 12
     assert cfg.file_summary is False
+    assert cfg.security_check is False
+    assert cfg.security_content_sniff is True
     assert cfg.nav_mode == "compact"
+    assert cfg.symbol_backend == "tree-sitter"
 
 
 def test_load_config_invalid_nav_mode_keeps_default(tmp_path: Path) -> None:
@@ -114,12 +123,14 @@ def test_load_config_invalid_nav_mode_keeps_default(tmp_path: Path) -> None:
     (tmp_path / "codecrate.toml").write_text(
         """[codecrate]
 nav_mode = "invalid"
+symbol_backend = "bad"
 """,
         encoding="utf-8",
     )
 
     cfg = load_config(tmp_path)
     assert cfg.nav_mode == "auto"
+    assert cfg.symbol_backend == "auto"
 
 
 def test_load_config_invalid_token_count_numeric_values(tmp_path: Path) -> None:

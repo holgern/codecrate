@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from .fences import is_fence_close, parse_fence_open
+
 
 @dataclass(frozen=True)
 class Part:
@@ -60,9 +62,19 @@ def _split_paragraphs(markdown: str, out_path: Path, max_chars: int) -> list[Par
     return parts
 
 
-_FENCE_RE = re.compile(r"^```")
 _FUNC_ANCHOR_RE = re.compile(r'^<a id="func-([0-9a-f]{8})"></a>\s*$')
 _FILE_HEADING_RE = re.compile(r"^### `([^`]+)`")
+
+
+def _enter_or_exit_fence(line: str, fence: str | None) -> str | None:
+    if fence is None:
+        opened = parse_fence_open(line)
+        if opened is not None:
+            return opened[0]
+        return None
+    if is_fence_close(line, fence):
+        return None
+    return fence
 
 
 def _looks_like_codecrate_pack(markdown: str) -> bool:
@@ -71,14 +83,10 @@ def _looks_like_codecrate_pack(markdown: str) -> bool:
 
 
 def _find_heading_line_index(lines: list[str], heading: str) -> int | None:
-    in_fence = False
+    fence: str | None = None
     for i, line in enumerate(lines):
-        if _FENCE_RE.match(line):
-            if not in_fence:
-                in_fence = True
-            elif line.strip() == "```":
-                in_fence = False
-        if not in_fence and line.startswith(heading):
+        fence = _enter_or_exit_fence(line, fence)
+        if fence is None and line.startswith(heading):
             return i
     return None
 
@@ -90,17 +98,14 @@ def _drop_section(text: str, heading: str) -> str:
     if start is None:
         return text
 
-    in_fence = False
+    fence: str | None = None
     end = len(lines)
     for i in range(start + 1, len(lines)):
         line = lines[i]
-        if _FENCE_RE.match(line):
-            if not in_fence:
-                in_fence = True
-            elif line.strip() == "```":
-                in_fence = False
+        fence = _enter_or_exit_fence(line, fence)
+        if fence is not None:
             continue
-        if not in_fence and line.startswith("## "):
+        if line.startswith("## "):
             end = i
             break
     return "".join(lines[:start] + lines[end:])
@@ -142,16 +147,11 @@ def _split_codecrate_pack(markdown: str, out_path: Path, max_chars: int) -> list
     content_lines = lines[content_start:]
 
     breakpoints: list[int] = [0]
-    in_fence = False
+    fence: str | None = None
     in_files = False
     for i, line in enumerate(content_lines):
-        if _FENCE_RE.match(line):
-            if not in_fence:
-                in_fence = True
-            elif line.strip() == "```":
-                in_fence = False
-
-        if in_fence:
+        fence = _enter_or_exit_fence(line, fence)
+        if fence is not None:
             continue
 
         if line.startswith("## Files"):
@@ -232,15 +232,10 @@ def _scan_part_for_anchors(
     file_to_part: dict[str, str],
     func_to_part: dict[str, str],
 ) -> None:
-    in_fence = False
+    fence: str | None = None
     for line in text.splitlines():
-        if _FENCE_RE.match(line):
-            if not in_fence:
-                in_fence = True
-            elif line.strip() == "```":
-                in_fence = False
-            continue
-        if in_fence:
+        fence = _enter_or_exit_fence(line, fence)
+        if fence is not None:
             continue
 
         m = _FUNC_ANCHOR_RE.match(line.strip())
@@ -255,52 +250,44 @@ def _scan_part_for_anchors(
 
 def _strip_markdown_line_ranges(text: str) -> str:
     out: list[str] = []
-    in_fence = False
+    fence: str | None = None
     for line in text.splitlines(keepends=True):
-        if _FENCE_RE.match(line):
-            if not in_fence:
-                in_fence = True
-            elif line.strip() == "```":
-                in_fence = False
+        was_in_fence = fence is not None
+        fence = _enter_or_exit_fence(line, fence)
+        if was_in_fence or parse_fence_open(line) is not None:
             out.append(line)
             continue
-        if not in_fence:
-            line = re.sub(r"\s*\(L\d+-\d+\)", "", line)
+        line = re.sub(r"\s*\(L\d+-\d+\)", "", line)
         out.append(line)
     return "".join(out)
 
 
 def _rewrite_jump_to_index(text: str, index_filename: str) -> str:
     out: list[str] = []
-    in_fence = False
+    fence: str | None = None
     pat = re.compile(r"\[jump to index\]\(\#(file-[^)]+)\)")
     for line in text.splitlines(keepends=True):
-        if _FENCE_RE.match(line):
-            if not in_fence:
-                in_fence = True
-            elif line.strip() == "```":
-                in_fence = False
+        was_in_fence = fence is not None
+        fence = _enter_or_exit_fence(line, fence)
+        if was_in_fence or parse_fence_open(line) is not None:
             out.append(line)
             continue
-        if not in_fence:
-            line = pat.sub(rf"[jump to index]({index_filename}#\1)", line)
+        line = pat.sub(rf"[jump to index]({index_filename}#\1)", line)
         out.append(line)
     return "".join(out)
 
 
 def _rewrite_func_links(text: str, func_to_part: dict[str, str]) -> str:
     out: list[str] = []
-    in_fence = False
+    fence: str | None = None
     pat = re.compile(r"\(\#(func-[0-9a-f]{8})\)")
     for line in text.splitlines(keepends=True):
-        if _FENCE_RE.match(line):
-            if not in_fence:
-                in_fence = True
-            elif line.strip() == "```":
-                in_fence = False
+        was_in_fence = fence is not None
+        fence = _enter_or_exit_fence(line, fence)
+        if was_in_fence or parse_fence_open(line) is not None:
             out.append(line)
             continue
-        if not in_fence and "(#func-" in line:
+        if "(#func-" in line:
 
             def repl(m: re.Match[str]) -> str:
                 anchor = m.group(1)
@@ -320,25 +307,22 @@ def _rewrite_part1(
 ) -> str:
     lines = text.splitlines(keepends=True)
     out: list[str] = []
-    in_fence = False
+    fence: str | None = None
     in_index = False
     current_file_part: str | None = None
 
     for line in lines:
-        if _FENCE_RE.match(line):
-            if not in_fence:
-                in_fence = True
-            elif line.strip() == "```":
-                in_fence = False
+        was_in_fence = fence is not None
+        fence = _enter_or_exit_fence(line, fence)
 
-        if not in_fence and line.startswith("## Symbol Index"):
+        if not was_in_fence and fence is None and line.startswith("## Symbol Index"):
             in_index = True
             out.append(line)
             continue
 
         if (
             in_index
-            and not in_fence
+            and fence is None
             and line.startswith("## ")
             and not line.startswith("## Symbol Index")
         ):
@@ -347,7 +331,7 @@ def _rewrite_part1(
             out.append(line)
             continue
 
-        if not in_index or in_fence:
+        if not in_index or was_in_fence or fence is not None:
             out.append(line)
             continue
 

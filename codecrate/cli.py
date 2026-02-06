@@ -9,8 +9,10 @@ from typing import Literal
 from .config import Config, load_config
 from .diffgen import generate_patch_markdown
 from .discover import discover_files
+from .fences import is_fence_close, parse_fence_open
 from .markdown import render_markdown
 from .packer import pack_repo
+from .security import SkippedForSafety, filter_sensitive_files
 from .token_budget import split_by_max_chars
 from .tokens import TokenCounter, format_token_count_tree, format_top_files
 from .udiff import apply_file_diffs, parse_unified_diff
@@ -73,6 +75,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     pack.add_argument(
+        "--symbol-backend",
+        choices=["auto", "python", "tree-sitter", "none"],
+        default=None,
+        help=(
+            "Optional non-Python symbol backend: auto|python|tree-sitter|none "
+            "(Python files always use AST)."
+        ),
+    )
+    pack.add_argument(
         "--keep-docstrings",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -83,6 +94,24 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Respect .gitignore (default: true via config)",
+    )
+    pack.add_argument(
+        "--security-check",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Scan files with safety filters (default: on). "
+            "Use --no-security-check to skip scanning for sensitive data like "
+            "API keys and passwords."
+        ),
+    )
+    pack.add_argument(
+        "--security-content-sniff",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Enable content sniffing for sensitive patterns (default: off via config)."
+        ),
     )
     pack.add_argument(
         "--manifest",
@@ -198,10 +227,13 @@ class PackOptions:
     keep_docstrings: bool
     include_manifest: bool
     respect_gitignore: bool
+    security_check: bool
+    security_content_sniff: bool
     dedupe: bool
     split_max_chars: int
     layout: str
     nav_mode: str
+    symbol_backend: str
 
     # CLI-only diagnostics
     token_report: bool
@@ -221,6 +253,7 @@ class PackRun:
     options: PackOptions
     default_output: Path
     file_count: int
+    skipped_for_safety_count: int
 
     # Token diagnostics (optional)
     effective_layout: str
@@ -244,6 +277,16 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         if args.respect_gitignore is None
         else bool(args.respect_gitignore)
     )
+    security_check = (
+        bool(getattr(cfg, "security_check", True))
+        if args.security_check is None
+        else bool(args.security_check)
+    )
+    security_content_sniff = (
+        bool(getattr(cfg, "security_content_sniff", False))
+        if args.security_content_sniff is None
+        else bool(args.security_content_sniff)
+    )
     dedupe = bool(args.dedupe) or bool(cfg.dedupe)
     split_max_chars = (
         cfg.split_max_chars
@@ -259,6 +302,11 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         str(args.nav_mode).strip().lower()
         if args.nav_mode is not None
         else str(getattr(cfg, "nav_mode", "auto")).strip().lower()
+    )
+    symbol_backend = (
+        str(args.symbol_backend).strip().lower()
+        if args.symbol_backend is not None
+        else str(getattr(cfg, "symbol_backend", "auto")).strip().lower()
     )
 
     # Token diagnostics (CLI-only)
@@ -304,10 +352,13 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         keep_docstrings=keep_docstrings,
         include_manifest=include_manifest,
         respect_gitignore=respect_gitignore,
+        security_check=security_check,
+        security_content_sniff=security_content_sniff,
         dedupe=dedupe,
         split_max_chars=split_max_chars,
         layout=layout,
         nav_mode=nav_mode,
+        symbol_backend=symbol_backend,
         token_report=token_report,
         token_count_tree=token_count_tree,
         token_count_tree_threshold=token_count_tree_threshold,
@@ -395,9 +446,11 @@ def _extract_diff_blocks(md_text: str) -> str:
     out: list[str] = []
     i = 0
     while i < len(lines):
-        if lines[i].strip() == "```diff":
+        opened = parse_fence_open(lines[i])
+        if opened is not None and opened[1] == "diff":
+            fence = opened[0]
             i += 1
-            while i < len(lines) and lines[i].strip() != "```":
+            while i < len(lines) and not is_fence_close(lines[i], fence):
                 out.append(lines[i])
                 i += 1
         i += 1
@@ -451,6 +504,26 @@ def _print_pack_summary(
     print(f"{'Total Tokens':>12}: {total_tokens} tokens", file=sys.stderr)
     print(f"{'Total Chars':>12}: {total_chars:,} chars", file=sys.stderr)
     print(f"{'Output':>12}: {out_path.as_posix()}", file=sys.stderr)
+
+
+def _emit_safety_warning(
+    *,
+    label: str,
+    root: Path,
+    skipped: list[SkippedForSafety],
+) -> None:
+    if not skipped:
+        return
+    preview = ", ".join(
+        f"{item.path.relative_to(root).as_posix()} ({item.reason})"
+        for item in skipped[:5]
+    )
+    suffix = "" if len(skipped) <= 5 else ", ..."
+    print(
+        f"Warning: skipped {len(skipped)} file(s) for safety in {label}: "
+        f"{preview}{suffix}",
+        file=sys.stderr,
+    )
 
 
 def main(argv: list[str] | None = None) -> None:  # noqa: C901
@@ -510,11 +583,22 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 respect_gitignore=options.respect_gitignore,
                 explicit_files=stdin_files,
             )
+            safe_files = disc.files
+            skipped: list[SkippedForSafety] = []
+            if options.security_check:
+                safe_files, skipped = filter_sensitive_files(
+                    disc.root,
+                    disc.files,
+                    content_sniff=options.security_content_sniff,
+                )
+                _emit_safety_warning(label=label, root=disc.root, skipped=skipped)
+
             pack, canonical = pack_repo(
                 disc.root,
-                disc.files,
+                safe_files,
                 keep_docstrings=options.keep_docstrings,
                 dedupe=options.dedupe,
+                symbol_backend=options.symbol_backend,
             )
             md = render_markdown(
                 pack,
@@ -523,6 +607,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 nav_mode=_resolve_effective_nav_mode(
                     options.nav_mode, options.split_max_chars
                 ),
+                skipped_for_safety_count=len(skipped),
                 include_manifest=options.include_manifest,
             )
             effective_layout = options.layout
@@ -567,7 +652,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     markdown=md,
                     options=options,
                     default_output=default_output,
-                    file_count=len(disc.files),
+                    file_count=len(safe_files),
+                    skipped_for_safety_count=len(skipped),
                     effective_layout=effective_layout,
                     output_tokens=output_tokens,
                     total_file_tokens=total_file_tokens,

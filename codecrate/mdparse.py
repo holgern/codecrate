@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-_CODE_FENCE_RE = re.compile(r"^```([a-zA-Z0-9_-]+)\s*$")
-_FENCE_END_RE = re.compile(r"^```\s*$")
+from .fences import is_fence_close, parse_fence_open
 
 
 @dataclass(frozen=True)
@@ -20,17 +18,17 @@ class PackedMarkdown:
 def _iter_fenced_blocks(lines: list[str]) -> Iterator[tuple[str, str]]:
     i = 0
     while i < len(lines):
-        m = _CODE_FENCE_RE.match(lines[i])
-        if not m:
+        opened = parse_fence_open(lines[i])
+        if opened is None:
             i += 1
             continue
-        lang = m.group(1)
+        fence, lang = opened
         i += 1
         buf: list[str] = []
-        while i < len(lines) and not _FENCE_END_RE.match(lines[i]):
+        while i < len(lines) and not is_fence_close(lines[i], fence):
             buf.append(lines[i])
             i += 1
-        if i < len(lines) and _FENCE_END_RE.match(lines[i]):
+        if i < len(lines) and is_fence_close(lines[i], fence):
             i += 1
         yield lang, "".join(buf)
 
@@ -68,12 +66,17 @@ def _parse_function_library(text_lines: list[str]) -> dict[str, str]:
             continue
 
         j = idx + 1
-        while j < fl_end and text_lines[j].strip() != "```python":
+        fence = ""
+        while j < fl_end:
+            opened = parse_fence_open(text_lines[j])
+            if opened is not None and opened[1] == "python":
+                fence = opened[0]
+                break
             j += 1
-        if j < fl_end and text_lines[j].strip() == "```python":
+        if j < fl_end and fence:
             k = j + 1
             buf: list[str] = []
-            while k < fl_end and text_lines[k].strip() != "```":
+            while k < fl_end and not is_fence_close(text_lines[k], fence):
                 buf.append(text_lines[k])
                 k += 1
             if buf:
@@ -96,11 +99,12 @@ def _parse_stubbed_files(text_lines: list[str]) -> dict[str, str]:
             while j < fs_end and not (
                 text_lines[j].startswith("### `") and "`" in text_lines[j]
             ):
-                fence = text_lines[j].strip()
-                if fence.startswith("```") and fence != "```":
+                opened = parse_fence_open(text_lines[j])
+                if opened is not None:
+                    fence = opened[0]
                     k = j + 1
                     buf: list[str] = []
-                    while k < fs_end and text_lines[k].strip() != "```":
+                    while k < fs_end and not is_fence_close(text_lines[k], fence):
                         buf.append(text_lines[k])
                         k += 1
                     if buf:

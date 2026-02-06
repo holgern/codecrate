@@ -51,11 +51,17 @@ class Config:
     token_count_tree_threshold: int = 0
     top_files_len: int = 5
     file_summary: bool = True
+    # Safety filter for potentially sensitive files.
+    security_check: bool = True
+    security_content_sniff: bool = False
     # Navigation density for markdown pack output.
     # - "compact": omit file-level jump anchors/back-links to save tokens
     # - "full": keep all navigation helpers
     # - "auto": compact for unsplit packs, full when split outputs are requested
     nav_mode: Literal["auto", "compact", "full"] = "auto"
+    # Optional symbol extraction backend for non-Python files.
+    # Python files always use the built-in AST parser.
+    symbol_backend: Literal["auto", "python", "tree-sitter", "none"] = "auto"
 
 
 def _find_config_path(root: Path) -> Path | None:
@@ -150,10 +156,22 @@ def load_config(root: Path) -> Config:
     summary = section.get("file_summary", cfg.file_summary)
     cfg.file_summary = bool(summary)
 
+    sec = section.get("security_check", cfg.security_check)
+    cfg.security_check = bool(sec)
+
+    sniff = section.get("security_content_sniff", cfg.security_content_sniff)
+    cfg.security_content_sniff = bool(sniff)
+
     nav_mode = section.get("nav_mode", cfg.nav_mode)
     if isinstance(nav_mode, str):
         nav_mode = nav_mode.strip().lower()
         if nav_mode in {"auto", "compact", "full"}:
             cfg.nav_mode = nav_mode  # type: ignore[assignment]
+
+    backend = section.get("symbol_backend", cfg.symbol_backend)
+    if isinstance(backend, str):
+        backend = backend.strip().lower()
+        if backend in {"auto", "python", "tree-sitter", "none"}:
+            cfg.symbol_backend = backend  # type: ignore[assignment]
 
     return cfg

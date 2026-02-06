@@ -4,6 +4,7 @@ import json
 from collections import defaultdict
 from typing import Any, Literal
 
+from .fences import choose_backtick_fence, is_fence_close, parse_fence_open
 from .manifest import to_manifest
 from .model import ClassRef, FilePack, PackResult
 from .parse import parse_symbols
@@ -42,6 +43,13 @@ def _file_range(line_count: int) -> str:
 
 def _ensure_nl(s: str) -> str:
     return s if (not s or s.endswith("\n")) else (s + "\n")
+
+
+def _append_fenced_block(lines: list[str], content: str, info: str) -> None:
+    fence = choose_backtick_fence(content)
+    lines.append(f"{fence}{info}\n")
+    lines.append(_ensure_nl(content))
+    lines.append(f"{fence}\n\n")
 
 
 def _fence_lang_for(rel_path: str) -> str:
@@ -138,9 +146,12 @@ def _scan_file_blocks(lines: list[str]) -> dict[str, tuple[int, int] | None]:
                 i += 1
                 continue
             j = i + 1
-            while j < len(lines) and not (
-                lines[j].strip().startswith("```") and lines[j].strip() != "```"
-            ):
+            fence = ""
+            while j < len(lines):
+                opened = parse_fence_open(lines[j])
+                if opened is not None:
+                    fence = opened[0]
+                    break
                 j += 1
             if j >= len(lines):
                 ranges[rel] = None
@@ -149,7 +160,7 @@ def _scan_file_blocks(lines: list[str]) -> dict[str, tuple[int, int] | None]:
             start_line = j + 2
             k = j + 1
             while k < len(lines):
-                if lines[k].strip() == "```" and _is_file_block_end(lines, k):
+                if is_fence_close(lines[k], fence) and _is_file_block_end(lines, k):
                     break
                 k += 1
             end_line = k
@@ -178,7 +189,12 @@ def _scan_function_library(lines: list[str]) -> dict[str, tuple[int, int] | None
         if in_lib and line.startswith("### "):
             defn_id = line.replace("###", "").strip()
             j = i + 1
-            while j < len(lines) and lines[j].strip() != "```python":
+            fence = ""
+            while j < len(lines):
+                opened = parse_fence_open(lines[j])
+                if opened is not None and opened[1] == "python":
+                    fence = opened[0]
+                    break
                 j += 1
             if j >= len(lines):
                 i += 1
@@ -186,7 +202,7 @@ def _scan_function_library(lines: list[str]) -> dict[str, tuple[int, int] | None
             start_line = j + 2
             k = j + 1
             while k < len(lines):
-                if lines[k].strip() == "```" and _is_function_block_end(lines, k):
+                if is_fence_close(lines[k], fence) and _is_function_block_end(lines, k):
                     break
                 k += 1
             end_line = k
@@ -202,16 +218,16 @@ def _scan_function_library(lines: list[str]) -> dict[str, tuple[int, int] | None
 
 def _scan_section_ranges(lines: list[str]) -> dict[str, tuple[int, int] | None]:
     headings: list[tuple[str, int]] = []
-    in_fence = False
+    fence: str | None = None
     for idx, line in enumerate(lines, start=1):
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            if not in_fence:
-                in_fence = True
-            elif stripped == "```":
-                in_fence = False
-            continue
-        if in_fence:
+        if fence is None:
+            opened = parse_fence_open(line)
+            if opened is not None:
+                fence = opened[0]
+                continue
+        else:
+            if is_fence_close(line, fence):
+                fence = None
             continue
         if line.startswith("## "):
             headings.append((line[3:].strip(), idx))
@@ -368,6 +384,7 @@ def render_markdown(  # noqa: C901
     canonical_sources: dict[str, str],
     layout: str = "auto",
     nav_mode: Literal["compact", "full"] = "full",
+    skipped_for_safety_count: int = 0,
     *,
     include_manifest: bool = True,
 ) -> str:
@@ -387,6 +404,8 @@ def render_markdown(  # noqa: C901
     )
     resolved_layout = "stubs" if use_stubs else "full"
     lines.append(f"Layout: `{resolved_layout}`\n\n")
+    if skipped_for_safety_count > 0:
+        lines.append(f"Skipped for safety: {skipped_for_safety_count} file(s)\n\n")
 
     def_line_map: dict[str, tuple[int, int]] = {}
     class_line_map: dict[str, tuple[int, int]] = {}
@@ -434,20 +453,20 @@ def render_markdown(  # noqa: C901
 
     if include_manifest:
         lines.append("## Manifest\n\n")
-        lines.append("```codecrate-manifest\n")
-        lines.append(
+        _append_fenced_block(
+            lines,
             json.dumps(
-                to_manifest(pack, minimal=not use_stubs), indent=2, sort_keys=False
+                to_manifest(pack, minimal=not use_stubs),
+                indent=2,
+                sort_keys=False,
             )
-            + "\n"
+            + "\n",
+            "codecrate-manifest",
         )
-        lines.append("```\n\n")
 
     rel_paths = [f.path.relative_to(pack.root).as_posix() for f in pack.files]
     lines.append("## Directory Tree\n\n")
-    lines.append("```text\n")
-    lines.append(_render_tree(rel_paths) + "\n")
-    lines.append("```\n\n")
+    _append_fenced_block(lines, _render_tree(rel_paths) + "\n", "text")
 
     lines.append("## Symbol Index\n\n")
 
@@ -469,8 +488,9 @@ def render_markdown(  # noqa: C901
 
         for d in sorted(fp.defs, key=lambda d: (d.def_line, d.qualname)):
             loc = _range_token("DEF", d.local_id)
+            has_canonical = d.id in canonical_sources
             link = "\n"
-            if use_stubs:
+            if use_stubs and has_canonical:
                 anchor = _anchor_for(d.id, d.module, d.qualname)
                 link = f" — [jump](#{anchor})\n"
                 id_display = f"**{d.id}**"
@@ -486,9 +506,7 @@ def render_markdown(  # noqa: C901
         for defn_id, code in canonical_sources.items():
             lines.append(f'<a id="{_anchor_for(defn_id, "", "")}"></a>\n')
             lines.append(f"### {defn_id}\n")
-            lines.append("```python\n")
-            lines.append(_ensure_nl(code))
-            lines.append("```\n\n")
+            _append_fenced_block(lines, _ensure_nl(code), "python")
 
     lines.append("## Files\n\n")
     for fp in pack.files:
@@ -505,25 +523,28 @@ def render_markdown(  # noqa: C901
 
         # Compact stubs are not line-count aligned, so render as a single block.
 
-        lines.append(f"```{_fence_lang_for(rel)}\n")
         if use_stubs:
-            lines.append(_ensure_nl(fp.stubbed_text))
+            file_content = _ensure_nl(fp.stubbed_text)
         else:
-            lines.append(_ensure_nl(_read_full_text(fp)))
-        lines.append("```\n\n")
+            file_content = _ensure_nl(_read_full_text(fp))
+        _append_fenced_block(lines, file_content, _fence_lang_for(rel))
         # Only emit the Symbols block when there are actually symbols.
         if use_stubs and fp.defs:
             lines.append("**Symbols**\n\n")
             if fp.module:
                 lines.append(f"_Module_: `{fp.module}`\n\n")
             for d in sorted(fp.defs, key=lambda x: (x.def_line, x.qualname)):
-                anchor = _anchor_for(d.id, d.module, d.qualname)
                 loc = _range_token("DEF", d.local_id)
-                link = f" — [jump](#{anchor})\n"
-                id_display = f"**{d.id}**"
-                if getattr(d, "local_id", d.id) != d.id:
-                    id_display += f" (local **{d.local_id}**)"
-                lines.append(f"- `{d.qualname}` → {id_display} {loc}{link}")
+                has_canonical = d.id in canonical_sources
+                if has_canonical:
+                    anchor = _anchor_for(d.id, d.module, d.qualname)
+                    link = f" — [jump](#{anchor})\n"
+                    id_display = f"**{d.id}**"
+                    if getattr(d, "local_id", d.id) != d.id:
+                        id_display += f" (local **{d.local_id}**)"
+                    lines.append(f"- `{d.qualname}` → {id_display} {loc}{link}")
+                else:
+                    lines.append(f"- `{d.qualname}` → {loc}\n")
             lines.append("\n")
     text = "".join(lines)
     return _apply_context_line_numbers(

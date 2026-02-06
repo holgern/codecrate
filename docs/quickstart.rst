@@ -22,6 +22,9 @@ Example:
 
    [codecrate]
    output = "context.md"
+   security_check = true
+   security_content_sniff = false
+   symbol_backend = "auto"
 
 Installation
 ------------

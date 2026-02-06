@@ -231,3 +231,64 @@ def test_pack_token_count_tree_threshold_filters_tree(tmp_path: Path, capsys) ->
     assert "threshold=100" in captured.err
     assert "big.py" in captured.err
     assert "small.py" not in captured.err
+
+
+def test_pack_security_check_skips_sensitive_files(tmp_path: Path, capsys) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=123\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "--include", "*", "-o", str(out_path)])
+
+    captured = capsys.readouterr()
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `a.py`" in text
+    assert "### `.env`" not in text
+    assert "Skipped for safety: 1 file(s)" in text
+    assert "skipped 1 file(s) for safety" in captured.err
+
+
+def test_pack_no_security_check_keeps_sensitive_files(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=123\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include",
+            "*",
+            "--no-security-check",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `.env`" in text
+    assert "Skipped for safety:" not in text
+
+
+def test_pack_security_content_sniff_skips_private_key(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "token.txt").write_text(
+        "-----BEGIN PRIVATE KEY-----\nabc\n",
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include",
+            "*.txt",
+            "--security-content-sniff",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `token.txt`" not in text
