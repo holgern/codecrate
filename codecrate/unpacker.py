@@ -6,6 +6,7 @@ import warnings
 from pathlib import Path
 
 from .mdparse import parse_packed_markdown
+from .repositories import split_repository_sections
 from .udiff import ensure_parent_dir
 
 _MARK_RE = re.compile(r"FUNC:([0-9A-Fa-f]{8})")
@@ -104,7 +105,7 @@ def _apply_canonical_into_stub(
     return "".join(lines)
 
 
-def unpack_to_dir(markdown_text: str, out_dir: Path) -> None:
+def _unpack_single_markdown(markdown_text: str, out_dir: Path) -> None:
     packed = parse_packed_markdown(markdown_text)
     manifest = packed.manifest
     if manifest.get("format") != "codecrate.v4":
@@ -147,3 +148,14 @@ def unpack_to_dir(markdown_text: str, out_dir: Path) -> None:
             files_str += "..."
         msg = f"Missing stubbed file blocks for {len(missing)} file(s): {files_str}"
         warnings.warn(msg, RuntimeWarning, stacklevel=2)
+
+
+def unpack_to_dir(markdown_text: str, out_dir: Path) -> None:
+    sections = split_repository_sections(markdown_text)
+    if not sections:
+        _unpack_single_markdown(markdown_text, out_dir)
+        return
+
+    out_root = out_dir.resolve()
+    for section in sections:
+        _unpack_single_markdown(section.content, out_root / section.slug)

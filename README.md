@@ -197,21 +197,29 @@ codecrate unpack <markdown> -o <out-dir>
 
 - `-o, --out-dir PATH`: Output directory for reconstructed files (required)
 
+For combined packs (multiple `# Repository: ...` sections), files are unpacked to
+`<out-dir>/<repo-slug>/...` per repository section.
+
 ### `patch` - Generate Diff-Only Patch
 
 ```bash
-codecrate patch <old_markdown> <root> [OPTIONS]
+codecrate patch <old_markdown> <root> [--repo <label-or-slug>] [OPTIONS]
 ```
 
 **Options:**
 
+- `--repo <label-or-slug>`: Required when `<old_markdown>` contains multiple
+  `# Repository:` sections; selects which repository baseline to diff against
 - `-o, --output PATH`: Output patch markdown (default: `patch.md`)
 
 ### `apply` - Apply Patch to Repository
 
 ```bash
-codecrate apply <patch_markdown> <root>
+codecrate apply <patch_markdown> <root> [--repo <label-or-slug>]
 ```
+
+When `<patch_markdown>` contains multiple `# Repository:` sections, `--repo` is
+required to select one section.
 
 ### `validate-pack` - Validate Pack
 
@@ -222,6 +230,9 @@ codecrate validate-pack <markdown> [--root PATH]
 **Options:**
 
 - `--root PATH`: Optional repo root to compare reconstructed files against
+
+For combined packs, validation runs per repository section and reports scope-aware
+errors/warnings. Cross-repo anchor collisions are reported as errors.
 
 ## Layout Modes
 

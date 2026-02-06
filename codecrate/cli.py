@@ -12,6 +12,11 @@ from .discover import discover_files
 from .fences import is_fence_close, parse_fence_open
 from .markdown import render_markdown
 from .packer import pack_repo
+from .repositories import (
+    select_repository_section,
+    slugify_repo_label,
+    split_repository_sections,
+)
 from .security import SkippedForSafety, filter_sensitive_files
 from .token_budget import split_by_max_chars
 from .tokens import TokenCounter, format_token_count_tree, format_top_files
@@ -191,6 +196,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     patch.add_argument("root", type=Path, help="Current repo root to compare against")
     patch.add_argument(
+        "--repo",
+        type=str,
+        default=None,
+        help="Repository label or slug when old_markdown contains multiple repos",
+    )
+    patch.add_argument(
         "-o",
         "--output",
         type=Path,
@@ -204,6 +215,12 @@ def build_parser() -> argparse.ArgumentParser:
         "patch_markdown", type=Path, help="Patch Markdown containing ```diff blocks"
     )
     apply.add_argument("root", type=Path, help="Repo root to apply patch to")
+    apply.add_argument(
+        "--repo",
+        type=str,
+        default=None,
+        help="Repository label or slug when patch_markdown contains multiple repos",
+    )
     # validate-pack
     vpack = sub.add_parser(
         "validate-pack",
@@ -399,16 +416,7 @@ def _unique_label(root: Path, used: set[str]) -> str:
 
 
 def _slugify(label: str) -> str:
-    safe: list[str] = []
-    for ch in label:
-        if ch.isalnum() or ch in {"-", "_"}:
-            safe.append(ch)
-        else:
-            safe.append("-")
-    slug = "".join(safe).strip("-")
-    while "--" in slug:
-        slug = slug.replace("--", "-")
-    return slug or "repo"
+    return slugify_repo_label(label)
 
 
 def _unique_slug(label: str, used: set[str]) -> str:
@@ -763,6 +771,25 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
 
     elif args.cmd == "patch":
         old_md = args.old_markdown.read_text(encoding="utf-8", errors="replace")
+        old_sections = split_repository_sections(old_md)
+        selected_label: str | None = None
+        if old_sections:
+            try:
+                section = select_repository_section(
+                    old_sections,
+                    args.repo,
+                    command_name="patch",
+                )
+            except ValueError as e:
+                parser.error(str(e))
+            old_md = section.content
+            selected_label = section.label
+        elif args.repo is not None:
+            parser.error(
+                "patch: --repo was provided, but old_markdown has no "
+                "# Repository sections"
+            )
+
         cfg = load_config(args.root)
         patch_md = generate_patch_markdown(
             old_md,
@@ -771,6 +798,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             exclude=cfg.exclude,
             respect_gitignore=cfg.respect_gitignore,
         )
+        if old_sections and selected_label is not None:
+            patch_md = _prefix_repo_header(patch_md.rstrip() + "\n", selected_label)
         args.output.write_text(patch_md, encoding="utf-8")
         print(f"Wrote {args.output}")
 
@@ -790,6 +819,23 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
 
     elif args.cmd == "apply":
         md_text = args.patch_markdown.read_text(encoding="utf-8", errors="replace")
+        patch_sections = split_repository_sections(md_text)
+        if patch_sections:
+            try:
+                section = select_repository_section(
+                    patch_sections,
+                    args.repo,
+                    command_name="apply",
+                )
+            except ValueError as e:
+                parser.error(str(e))
+            md_text = section.content
+        elif args.repo is not None:
+            parser.error(
+                "apply: --repo was provided, but patch_markdown has no "
+                "# Repository sections"
+            )
+
         diff_text = _extract_diff_blocks(md_text)
         diffs = parse_unified_diff(diff_text)
         changed = apply_file_diffs(diffs, args.root)
