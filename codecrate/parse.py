@@ -20,7 +20,7 @@ def module_name_for(path: Path, root: Path) -> str:
 
 
 class _Visitor(ast.NodeVisitor):
-    def __init__(self, path: Path, root: Path):
+    def __init__(self, path: Path, root: Path) -> None:
         self.path = path
         self.root = root
         self.module = module_name_for(path, root)
@@ -28,19 +28,19 @@ class _Visitor(ast.NodeVisitor):
         self.defs: list[DefRef] = []
         self.classes: list[ClassRef] = []
 
-    def visit_ClassDef(self, node: ast.ClassDef):
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self._add_class(node)
         self.stack.append(node.name)
         self.generic_visit(node)
         self.stack.pop()
 
-    def visit_FunctionDef(self, node: ast.FunctionDef):
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._add_def(node, kind="function")
         self.stack.append(node.name)
         self.generic_visit(node)
         self.stack.pop()
 
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._add_def(node, kind="async_function")
         self.stack.append(node.name)
         self.generic_visit(node)

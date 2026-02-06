@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
+from typing import Any, cast
 
 try:  # Optional dependency
-    import tiktoken  # type: ignore
+    _tiktoken_module = importlib.import_module("tiktoken")
 except ModuleNotFoundError:  # pragma: no cover
-    tiktoken = None  # type: ignore
+    tiktoken = None
+else:  # pragma: no cover
+    tiktoken = cast(Any, _tiktoken_module)
 
-_ENCODER_CACHE: dict[str, object] = {}
+_ENCODER_CACHE: dict[str, Any] = {}
 
 
 def _approx_tokens(text: str) -> int:
@@ -15,7 +19,7 @@ def _approx_tokens(text: str) -> int:
     return (len(text) + 3) // 4 if text else 0
 
 
-def _get_encoder(name: str) -> object | None:
+def _get_encoder(name: str) -> Any | None:
     if tiktoken is None:
         return None
     enc = _ENCODER_CACHE.get(name)
@@ -37,7 +41,7 @@ class TokenCounter:
         enc = _get_encoder(self.encoding)
         if enc is None:
             return _approx_tokens(text)
-        return len(enc.encode(text))  # type: ignore[attr-defined]
+        return len(enc.encode(text))
 
 
 class _Node:

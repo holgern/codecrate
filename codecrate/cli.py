@@ -302,8 +302,8 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
 
 def _resolve_output_path(cfg: Config, args: argparse.Namespace, root: Path) -> Path:
     if args.output is not None:
-        return args.output
-    out_path = Path(getattr(cfg, "output", "context.md"))
+        return Path(args.output)
+    out_path = Path(cfg.output)
     if not out_path.is_absolute():
         out_path = root / out_path
     return out_path
@@ -554,7 +554,10 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         # Always write the canonical, unsplit pack
         # for machine parsing (unpack/validate).
         out_path.write_text(md, encoding="utf-8")
-        rel_out_path = out_path.relative_to(Path.cwd())
+        try:
+            rel_out_path = out_path.relative_to(Path.cwd())
+        except ValueError:
+            rel_out_path = out_path
 
         extra_count = 0
         if len(pack_runs) == 1:
@@ -565,18 +568,18 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 part.path.write_text(part.content, encoding="utf-8")
             extra_count += len(extra)
         else:
-            for pack in pack_runs:
-                if pack.options.split_max_chars <= 0:
+            for run_pack in pack_runs:
+                if run_pack.options.split_max_chars <= 0:
                     continue
                 repo_base = out_path.with_name(
-                    f"{out_path.stem}.{pack.slug}{out_path.suffix}"
+                    f"{out_path.stem}.{run_pack.slug}{out_path.suffix}"
                 )
                 parts = split_by_max_chars(
-                    pack.markdown, repo_base, pack.options.split_max_chars
+                    run_pack.markdown, repo_base, run_pack.options.split_max_chars
                 )
                 extra = [p for p in parts if p.path != repo_base]
                 for part in extra:
-                    content = _prefix_repo_header(part.content, pack.label)
+                    content = _prefix_repo_header(part.content, run_pack.label)
                     part.path.write_text(content, encoding="utf-8")
                 extra_count += len(extra)
 
@@ -624,7 +627,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     print(f"Wrote {rel_out_path} and {extra_count} split part file(s).")
                 else:
                     print(
-                        f"Wrote {rel_out_path} and {extra_count} split part file(s) for "
+                        f"Wrote {rel_out_path} and {extra_count} "
+                        "split part file(s) for "
                         f"{len(pack_runs)} repos."
                     )
             else:
@@ -633,7 +637,6 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 else:
                     print(f"Wrote {rel_out_path} for {len(pack_runs)} repos.")
 
-           
     elif args.cmd == "unpack":
         md_text = args.markdown.read_text(encoding="utf-8", errors="replace")
         unpack_to_dir(md_text, args.out_dir)
@@ -661,8 +664,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 print(f"- {w}")
         if report.errors:
             print("Errors:")
-            for e in report.errors:
-                print(f"- {e}")
+            for err in report.errors:
+                print(f"- {err}")
             raise SystemExit(1)
         print("OK: pack is internally consistent.")
 

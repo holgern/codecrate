@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 _CODE_FENCE_RE = re.compile(r"^```([a-zA-Z0-9_-]+)\s*$")
@@ -16,7 +17,7 @@ class PackedMarkdown:
     stubbed_files: dict[str, str]  # rel path -> code
 
 
-def _iter_fenced_blocks(lines: list[str]):
+def _iter_fenced_blocks(lines: list[str]) -> Iterator[tuple[str, str]]:
     i = 0
     while i < len(lines):
         m = _CODE_FENCE_RE.match(lines[i])
@@ -25,7 +26,7 @@ def _iter_fenced_blocks(lines: list[str]):
             continue
         lang = m.group(1)
         i += 1
-        buf = []
+        buf: list[str] = []
         while i < len(lines) and not _FENCE_END_RE.match(lines[i]):
             buf.append(lines[i])
             i += 1

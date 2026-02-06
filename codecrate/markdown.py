@@ -5,7 +5,7 @@ from collections import defaultdict
 from typing import Any
 
 from .manifest import to_manifest
-from .model import ClassRef, PackResult
+from .model import ClassRef, FilePack, PackResult
 from .parse import parse_symbols
 
 
@@ -214,9 +214,9 @@ def _apply_context_line_numbers(
             replacements[token] = _format_range(rng[0], rng[1])
 
     for class_id, loc in class_line_map.items():
-        rel = class_to_file.get(class_id)
+        rel_path = class_to_file.get(class_id)
         token = _range_token("CLASS", class_id)
-        file_range = file_ranges.get(rel) if rel else None
+        file_range = file_ranges.get(rel_path) if rel_path else None
         if file_range is None:
             replacements[token] = _format_range(None, None)
             continue
@@ -232,8 +232,8 @@ def _apply_context_line_numbers(
             if canon_range is not None:
                 replacements[token] = _format_range(canon_range[0], canon_range[1])
                 continue
-        rel = def_to_file.get(local_id)
-        file_range = file_ranges.get(rel) if rel else None
+        rel_path = def_to_file.get(local_id)
+        file_range = file_ranges.get(rel_path) if rel_path else None
         if file_range is None:
             replacements[token] = _format_range(None, None)
             continue
@@ -259,7 +259,7 @@ def _has_dedupe_effect(pack: PackResult) -> bool:
     return False
 
 
-def _read_full_text(fp) -> str:
+def _read_full_text(fp: FilePack) -> str:
     """Return the packed file contents."""
     return fp.original_text
 

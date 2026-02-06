@@ -7,7 +7,7 @@ from typing import Any, Literal
 try:
     import tomllib  # py311+
 except ModuleNotFoundError:  # pragma: no cover
-    import tomli as tomllib  # type: ignore
+    import tomli as tomllib  # pyright: ignore[reportMissingImports]
 
 CONFIG_FILENAMES: tuple[str, ...] = (".codecrate.toml", "codecrate.toml")
 
