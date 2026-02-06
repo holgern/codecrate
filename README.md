@@ -23,6 +23,9 @@
 - **Round-trip support**: Reconstruct original files exactly from Markdown packs
 - **Diff generation**: Create minimal patch Markdown files showing only changed code
 - **Gitignore support**: Respect `.gitignore` when scanning files
+- **Tool ignore support**: Respect `.codecrateignore` (always)
+- **Targeted packing**: Optional `--stdin` mode to pack an explicit file list
+- **Token diagnostics**: Optional CLI token reports (encoding, tree, top files)
 
 ## Installation
 
@@ -103,6 +106,9 @@ keep_docstrings = true
 # Respect .gitignore when scanning (default: true)
 respect_gitignore = true
 
+# Always respected when present (separate file, gitignore syntax):
+# .codecrateignore
+
 # Output layout: "auto", "stubs", or "full" (default: "auto")
 # - auto: use stubs only if dedupe collapses something
 # - stubs: always use stubs + Function Library
@@ -111,6 +117,13 @@ layout = "auto"
 
 # Split output into multiple files if char count exceeds this (0 = no split)
 split_max_chars = 0
+
+# Token diagnostics (CLI stderr output only; not written into context.md)
+token_count_encoding = "o200k_base"
+token_count_tree = false
+token_count_tree_threshold = 0
+top_files_len = 5
+file_summary = true
 ```
 
 ## Command Reference
@@ -130,7 +143,21 @@ codecrate pack <root> [OPTIONS]
 - `--respect-gitignore` / `--no-respect-gitignore`: Respect `.gitignore`
 - `--include GLOB`: Include glob pattern (repeatable)
 - `--exclude GLOB`: Exclude glob pattern (repeatable)
+- `--stdin`: Read file paths from stdin (one per line)
 - `--split-max-chars N`: Split output into `.partN.md` files
+- `--token-count-tree [threshold]`: Show file tree with token counts; optional
+  threshold shows only files with >=N tokens (for example,
+  `--token-count-tree 100`)
+- `--top-files-len N`: Show top N largest files by token count
+- `--token-count-encoding NAME`: Tokenizer encoding for token counting
+- `--file-summary` / `--no-file-summary`: Enable or disable pack summary output
+
+When `--stdin` is used, only stdin-listed files are considered. Include globs are
+not applied, but exclude patterns and ignore files still apply.
+
+By default, codecrate prints a compact pack summary (total files, total tokens,
+total chars, output path). Disable it with `--no-file-summary` or
+`file_summary = false` in config.
 
 ### `unpack` - Reconstruct Files from Markdown
 

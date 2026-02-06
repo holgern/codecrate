@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from .discover import discover_files
 from .markdown import render_markdown
 from .packer import pack_repo
 from .token_budget import split_by_max_chars
+from .tokens import TokenCounter, format_token_count_tree, format_top_files
 from .udiff import apply_file_diffs, parse_unified_diff
 from .unpacker import unpack_to_dir
 from .validate import validate_pack_markdown
@@ -38,6 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         type=Path,
         help="Additional repo root to pack (repeatable; use instead of ROOT)",
+    )
+    pack.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read file paths from stdin (one per line) instead of scanning the root",
     )
     pack.add_argument(
         "-o",
@@ -84,6 +91,42 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Split output into .partN.md files",
+    )
+
+    pack.add_argument(
+        "--token-count-tree",
+        nargs="?",
+        metavar="threshold",
+        const="-1",
+        default=None,
+        help=(
+            "Show file tree with token counts; optional threshold to show only "
+            "files with >=N tokens (e.g., --token-count-tree 100)."
+        ),
+    )
+    pack.add_argument(
+        "--top-files-len",
+        type=int,
+        default=None,
+        help=(
+            "When printing token counts, show this many largest files "
+            "(default: 5 via config)."
+        ),
+    )
+    pack.add_argument(
+        "--token-count-encoding",
+        type=str,
+        default=None,
+        help=(
+            "Tokenizer encoding for token counting "
+            "(tiktoken; default: o200k_base via config)."
+        ),
+    )
+    pack.add_argument(
+        "--file-summary",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Print pack summary (default: on via config).",
     )
 
     # unpack
@@ -149,6 +192,14 @@ class PackOptions:
     split_max_chars: int
     layout: str
 
+    # CLI-only diagnostics
+    token_report: bool
+    token_count_tree: bool
+    token_count_tree_threshold: int
+    top_files_len: int
+    token_count_encoding: str
+    file_summary: bool
+
 
 @dataclass(frozen=True)
 class PackRun:
@@ -158,6 +209,14 @@ class PackRun:
     markdown: str
     options: PackOptions
     default_output: Path
+    file_count: int
+
+    # Token diagnostics (optional)
+    effective_layout: str
+    output_tokens: int
+    total_file_tokens: int
+    file_tokens: dict[str, int]
+    token_backend: str
 
 
 def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
@@ -185,6 +244,44 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         if args.layout is not None
         else str(getattr(cfg, "layout", "auto")).strip().lower()
     )
+
+    # Token diagnostics (CLI-only)
+    token_count_encoding = (
+        str(args.token_count_encoding).strip()
+        if args.token_count_encoding is not None
+        else str(getattr(cfg, "token_count_encoding", "o200k_base")).strip()
+    ) or "o200k_base"
+
+    cfg_tree = bool(getattr(cfg, "token_count_tree", False))
+    cfg_thr = int(getattr(cfg, "token_count_tree_threshold", 0) or 0)
+    cfg_top = int(getattr(cfg, "top_files_len", 5) or 5)
+
+    token_count_tree = cfg_tree
+    token_count_tree_threshold = cfg_thr
+    if args.token_count_tree is not None:
+        token_count_tree = True
+        raw = str(args.token_count_tree).strip()
+        if raw and raw != "-1":
+            try:
+                token_count_tree_threshold = int(raw)
+            except Exception:
+                token_count_tree_threshold = cfg_thr
+
+    top_files_len = cfg_top
+    if args.top_files_len is not None:
+        top_files_len = int(args.top_files_len)
+
+    token_report = bool(
+        token_count_tree
+        or args.top_files_len is not None
+        or args.token_count_encoding is not None
+    )
+    file_summary = (
+        bool(getattr(cfg, "file_summary", True))
+        if args.file_summary is None
+        else bool(args.file_summary)
+    )
+
     return PackOptions(
         include=include,
         exclude=exclude,
@@ -194,6 +291,12 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         dedupe=dedupe,
         split_max_chars=split_max_chars,
         layout=layout,
+        token_report=token_report,
+        token_count_tree=token_count_tree,
+        token_count_tree_threshold=token_count_tree_threshold,
+        top_files_len=top_files_len,
+        token_count_encoding=token_count_encoding,
+        file_summary=file_summary,
     )
 
 
@@ -284,11 +387,60 @@ def _extract_diff_blocks(md_text: str) -> str:
     return "\n".join(out) + "\n"
 
 
+def _pack_has_effective_dedupe(pack: object) -> bool:
+    # True if any definition was remapped to a canonical id.
+    # That means dedupe actually collapsed something.
+    files = getattr(pack, "files", None)
+    if files is None:
+        return False
+    for fp in files:
+        for d in getattr(fp, "defs", []):
+            if getattr(d, "id", None) != getattr(d, "local_id", None):
+                return True
+    return False
+
+
+def _print_pack_summary(
+    *,
+    out_path: Path,
+    markdown: str,
+    total_files: int,
+    encoding: str,
+) -> None:
+    total_chars = len(markdown)
+    total_tokens: str
+    try:
+        total_tokens = f"{TokenCounter(encoding).count(markdown):,}"
+    except Exception:
+        total_tokens = "n/a"
+
+    print("", file=sys.stderr)
+    print("Pack Summary:", file=sys.stderr)
+    print("─────────────", file=sys.stderr)
+    print(f"{'Total Files':>12}: {total_files:,} files", file=sys.stderr)
+    print(f"{'Total Tokens':>12}: {total_tokens} tokens", file=sys.stderr)
+    print(f"{'Total Chars':>12}: {total_chars:,} chars", file=sys.stderr)
+    print(f"{'Output':>12}: {out_path.as_posix()}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> None:  # noqa: C901
     parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.cmd == "pack":
+        # argparse with nargs="?" can consume ROOT as the option value when users run
+        # `pack --token-count-tree ROOT`. Recover ROOT so packing still proceeds.
+        if not args.repo and args.root is None and args.token_count_tree is not None:
+            raw_tree = str(args.token_count_tree).strip()
+            if raw_tree and raw_tree != "-1":
+                try:
+                    int(raw_tree)
+                except ValueError:
+                    candidate = Path(raw_tree)
+                    if candidate.exists():
+                        args.root = candidate
+                        args.token_count_tree = "-1"
+
         if args.repo:
             if args.root is not None:
                 parser.error(
@@ -299,6 +451,17 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             if args.root is None:
                 parser.error("pack: ROOT is required when --repo is not used")
             roots = [args.root.resolve()]
+        stdin_files: list[Path] | None = None
+        if args.stdin:
+            if args.repo:
+                parser.error("pack: --stdin requires a single ROOT (do not use --repo)")
+            raw_lines = [ln.strip() for ln in sys.stdin.read().splitlines()]
+            raw_lines = [ln for ln in raw_lines if ln and not ln.startswith("#")]
+            if not raw_lines:
+                parser.error(
+                    "pack: --stdin was set but no file paths were provided on stdin"
+                )
+            stdin_files = [Path(ln) for ln in raw_lines]
 
         used_labels: set[str] = set()
         used_slugs: set[str] = set()
@@ -315,6 +478,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 include=options.include,
                 exclude=options.exclude,
                 respect_gitignore=options.respect_gitignore,
+                explicit_files=stdin_files,
             )
             pack, canonical = pack_repo(
                 disc.root,
@@ -328,6 +492,39 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 layout=options.layout,
                 include_manifest=options.include_manifest,
             )
+            effective_layout = options.layout
+            if effective_layout == "auto":
+                effective_layout = (
+                    "stubs" if _pack_has_effective_dedupe(pack) else "full"
+                )
+
+            file_tokens: dict[str, int] = {}
+            output_tokens = 0
+            total_file_tokens = 0
+            token_backend = ""
+
+            if options.token_report:
+                try:
+                    counter = TokenCounter(options.token_count_encoding)
+                    token_backend = getattr(counter, "backend", "")
+                    output_tokens = counter.count(md)
+                    for fp in pack.files:
+                        rel = fp.path.relative_to(pack.root).as_posix()
+                        txt = (
+                            fp.original_text
+                            if effective_layout == "full"
+                            else fp.stubbed_text
+                        )
+                        n = counter.count(txt)
+                        file_tokens[rel] = n
+                        total_file_tokens += n
+                except Exception as e:
+                    print(f"Warning: token counting disabled ({e}).", file=sys.stderr)
+                    file_tokens = {}
+                    output_tokens = 0
+                    total_file_tokens = 0
+                    token_backend = ""
+
             default_output = _resolve_output_path(cfg, args, root)
             pack_runs.append(
                 PackRun(
@@ -337,6 +534,12 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     markdown=md,
                     options=options,
                     default_output=default_output,
+                    file_count=len(disc.files),
+                    effective_layout=effective_layout,
+                    output_tokens=output_tokens,
+                    total_file_tokens=total_file_tokens,
+                    file_tokens=file_tokens,
+                    token_backend=token_backend,
                 )
             )
 
@@ -351,6 +554,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         # Always write the canonical, unsplit pack
         # for machine parsing (unpack/validate).
         out_path.write_text(md, encoding="utf-8")
+        rel_out_path = out_path.relative_to(Path.cwd())
 
         extra_count = 0
         if len(pack_runs) == 1:
@@ -376,19 +580,60 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     part.path.write_text(content, encoding="utf-8")
                 extra_count += len(extra)
 
-        if extra_count:
-            if len(pack_runs) == 1:
-                print(f"Wrote {out_path} and {extra_count} split part file(s).")
-            else:
+        # Token diagnostics (stderr)
+        for run in pack_runs:
+            if not run.options.token_report:
+                continue
+            backend = run.token_backend or "approx"
+            enc = run.options.token_count_encoding
+            print("", file=sys.stderr)
+            print(f"Token counts for {run.label}:", file=sys.stderr)
+            print(f"- Backend: {backend} (encoding={enc})", file=sys.stderr)
+            print(f"- Output markdown: {run.output_tokens} tokens", file=sys.stderr)
+            print(
+                f"- Effective file contents ({run.effective_layout}): "
+                f"{run.total_file_tokens} tokens across {len(run.file_tokens)} file(s)",
+                file=sys.stderr,
+            )
+            if run.options.top_files_len and run.file_tokens:
                 print(
-                    f"Wrote {out_path} and {extra_count} split part file(s) for "
-                    f"{len(pack_runs)} repos."
+                    format_top_files(run.file_tokens, run.options.top_files_len),
+                    file=sys.stderr,
                 )
+            if run.options.token_count_tree and run.file_tokens:
+                print(
+                    format_token_count_tree(
+                        run.file_tokens,
+                        threshold=run.options.token_count_tree_threshold,
+                    ),
+                    file=sys.stderr,
+                )
+
+        summary_run = next((run for run in pack_runs if run.options.file_summary), None)
+        if summary_run is not None:
+            summary_encoding = summary_run.options.token_count_encoding
+            _print_pack_summary(
+                out_path=rel_out_path,
+                markdown=md,
+                total_files=sum(run.file_count for run in pack_runs),
+                encoding=summary_encoding,
+            )
         else:
-            if len(pack_runs) == 1:
-                print(f"Wrote {out_path}.")
+            if extra_count:
+                if len(pack_runs) == 1:
+                    print(f"Wrote {rel_out_path} and {extra_count} split part file(s).")
+                else:
+                    print(
+                        f"Wrote {rel_out_path} and {extra_count} split part file(s) for "
+                        f"{len(pack_runs)} repos."
+                    )
             else:
-                print(f"Wrote {out_path} for {len(pack_runs)} repos.")
+                if len(pack_runs) == 1:
+                    print(f"Wrote {rel_out_path}.")
+                else:
+                    print(f"Wrote {rel_out_path} for {len(pack_runs)} repos.")
+
+           
     elif args.cmd == "unpack":
         md_text = args.markdown.read_text(encoding="utf-8", errors="replace")
         unpack_to_dir(md_text, args.out_dir)

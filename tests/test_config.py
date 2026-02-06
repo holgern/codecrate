@@ -16,6 +16,12 @@ def test_config_defaults() -> None:
     assert cfg.exclude == []
     assert cfg.split_max_chars == 0
     assert cfg.manifest is True
+    assert cfg.layout == "auto"
+    assert cfg.token_count_encoding == "o200k_base"
+    assert cfg.token_count_tree is False
+    assert cfg.token_count_tree_threshold == 0
+    assert cfg.top_files_len == 5
+    assert cfg.file_summary is True
 
 
 def test_load_config_missing_file(tmp_path: Path) -> None:
@@ -77,6 +83,42 @@ split_max_chars = 50000
     assert cfg.dedupe is False  # Should use default
     assert cfg.respect_gitignore is True  # Should use default
     assert cfg.split_max_chars == 50000
+
+
+def test_load_config_token_count_values(tmp_path: Path) -> None:
+    """Test loading config with token diagnostics values."""
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+token_count_encoding = "cl100k_base"
+token_count_tree = true
+token_count_tree_threshold = 42
+top_files_len = 12
+file_summary = false
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path)
+    assert cfg.token_count_encoding == "cl100k_base"
+    assert cfg.token_count_tree is True
+    assert cfg.token_count_tree_threshold == 42
+    assert cfg.top_files_len == 12
+    assert cfg.file_summary is False
+
+
+def test_load_config_invalid_token_count_numeric_values(tmp_path: Path) -> None:
+    """Invalid numeric token values should keep defaults."""
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+token_count_tree_threshold = "not a number"
+top_files_len = "also bad"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path)
+    assert cfg.token_count_tree_threshold == 0
+    assert cfg.top_files_len == 5
 
 
 def test_load_config_invalid_include_exclude(tmp_path: Path) -> None:

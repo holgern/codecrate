@@ -44,6 +44,12 @@ class Config:
     # - "auto":  use "stubs" only if dedupe actually collapses something,
     #            otherwise use "full" (best token efficiency when no duplicates)
     layout: Literal["auto", "stubs", "full"] = "auto"
+    # Token counting (CLI diagnostics; not included in pack output).
+    token_count_encoding: str = "o200k_base"
+    token_count_tree: bool = False
+    token_count_tree_threshold: int = 0
+    top_files_len: int = 5
+    file_summary: bool = True
 
 
 def _find_config_path(root: Path) -> Path | None:
@@ -103,5 +109,27 @@ def load_config(root: Path) -> Config:
         cfg.split_max_chars = int(split)
     except Exception:
         pass
+
+    enc = section.get("token_count_encoding", cfg.token_count_encoding)
+    if isinstance(enc, str) and enc.strip():
+        cfg.token_count_encoding = enc.strip()
+
+    tree = section.get("token_count_tree", cfg.token_count_tree)
+    cfg.token_count_tree = bool(tree)
+
+    thr = section.get("token_count_tree_threshold", cfg.token_count_tree_threshold)
+    try:
+        cfg.token_count_tree_threshold = int(thr)
+    except Exception:
+        pass
+
+    top = section.get("top_files_len", cfg.top_files_len)
+    try:
+        cfg.top_files_len = int(top)
+    except Exception:
+        pass
+
+    summary = section.get("file_summary", cfg.file_summary)
+    cfg.file_summary = bool(summary)
 
     return cfg

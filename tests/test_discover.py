@@ -175,3 +175,36 @@ def test_discover_init_files(tmp_path: Path) -> None:
     )
 
     assert len(disc.files) == 3
+
+
+def test_discover_with_codecrateignore(tmp_path: Path) -> None:
+    """Test file discovery respecting .codecrateignore (always)."""
+    (tmp_path / ".codecrateignore").write_text("ignored.py\n", encoding="utf-8")
+    (tmp_path / "a.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "ignored.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_python_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=False,
+    )
+
+    assert len(disc.files) == 1
+    assert disc.files[0] == tmp_path / "a.py"
+
+
+def test_discover_files_explicit_respects_codecrateignore(tmp_path: Path) -> None:
+    (tmp_path / ".codecrateignore").write_text("ignored.py\n", encoding="utf-8")
+    (tmp_path / "a.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "ignored.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=False,
+        explicit_files=[Path("a.py"), Path("ignored.py")],
+    )
+
+    assert disc.files == [tmp_path / "a.py"]
