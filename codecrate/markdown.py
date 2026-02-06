@@ -289,6 +289,33 @@ def _render_tree(paths: list[str]) -> str:
     return "\n".join(walk(root))
 
 
+def _render_how_to_use_section(*, use_stubs: bool) -> str:
+    lines: list[str] = []
+    lines.append("## How to Use This Pack\n\n")
+    lines.append(
+        "This pack is a read-only repository snapshot for analysis and patch "
+        "proposals.\n\n"
+    )
+    lines.append("**Quick workflow**\n")
+    lines.append("1. **Directory Tree**\n")
+    lines.append("2. **Symbol Index**\n")
+    lines.append("3. **Files**\n")
+    if use_stubs:
+        lines.append(
+            "4. For stubbed functions (`...  # ↪ FUNC:XXXXXXXX`), use **Function "
+            "Library** to read full bodies by ID.\n"
+        )
+    lines.append("\n")
+
+    lines.append(
+        "**Proposing changes**\n"
+        "- Prefer minimal unified diffs (`--- a/...` / `+++ b/...`) with "
+        "repo-relative paths.\n\n"
+    )
+
+    return "".join(lines)
+
+
 def render_markdown(  # noqa: C901
     pack: PackResult,
     canonical_sources: dict[str, str],
@@ -352,52 +379,11 @@ def render_markdown(  # noqa: C901
             for c in fp.classes:
                 class_line_map[c.id] = (c.class_line, c.end_line)
 
-    lines.append("## How to Use This Pack\n\n")
-    if use_stubs:
-        lines.append(
-            "This Markdown is a self-contained *context pack* for an LLM. It\n"
-            "contains the repository structure, a symbol index, full canonical\n"
-            "definitions, and compact file stubs. Use it like this:\n\n"
-            "**Suggested read order**\n"
-            "1. **Directory Tree**: get a mental map of the project.\n"
-            "2. **Symbol Index**: find the file / symbol you care about (with\n"
-            "   jump links).\n"
-            "3. **Function Library**: read the full implementation of a\n"
-            "   function by ID.\n"
-            "4. **Files**: read file-level context; function bodies may be\n"
-            "   stubbed.\n\n"
-            "**Stubs and markers**\n"
-            "- In the **Files** section, function bodies may be replaced with\n"
-            "  a compact placeholder line like `...  # ↪ FUNC:XXXXXXXX`.\n"
-            "- The 8-hex value after `FUNC:` is the function's **local_id**\n"
-            "  (unique per occurrence in the repo).\n\n"
-            "**IDs (important for dedupe)**\n"
-            "- `id` is the **canonical** ID for a function body (deduped when\n"
-            "  configured).\n"
-            "- `local_id` is unique per definition occurrence. Multiple defs\n"
-            "  can share the same `id` but must have different `local_id`.\n\n"
-            "**When proposing changes**\n"
-            "- Reference changes by **file path** plus **function ID** (and\n"
-            "  local_id if shown).\n"
-            "- Prefer emitting a unified diff patch (`--- a/...` / `+++ b/...`).\n\n"
-            "**Line numbers**\n"
-            "- All `Lx-y` ranges refer to line numbers in this markdown file.\n"
-            "- File ranges/classes point into **Files**; function ranges point\n"
-            "  into **Function Library**.\n\n"
+    lines.append(
+        _render_how_to_use_section(
+            use_stubs=use_stubs,
         )
-    else:
-        lines.append(
-            "This Markdown is a self-contained *context pack* for an LLM.\n\n"
-            "**Suggested read order**\n"
-            "1. **Directory Tree**\n"
-            "2. **Symbol Index** (jump to file contents)\n"
-            "3. **Files** (full contents)\n\n"
-            "**When proposing changes**\n"
-            "- Prefer unified diffs (`--- a/...` / `+++ b/...`).\n\n"
-            "**Line numbers**\n"
-            "- `Lx-y` ranges refer to line numbers in this markdown file (the\n"
-            "  code blocks under **Files**).\n\n"
-        )
+    )
 
     if include_manifest:
         lines.append("## Manifest\n\n")
