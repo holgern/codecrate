@@ -87,7 +87,13 @@ codecrate apply changes.md .
 
 ## Configuration
 
-Create a `codecrate.toml` file in your repository root:
+Codecrate reads config from the repository root with this precedence:
+
+1. CLI flags
+2. `.codecrate.toml` / `codecrate.toml`
+3. `pyproject.toml` under `[tool.codecrate]`
+
+Create a `.codecrate.toml` or `codecrate.toml` file in your repository root:
 
 ```toml
 [codecrate]

@@ -10,6 +10,7 @@ except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # pyright: ignore[reportMissingImports]
 
 CONFIG_FILENAMES: tuple[str, ...] = (".codecrate.toml", "codecrate.toml")
+PYPROJECT_FILENAME = "pyproject.toml"
 
 DEFAULT_INCLUDES: list[str] = [
     "**/*.py",
@@ -63,7 +64,31 @@ def _find_config_path(root: Path) -> Path | None:
         p = root / name
         if p.exists():
             return p
+    pyproject = root / PYPROJECT_FILENAME
+    if pyproject.exists():
+        return pyproject
     return None
+
+
+def _extract_section(data: Any, *, from_pyproject: bool) -> dict[str, Any]:
+    section: dict[str, Any] = {}
+    if not isinstance(data, dict):
+        return section
+
+    if not from_pyproject:
+        # Preferred for dedicated config files: [codecrate]
+        cc = data.get("codecrate")
+        if isinstance(cc, dict):
+            return cc
+
+    # Supported in all files; required for pyproject.toml.
+    tool = data.get("tool")
+    if isinstance(tool, dict):
+        cc2 = tool.get("codecrate")
+        if isinstance(cc2, dict):
+            return cc2
+
+    return section
 
 
 def load_config(root: Path) -> Config:
@@ -72,19 +97,7 @@ def load_config(root: Path) -> Config:
         return Config()
 
     data = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
-    section: dict[str, Any] = {}
-    if isinstance(data, dict):
-        # Preferred: [codecrate]
-        cc = data.get("codecrate")
-        if isinstance(cc, dict):
-            section = cc
-        else:
-            # Also accept: [tool.codecrate] (common convention from pyproject.toml)
-            tool = data.get("tool")
-            if isinstance(tool, dict):
-                cc2 = tool.get("codecrate")
-                if isinstance(cc2, dict):
-                    section = cc2
+    section = _extract_section(data, from_pyproject=cfg_path.name == PYPROJECT_FILENAME)
     cfg = Config()
     out = section.get("output", cfg.output)
     if isinstance(out, str) and out.strip():

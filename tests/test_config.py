@@ -209,3 +209,71 @@ output = "dot_context.md"
     )
     cfg = load_config(tmp_path)
     assert cfg.output == "dot_context.md"
+
+
+def test_load_config_supports_pyproject_tool_codecrate(tmp_path: Path) -> None:
+    """Load config from [tool.codecrate] in pyproject.toml."""
+    (tmp_path / "pyproject.toml").write_text(
+        """[tool.codecrate]
+output = "pyproject_context.md"
+dedupe = true
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path)
+    assert cfg.output == "pyproject_context.md"
+    assert cfg.dedupe is True
+
+
+def test_load_config_pyproject_requires_tool_section(tmp_path: Path) -> None:
+    """[codecrate] in pyproject.toml should be ignored."""
+    (tmp_path / "pyproject.toml").write_text(
+        """[codecrate]
+output = "wrong_context.md"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path)
+    assert cfg.output == "context.md"
+
+
+def test_load_config_codecrate_toml_takes_precedence_over_pyproject(
+    tmp_path: Path,
+) -> None:
+    """Dedicated config files should win over pyproject.toml."""
+    (tmp_path / "pyproject.toml").write_text(
+        """[tool.codecrate]
+output = "pyproject_context.md"
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+output = "codecrate_context.md"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path)
+    assert cfg.output == "codecrate_context.md"
+
+
+def test_load_config_dotfile_takes_precedence_over_pyproject(tmp_path: Path) -> None:
+    """.codecrate.toml should have highest precedence over pyproject.toml."""
+    (tmp_path / "pyproject.toml").write_text(
+        """[tool.codecrate]
+output = "pyproject_context.md"
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / ".codecrate.toml").write_text(
+        """[codecrate]
+output = "dot_context.md"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path)
+    assert cfg.output == "dot_context.md"

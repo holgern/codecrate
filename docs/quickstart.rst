@@ -8,6 +8,13 @@ Codecrate reads configuration from the repository root. It will look for:
 
 * ``.codecrate.toml`` (preferred, if present)
 * ``codecrate.toml`` (fallback)
+* ``pyproject.toml`` under ``[tool.codecrate]`` (fallback if no codecrate TOML file exists)
+
+Precedence (highest first):
+
+* CLI flags
+* ``.codecrate.toml`` / ``codecrate.toml``
+* ``pyproject.toml`` ``[tool.codecrate]``
 
 Example:
 
