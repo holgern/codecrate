@@ -29,11 +29,16 @@ def test_how_to_use_is_adaptive_for_stubs_and_compact_nav(tmp_path: Path) -> Non
     assert "## How to Use This Pack" in md
     assert "## Function Library" in md
     assert "Quick workflow" in md
+    assert "1. **Directory Tree** (L" in md
+    assert "2. **Symbol Index** (L" in md
+    assert "3. **Function Library** (L" in md
+    assert "4. **Files** (L" in md
     assert "stubbed functions" in md
     assert "Prefer minimal unified diffs" in md
     assert "Compact navigation mode is active" not in md
     assert "Manifest section is included" not in md
     assert "Line numbers" not in md
+    assert "<<CC:SECTION:" not in md
 
 
 def test_how_to_use_is_adaptive_for_full_and_no_manifest(tmp_path: Path) -> None:
@@ -48,8 +53,13 @@ def test_how_to_use_is_adaptive_for_full_and_no_manifest(tmp_path: Path) -> None
 
     assert "## Function Library" not in md
     assert "Quick workflow" in md
+    assert "1. **Directory Tree** (L" in md
+    assert "2. **Symbol Index** (L" in md
+    assert "3. **Files** (L" in md
+    assert "3. **Function Library**" not in md
     assert "stubbed functions" not in md
     assert "Prefer minimal unified diffs" in md
     assert "Manifest is omitted in this pack" not in md
     assert "## Manifest" not in md
     assert "Line numbers" not in md
+    assert "<<CC:SECTION:" not in md

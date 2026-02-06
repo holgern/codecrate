@@ -64,6 +64,14 @@ def _range_token(kind: str, key: str) -> str:
     return f"<<CC:{kind}:{key}>>"
 
 
+_SECTION_TITLES: tuple[str, ...] = (
+    "Directory Tree",
+    "Symbol Index",
+    "Function Library",
+    "Files",
+)
+
+
 def _format_range(start: int | None, end: int | None) -> str:
     if start is None or end is None or start > end:
         return "(empty)"
@@ -192,6 +200,31 @@ def _scan_function_library(lines: list[str]) -> dict[str, tuple[int, int] | None
     return ranges
 
 
+def _scan_section_ranges(lines: list[str]) -> dict[str, tuple[int, int] | None]:
+    headings: list[tuple[str, int]] = []
+    in_fence = False
+    for idx, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            if not in_fence:
+                in_fence = True
+            elif stripped == "```":
+                in_fence = False
+            continue
+        if in_fence:
+            continue
+        if line.startswith("## "):
+            headings.append((line[3:].strip(), idx))
+
+    ranges: dict[str, tuple[int, int] | None] = {}
+    for i, (title, start_line) in enumerate(headings):
+        if title not in _SECTION_TITLES:
+            continue
+        end_line = headings[i + 1][1] - 1 if i + 1 < len(headings) else len(lines)
+        ranges[title] = (start_line, end_line) if start_line <= end_line else None
+    return ranges
+
+
 def _apply_context_line_numbers(
     text: str,
     def_line_map: dict[str, tuple[int, int]],
@@ -202,10 +235,19 @@ def _apply_context_line_numbers(
     use_stubs: bool,
 ) -> str:
     lines = text.splitlines()
+    section_ranges = _scan_section_ranges(lines)
     file_ranges = _scan_file_blocks(lines)
     func_ranges = _scan_function_library(lines) if use_stubs else {}
 
     replacements: dict[str, str] = {}
+    for title in _SECTION_TITLES:
+        token = _range_token("SECTION", title)
+        rng = section_ranges.get(title)
+        if rng is None:
+            replacements[token] = _format_range(None, None)
+        else:
+            replacements[token] = _format_range(rng[0], rng[1])
+
     for rel, rng in file_ranges.items():
         token = _range_token("FILE", rel)
         if rng is None:
@@ -297,14 +339,19 @@ def _render_how_to_use_section(*, use_stubs: bool) -> str:
         "proposals.\n\n"
     )
     lines.append("**Quick workflow**\n")
-    lines.append("1. **Directory Tree**\n")
-    lines.append("2. **Symbol Index**\n")
-    lines.append("3. **Files**\n")
+    lines.append(f"1. **Directory Tree** {_range_token('SECTION', 'Directory Tree')}\n")
+    lines.append(f"2. **Symbol Index** {_range_token('SECTION', 'Symbol Index')}\n")
     if use_stubs:
         lines.append(
-            "4. For stubbed functions (`...  # ↪ FUNC:XXXXXXXX`), use **Function "
+            f"3. **Function Library** {_range_token('SECTION', 'Function Library')}\n"
+        )
+        lines.append(f"4. **Files** {_range_token('SECTION', 'Files')}\n")
+        lines.append(
+            "5. For stubbed functions (`...  # ↪ FUNC:XXXXXXXX`), use **Function "
             "Library** to read full bodies by ID.\n"
         )
+    else:
+        lines.append(f"3. **Files** {_range_token('SECTION', 'Files')}\n")
     lines.append("\n")
 
     lines.append(
