@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 from .fences import is_fence_close, parse_fence_open
+from .udiff import normalize_newlines
 
 
 @dataclass(frozen=True)
@@ -81,7 +82,7 @@ def _parse_function_library(text_lines: list[str]) -> dict[str, str]:
                 buf.append(text_lines[k])
                 k += 1
             if buf:
-                chunk = "".join(buf)
+                chunk = normalize_newlines("".join(buf))
                 if not chunk.endswith("\n"):
                     chunk += "\n"
                 canonical_sources[maybe_id] = chunk
@@ -112,7 +113,7 @@ def _parse_stubbed_files(text_lines: list[str]) -> dict[str, str]:
                         buf.append(text_lines[k])
                         k += 1
                     if buf:
-                        chunk = "".join(buf)
+                        chunk = normalize_newlines("".join(buf))
                         if not chunk.endswith("\n"):
                             chunk += "\n"
                         parts.append(chunk)
@@ -130,7 +131,8 @@ def _parse_stubbed_files(text_lines: list[str]) -> dict[str, str]:
 
 
 def parse_packed_markdown(text: str) -> PackedMarkdown:
-    lines = text.splitlines(keepends=True)
+    text_norm = normalize_newlines(text)
+    lines = text_norm.splitlines(keepends=True)
     manifest = None
     machine_header: dict | None = None
     for lang, body in _iter_fenced_blocks(lines):
@@ -151,7 +153,7 @@ def parse_packed_markdown(text: str) -> PackedMarkdown:
             "(or omit --no-manifest)."
         )
 
-    text_lines = text.splitlines(keepends=True)
+    text_lines = text_norm.splitlines(keepends=True)
     canonical_sources = _parse_function_library(text_lines)
     stubbed_files = _parse_stubbed_files(text_lines)
 

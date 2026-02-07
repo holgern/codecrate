@@ -8,7 +8,7 @@ from pathlib import Path
 from .ids import MARKER_NAMESPACE
 from .mdparse import parse_packed_markdown
 from .repositories import split_repository_sections
-from .udiff import ensure_parent_dir
+from .udiff import ensure_parent_dir, normalize_newlines
 
 _MARK_RE = re.compile(
     rf"{MARKER_NAMESPACE}:(?:v\d+:)?(?P<id>[0-9A-Fa-f]{{8}})",
@@ -161,6 +161,7 @@ def _unpack_single_markdown(markdown_text: str, out_dir: Path, *, strict: bool) 
             strict=strict,
             issues=marker_issues,
         )
+        reconstructed = normalize_newlines(reconstructed)
         if marker_issues:
             msg = (
                 f"Unresolved marker mapping for {rel}: "
@@ -184,7 +185,7 @@ def _unpack_single_markdown(markdown_text: str, out_dir: Path, *, strict: bool) 
         if out_dir != target and out_dir not in target.parents:
             raise ValueError(f"Refusing to write outside out_dir: {rel}")
         ensure_parent_dir(target)
-        target.write_text(reconstructed, encoding="utf-8")
+        target.write_text(reconstructed, encoding="utf-8", newline="\n")
 
     if missing:
         files_str = ", ".join(missing[:10])
