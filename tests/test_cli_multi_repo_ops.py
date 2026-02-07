@@ -268,6 +268,42 @@ def test_validate_pack_detects_machine_header_manifest_checksum_mismatch(
     assert "hint: manifest content changed" in captured.out
 
 
+def test_validate_pack_json_output(tmp_path: Path, capsys) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo, "a.py", "def alpha():\n    return 1\n")
+
+    packed = tmp_path / "context.md"
+    main(["pack", str(repo), "-o", str(packed)])
+
+    main(["validate-pack", str(packed), "--json"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is True
+    assert payload["error_count"] == 0
+    assert payload["warning_count"] == 0
+
+
+def test_validate_pack_json_output_on_error(tmp_path: Path, capsys) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo, "a.py", "def alpha():\n    return 1\n")
+
+    packed = tmp_path / "context.md"
+    main(["pack", str(repo), "-o", str(packed)])
+
+    text = packed.read_text(encoding="utf-8")
+    tampered = text.replace('"format": "codecrate.v4"', '"format": "codecrate.v0"', 1)
+    packed.write_text(tampered, encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["validate-pack", str(packed), "--json"])
+    assert excinfo.value.code == 1
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False
+    assert payload["error_count"] >= 1
+
+
 def test_pack_multi_repo_manifest_json_contains_all_sections(tmp_path: Path) -> None:
     repo1 = tmp_path / "repo1"
     repo2 = tmp_path / "repo2"

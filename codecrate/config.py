@@ -82,6 +82,10 @@ class Config:
     # Optional symbol extraction backend for non-Python files.
     # Python files always use the built-in AST parser.
     symbol_backend: Literal["auto", "python", "tree-sitter", "none"] = "auto"
+    # Text decoding behavior when reading repository/markdown files.
+    # - "replace": preserve operation by replacing invalid bytes (default)
+    # - "strict": fail on invalid UTF-8 bytes
+    encoding_errors: Literal["replace", "strict"] = "replace"
 
 
 def _find_config_path(root: Path) -> Path | None:
@@ -117,7 +121,7 @@ def _extract_section(data: Any, *, from_pyproject: bool) -> dict[str, Any]:
     return section
 
 
-def load_config(root: Path) -> Config:
+def load_config(root: Path) -> Config:  # noqa: C901
     cfg_path = _find_config_path(root)
     if cfg_path is None:
         return Config()
@@ -240,5 +244,11 @@ def load_config(root: Path) -> Config:
         backend = backend.strip().lower()
         if backend in {"auto", "python", "tree-sitter", "none"}:
             cfg.symbol_backend = backend  # type: ignore[assignment]
+
+    encoding_errors = section.get("encoding_errors", cfg.encoding_errors)
+    if isinstance(encoding_errors, str):
+        encoding_errors = encoding_errors.strip().lower()
+        if encoding_errors in {"replace", "strict"}:
+            cfg.encoding_errors = encoding_errors  # type: ignore[assignment]
 
     return cfg

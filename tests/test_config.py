@@ -37,6 +37,7 @@ def test_config_defaults() -> None:
     assert cfg.security_content_patterns
     assert cfg.nav_mode == "auto"
     assert cfg.symbol_backend == "auto"
+    assert cfg.encoding_errors == "replace"
 
 
 def test_load_config_missing_file(tmp_path: Path) -> None:
@@ -122,6 +123,7 @@ security_path_patterns = ["*.secret", "*.pem"]
 security_content_patterns = ["api-key=(?i)api[_-]?key[:=][A-Za-z0-9]{8,}"]
 nav_mode = "compact"
 symbol_backend = "tree-sitter"
+encoding_errors = "strict"
 """,
         encoding="utf-8",
     )
@@ -147,6 +149,7 @@ symbol_backend = "tree-sitter"
     ]
     assert cfg.nav_mode == "compact"
     assert cfg.symbol_backend == "tree-sitter"
+    assert cfg.encoding_errors == "strict"
 
 
 def test_load_config_invalid_nav_mode_keeps_default(tmp_path: Path) -> None:

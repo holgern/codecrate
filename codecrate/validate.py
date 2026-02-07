@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .fences import is_fence_close, parse_fence_open
-from .ids import MARKER_NAMESPACE
+from .ids import ID_FORMAT_VERSION, MARKER_FORMAT_VERSION, MARKER_NAMESPACE
 from .manifest import manifest_sha256
 from .mdparse import parse_packed_markdown
 from .repositories import split_repository_sections
@@ -97,12 +97,81 @@ def _validate_manifest_structure(markdown_text: str, manifest: dict) -> list[str
     return errors
 
 
+def _is_sha256_hex(value: object) -> bool:
+    if not isinstance(value, str) or len(value) != 64:
+        return False
+    return all(ch in "0123456789abcdef" for ch in value.lower())
+
+
+def _validate_manifest_schema(manifest: dict) -> list[str]:
+    errors: list[str] = []
+
+    fmt = manifest.get("format")
+    if fmt != "codecrate.v4":
+        errors.append(f"Unsupported manifest format: {fmt!r}")
+
+    id_fmt = manifest.get("id_format_version")
+    if id_fmt not in {None, ID_FORMAT_VERSION}:
+        errors.append(
+            f"Unsupported id_format_version: {id_fmt!r} (expected {ID_FORMAT_VERSION})"
+        )
+    marker_fmt = manifest.get("marker_format_version")
+    if marker_fmt not in {None, MARKER_FORMAT_VERSION}:
+        errors.append(
+            "Unsupported marker_format_version: "
+            f"{marker_fmt!r} (expected {MARKER_FORMAT_VERSION})"
+        )
+
+    files = manifest.get("files")
+    if not isinstance(files, list):
+        errors.append("Manifest 'files' must be a list")
+        return errors
+
+    for i, f in enumerate(files):
+        if not isinstance(f, dict):
+            errors.append(f"Manifest file[{i}] must be an object")
+            continue
+        rel = f.get("path")
+        if not isinstance(rel, str) or not rel.strip():
+            errors.append(f"Manifest file[{i}] has invalid 'path'")
+        if "line_count" in f and not isinstance(f.get("line_count"), int):
+            errors.append(f"Manifest file[{i}] has invalid 'line_count'")
+        if not _is_sha256_hex(f.get("sha256_original")):
+            errors.append(f"Manifest file[{i}] has invalid 'sha256_original'")
+        if "sha256_stubbed" in f and not _is_sha256_hex(f.get("sha256_stubbed")):
+            errors.append(f"Manifest file[{i}] has invalid 'sha256_stubbed'")
+
+        defs = f.get("defs")
+        if defs is None:
+            continue
+        if "sha256_stubbed" not in f:
+            errors.append(
+                f"Manifest file[{i}] missing 'sha256_stubbed' for stub layout"
+            )
+        if not isinstance(defs, list):
+            errors.append(f"Manifest file[{i}] has invalid 'defs' (must be list)")
+            continue
+        for j, d in enumerate(defs):
+            if not isinstance(d, dict):
+                errors.append(f"Manifest file[{i}] def[{j}] must be an object")
+                continue
+            if not isinstance(d.get("id"), str) or not d.get("id"):
+                errors.append(f"Manifest file[{i}] def[{j}] has invalid 'id'")
+            if not isinstance(d.get("local_id"), str) or not d.get("local_id"):
+                errors.append(f"Manifest file[{i}] def[{j}] has invalid 'local_id'")
+            if not isinstance(d.get("qualname"), str) or not d.get("qualname"):
+                errors.append(f"Manifest file[{i}] def[{j}] has invalid 'qualname'")
+
+    return errors
+
+
 def _validate_file_entry(
     *,
     file_entry: dict,
     packed: object,
     strict: bool,
     root_resolved: Path | None,
+    encoding_errors: str,
 ) -> _FileValidationResult:
     errors: list[str] = []
     warnings: list[str] = []
@@ -196,9 +265,20 @@ def _validate_file_entry(
         if not disk_path.exists():
             warnings.append(f"On-disk file missing under root: {rel}")
         else:
-            disk_text = normalize_newlines(
-                disk_path.read_text(encoding="utf-8", errors="replace")
-            )
+            try:
+                disk_text = normalize_newlines(
+                    disk_path.read_text(encoding="utf-8", errors=encoding_errors)
+                )
+            except UnicodeDecodeError as e:
+                errors.append(
+                    f"Failed to decode on-disk file {rel} "
+                    f"(encoding_errors={encoding_errors}): {e}"
+                )
+                return _FileValidationResult(
+                    errors=errors,
+                    warnings=warnings,
+                    marker_ids=marker_ids,
+                )
             if _sha256_text(disk_text) != got_orig:
                 warnings.append(f"On-disk file differs from pack for {rel}")
 
@@ -212,6 +292,7 @@ def validate_pack_markdown(
     *,
     root: Path | None = None,
     strict: bool = False,
+    encoding_errors: str = "replace",
 ) -> ValidationReport:
     sections = split_repository_sections(markdown_text)
     if not sections:
@@ -254,6 +335,7 @@ def validate_pack_markdown(
                 section.content,
                 root=section_root,
                 strict=strict,
+                encoding_errors=encoding_errors,
             )
         except Exception as e:
             errors.append(f"{scope}: failed to parse repository pack: {e}")
@@ -269,6 +351,7 @@ def _validate_single_pack_markdown(
     *,
     root: Path | None = None,
     strict: bool = False,
+    encoding_errors: str = "replace",
 ) -> ValidationReport:
     """Validate a packed Codecrate Markdown for internal consistency.
 
@@ -288,6 +371,22 @@ def _validate_single_pack_markdown(
     packed = parse_packed_markdown(markdown_text)
     manifest = packed.manifest
     root_resolved = root.resolve() if root is not None else None
+
+    manifest_count = _count_manifest_blocks(markdown_text)
+    if manifest_count != 1:
+        errors.append(
+            f"expected exactly one codecrate-manifest block, found {manifest_count}"
+        )
+
+    machine_header_count = _count_machine_header_blocks(markdown_text)
+    if machine_header_count != 1:
+        errors.append(
+            "expected exactly one codecrate-machine-header block, "
+            f"found {machine_header_count}"
+        )
+
+    errors.extend(_validate_manifest_schema(manifest))
+
     errors.extend(
         _validate_machine_header(
             machine_header=packed.machine_header,
@@ -305,6 +404,7 @@ def _validate_single_pack_markdown(
             packed=packed,
             strict=strict,
             root_resolved=root_resolved,
+            encoding_errors=encoding_errors,
         )
         errors.extend(result.errors)
         warnings.extend(result.warnings)
@@ -333,6 +433,23 @@ def _count_manifest_blocks(markdown_text: str) -> int:
                 continue
             fence = opened[0]
             if opened[1] == "codecrate-manifest":
+                count += 1
+            continue
+        if is_fence_close(line, fence):
+            fence = None
+    return count
+
+
+def _count_machine_header_blocks(markdown_text: str) -> int:
+    count = 0
+    fence: str | None = None
+    for line in markdown_text.splitlines():
+        if fence is None:
+            opened = parse_fence_open(line)
+            if opened is None:
+                continue
+            fence = opened[0]
+            if opened[1] == "codecrate-machine-header":
                 count += 1
             continue
         if is_fence_close(line, fence):

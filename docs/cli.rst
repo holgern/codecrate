@@ -30,6 +30,7 @@ Supported keys include (non-exhaustive):
    layout = "auto"
    nav_mode = "auto"
    symbol_backend = "auto"
+   encoding_errors = "replace"
    security_check = true
    security_content_sniff = false
    security_redaction = false
@@ -76,7 +77,7 @@ When using ``--repo``, omit the positional ``ROOT``. Specifying both is an error
 
 Useful flags:
 
-* ``--dedupe``: deduplicate identical function bodies
+* ``--dedupe / --no-dedupe``: enable or disable deduplication
 * ``--layout auto|stubs|full``: choose layout (auto selects best token efficiency)
 * ``--nav-mode auto|compact|full``: navigation density; auto uses compact for
   unsplit output and full when split outputs are requested
@@ -116,6 +117,7 @@ Useful flags:
 * ``--max-workers N``: cap thread pool size for IO/parsing/token counting
 * ``--manifest-json [PATH]``: write manifest JSON for tooling (default:
   ``<output>.manifest.json``)
+* ``--encoding-errors replace|strict``: UTF-8 decode policy when reading files
 * ``-o/--output PATH``: output path (defaults to config ``output`` or ``context.md``)
 
 ``--stdin`` / ``--stdin0`` notes:
@@ -172,6 +174,7 @@ Generate a diff-only Markdown patch between an old pack and the current repo:
 The output is Markdown containing one or more `````diff`` fences.
 Patch requires a pack with Manifest; ``--no-manifest`` packs are rejected with a
 clear hint.
+Patch output includes a ``codecrate-patch-meta`` fence with baseline hashes.
 
 
 apply
@@ -185,6 +188,8 @@ Apply a patch Markdown to a repo root:
    codecrate apply patch.md . --dry-run
 
 Use ``--dry-run`` to parse and validate hunks without writing files.
+When baseline metadata is present, apply verifies baseline file hashes and refuses
+to apply on mismatch.
 
 
 validate-pack
@@ -201,6 +206,7 @@ files on disk:
 Use ``--strict`` to treat unresolved marker mapping as validation errors.
 Validation output groups issues by repository section and includes short hints.
 Packs created with ``--no-manifest`` are rejected with a consistent error message.
+Use ``--json`` for machine-readable report output.
 
 
 doctor

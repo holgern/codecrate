@@ -349,6 +349,21 @@ def test_codecrateignore_precedence_over_gitignore(tmp_path: Path) -> None:
     assert disc.files == [tmp_path / "ignored.py"]
 
 
+def test_codecrateignore_can_override_gitignore_negation(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_text("*.py\n!keep.py\n", encoding="utf-8")
+    (tmp_path / ".codecrateignore").write_text("keep.py\n", encoding="utf-8")
+    (tmp_path / "keep.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_python_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=True,
+    )
+
+    assert disc.files == []
+
+
 def _symlink_or_skip(link: Path, target: Path) -> None:
     try:
         link.symlink_to(target)

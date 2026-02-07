@@ -236,6 +236,7 @@ def apply_file_diffs(
     root: Path,
     *,
     dry_run: bool = False,
+    encoding_errors: str = "replace",
 ) -> list[Path]:
     """
     Applies diffs to files under root. Returns list of modified paths.
@@ -254,7 +255,13 @@ def apply_file_diffs(
 
         old = ""
         if path.exists():
-            old = path.read_text(encoding="utf-8", errors="replace")
+            try:
+                old = path.read_text(encoding="utf-8", errors=encoding_errors)
+            except UnicodeDecodeError as e:
+                raise ValueError(
+                    f"{fd.path}: failed to decode UTF-8 "
+                    f"(encoding_errors={encoding_errors})"
+                ) from e
         try:
             new = apply_hunks_to_text(old, fd.hunks)
         except ValueError as e:

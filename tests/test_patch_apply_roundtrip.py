@@ -324,3 +324,84 @@ def test_apply_dry_run_validates_without_writing(tmp_path: Path) -> None:
 
     main(["apply", str(patch_md), str(root), "--dry-run"])
     assert target.read_text(encoding="utf-8") == "a\nb\n"
+
+
+def test_generate_patch_includes_baseline_metadata(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    disc = discover_python_files(
+        root, include=["**/*.py"], exclude=[], respect_gitignore=False
+    )
+    pack, canon = pack_repo(disc.root, disc.files, keep_docstrings=True, dedupe=False)
+    old_md = render_markdown(pack, canon)
+
+    (root / "a.py").write_text("def f():\n    return 2\n", encoding="utf-8")
+    patch_md = generate_patch_markdown(old_md, root)
+
+    assert "```codecrate-patch-meta" in patch_md
+    assert "baseline_manifest_sha256" in patch_md
+    assert "baseline_files_sha256" in patch_md
+
+
+def test_apply_refuses_when_baseline_mismatch_detected(tmp_path: Path) -> None:
+    base = tmp_path / "base"
+    base.mkdir()
+    (base / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    disc = discover_python_files(
+        base, include=["**/*.py"], exclude=[], respect_gitignore=False
+    )
+    pack, canon = pack_repo(disc.root, disc.files, keep_docstrings=True, dedupe=False)
+    old_md = render_markdown(pack, canon)
+
+    cur = tmp_path / "cur"
+    shutil.copytree(base, cur)
+    (cur / "a.py").write_text("def f():\n    return 2\n", encoding="utf-8")
+
+    patch_md = tmp_path / "patch.md"
+    patch_md.write_text(generate_patch_markdown(old_md, cur), encoding="utf-8")
+
+    apply_root = tmp_path / "apply"
+    shutil.copytree(base, apply_root)
+    (apply_root / "a.py").write_text("def f():\n    return 999\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["apply", str(patch_md), str(apply_root)])
+
+    assert "baseline does not match" in str(excinfo.value)
+
+
+def test_generate_patch_strict_encoding_fails_on_invalid_utf8(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    disc = discover_python_files(
+        root, include=["**/*.py"], exclude=[], respect_gitignore=False
+    )
+    pack, canon = pack_repo(disc.root, disc.files, keep_docstrings=True, dedupe=False)
+    old_md = render_markdown(pack, canon)
+
+    (root / "a.py").write_bytes(b"def f():\n    return '\xff'\n")
+
+    with pytest.raises(ValueError) as excinfo:
+        generate_patch_markdown(old_md, root, encoding_errors="strict")
+
+    assert "Failed to decode UTF-8" in str(excinfo.value)
+
+
+def test_apply_file_diffs_strict_encoding_fails_on_invalid_utf8(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    target = root / "a.py"
+    target.write_bytes(b"a\n\xff\n")
+
+    diff_text = "--- a/a.py\n+++ b/a.py\n@@ -1,2 +1,2 @@\n a\n-x\n+B\n"
+    diffs = parse_unified_diff(diff_text)
+
+    with pytest.raises(ValueError) as excinfo:
+        apply_file_diffs(diffs, root, encoding_errors="strict")
+
+    assert "failed to decode UTF-8" in str(excinfo.value)

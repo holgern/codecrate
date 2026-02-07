@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import difflib
+import json
 from pathlib import Path
 
 from .config import DEFAULT_INCLUDES
 from .discover import discover_files
+from .manifest import manifest_sha256
 from .mdparse import parse_packed_markdown
 from .udiff import normalize_newlines
 from .unpacker import _apply_canonical_into_stub
@@ -36,6 +38,7 @@ def generate_patch_markdown(
     include: list[str] | None = None,
     exclude: list[str] | None = None,
     respect_gitignore: bool = True,
+    encoding_errors: str = "replace",
 ) -> str:
     # If caller doesn't pass include/exclude, use the same defaults as Config.
     include = DEFAULT_INCLUDES.copy() if include is None else list(include)
@@ -44,11 +47,29 @@ def generate_patch_markdown(
     packed = parse_packed_markdown(old_pack_md)
     manifest = packed.manifest
     root = root.resolve()
+    baseline_files_sha256 = {
+        str(f.get("path")): str(f.get("sha256_original"))
+        for f in manifest.get("files", [])
+        if f.get("path") and f.get("sha256_original")
+    }
 
     blocks: list[str] = []
     blocks.append("# Codecrate Patch\n\n")
     # Do not leak absolute local paths; keep the header root stable + relative.
     blocks.append("Root: `.`\n\n")
+    blocks.append("```codecrate-patch-meta\n")
+    blocks.append(
+        json.dumps(
+            {
+                "format": "codecrate.patch.v1",
+                "baseline_manifest_sha256": manifest_sha256(manifest),
+                "baseline_files_sha256": baseline_files_sha256,
+            },
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    blocks.append("```\n\n")
     blocks.append("This file contains unified diffs inside ```diff code fences.\n\n")
 
     any_changes = False
@@ -76,9 +97,14 @@ def generate_patch_markdown(
                 lineterm="",
             )
         else:
-            new_lines = _to_lf_keepends(
-                cur_path.read_text(encoding="utf-8", errors="replace")
-            )
+            try:
+                text = cur_path.read_text(encoding="utf-8", errors=encoding_errors)
+            except UnicodeDecodeError as e:
+                raise ValueError(
+                    f"Failed to decode UTF-8 for {rel} "
+                    f"(encoding_errors={encoding_errors})"
+                ) from e
+            new_lines = _to_lf_keepends(text)
             diff = difflib.unified_diff(
                 old_lines,
                 new_lines,
@@ -107,7 +133,13 @@ def generate_patch_markdown(
         if rel in old_paths:
             continue
 
-        new_lines = _to_lf_keepends(p.read_text(encoding="utf-8", errors="replace"))
+        try:
+            text = p.read_text(encoding="utf-8", errors=encoding_errors)
+        except UnicodeDecodeError as e:
+            raise ValueError(
+                f"Failed to decode UTF-8 for {rel} (encoding_errors={encoding_errors})"
+            ) from e
+        new_lines = _to_lf_keepends(text)
         diff = difflib.unified_diff(
             [],
             new_lines,

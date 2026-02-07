@@ -68,6 +68,30 @@ def test_pack_stdin_requires_non_empty_input(tmp_path: Path, monkeypatch) -> Non
     assert excinfo.value.code == 2
 
 
+def test_pack_stdin_ignores_blank_whitespace_and_comment_lines(
+    tmp_path: Path, monkeypatch
+) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("\n   \n# comment\na.py\n"))
+    main(["pack", str(tmp_path), "--stdin", "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `a.py`" in text
+
+
+def test_pack_stdin_normalizes_dot_slash_paths(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("./a.py\n"))
+    main(["pack", str(tmp_path), "--stdin", "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `a.py`" in text
+
+
 def test_pack_stdin0_requires_non_empty_input(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
 
@@ -144,6 +168,21 @@ def test_pack_stdin0_applies_ignore_rules(tmp_path: Path, monkeypatch) -> None:
     assert "### `ok.py`" in text
     assert "### `git_ignored.py`" not in text
     assert "### `cc_ignored.py`" not in text
+
+
+def test_pack_stdin0_normalizes_dot_slash_paths(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(io.BytesIO(b"./a.py\x00"), encoding="utf-8"),
+    )
+    main(["pack", str(tmp_path), "--stdin0", "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `a.py`" in text
 
 
 def test_pack_stdin_applies_excludes(tmp_path: Path, monkeypatch) -> None:
@@ -472,6 +511,38 @@ file_summary = false
     assert "Pack Summary" not in captured.err
 
 
+def test_pack_cli_no_dedupe_overrides_config_true(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def same():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("def same():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "codecrate.toml").write_text(
+        '[codecrate]\ndedupe = true\nlayout = "auto"\n',
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "--no-dedupe", "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "## Function Library" not in text
+    assert "↪ FUNC:v1:" not in text
+
+
+def test_pack_cli_dedupe_overrides_config_false(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def same():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("def same():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "codecrate.toml").write_text(
+        '[codecrate]\ndedupe = false\nlayout = "auto"\n',
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "--dedupe", "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "## Function Library" in text
+    assert "↪ FUNC:v1:" in text
+
+
 def test_pack_nav_mode_auto_unsplit_is_compact(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
     out_path = tmp_path / "context.md"
@@ -757,6 +828,19 @@ def test_pack_invalid_security_content_pattern_fails(tmp_path: Path, capsys) -> 
     captured = capsys.readouterr()
     assert "invalid security rule pattern" in captured.err
     assert "Invalid content regex 'bad'" in captured.err
+
+
+def test_pack_encoding_errors_strict_fails_on_invalid_utf8(
+    tmp_path: Path, capsys
+) -> None:
+    (tmp_path / "bad.py").write_bytes(b"def x():\n    return '\xff'\n")
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["pack", str(tmp_path), "--encoding-errors", "strict"])
+
+    assert excinfo.value.code == 2
+    captured = capsys.readouterr()
+    assert "Failed to decode UTF-8" in captured.err
 
 
 def test_pack_manifest_json_default_path(tmp_path: Path) -> None:

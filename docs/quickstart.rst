@@ -75,6 +75,7 @@ Common options:
 * ``--safety-report``: include a Safety Report section with reasons
 * ``--stdin`` / ``--stdin0``: pack an explicit file list from stdin
 * ``--print-files`` / ``--print-skipped``: debug selected and skipped files
+* ``--encoding-errors {replace,strict}``: UTF-8 decode policy while reading files
 
 
 Unpack a context pack
@@ -113,6 +114,9 @@ Apply the patch to a repo:
    codecrate apply patch.md /path/to/repo
    codecrate apply patch.md /path/to/repo --dry-run
 
+Apply validates baseline metadata embedded in generated patches and refuses to
+apply when baseline file hashes do not match.
+
 
 Validate a context pack
 -----------------------
@@ -124,6 +128,7 @@ Validate internal consistency (and optionally compare against a repo on disk):
    codecrate validate-pack context.md
    codecrate validate-pack context.md --root /path/to/repo
    codecrate validate-pack context.md --strict
+   codecrate validate-pack context.md --json
 
 
 Doctor checks

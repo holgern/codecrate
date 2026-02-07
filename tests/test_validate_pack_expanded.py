@@ -88,3 +88,44 @@ def test_manifest_marks_defs_with_has_marker_for_nested_defs(tmp_path: Path) -> 
 
     report = validate_pack_markdown(text)
     assert not any("Missing FUNC marker" in w for w in report.warnings)
+
+
+def test_validate_requires_exactly_one_machine_header_block(tmp_path: Path) -> None:
+    text = _pack_text(tmp_path, {"a.py": "def a():\n    return 1\n"})
+
+    # Missing machine header
+    no_header = text.replace("```codecrate-machine-header", "```not-header", 1)
+    report_missing = validate_pack_markdown(no_header)
+    assert any(
+        "expected exactly one codecrate-machine-header block" in e
+        for e in report_missing.errors
+    )
+
+    # Duplicate machine header
+    start = text.index("```codecrate-machine-header")
+    end = text.index("```", start + 3)
+    end = text.index("\n", end) + 1
+    header_block = text[start:end]
+    duplicate = text.rstrip() + "\n\n" + header_block
+    report_dup = validate_pack_markdown(duplicate)
+    assert any(
+        "expected exactly one codecrate-machine-header block" in e
+        for e in report_dup.errors
+    )
+
+
+def test_validate_checks_manifest_format_versions(tmp_path: Path) -> None:
+    text = _pack_text(tmp_path, {"a.py": "def a():\n    return 1\n"})
+    tampered = text.replace(
+        '"format": "codecrate.v4"',
+        '"format": "codecrate.v9"',
+        1,
+    ).replace(
+        '"id_format_version": "sha1-8-upper:v1"',
+        '"id_format_version": "bad:v0"',
+        1,
+    )
+
+    report = validate_pack_markdown(tampered)
+    assert any("Unsupported manifest format" in e for e in report.errors)
+    assert any("Unsupported id_format_version" in e for e in report.errors)

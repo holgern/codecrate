@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import json
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -95,7 +96,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output markdown path (default: config 'output' or context.md)",
     )
     pack.add_argument(
-        "--dedupe", action="store_true", help="Deduplicate identical function bodies"
+        "--dedupe",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Deduplicate identical function bodies (default: off via config)",
+    )
+    pack.add_argument(
+        "--encoding-errors",
+        choices=["replace", "strict"],
+        default=None,
+        help="UTF-8 decode policy for input files (default: replace via config)",
     )
     pack.add_argument(
         "--layout",
@@ -290,6 +300,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Fail when marker-based reconstruction cannot be fully resolved.",
     )
+    unpack.add_argument(
+        "--encoding-errors",
+        choices=["replace", "strict"],
+        default=None,
+        help="UTF-8 decode policy when reading packed markdown",
+    )
 
     # patch
     patch = sub.add_parser(
@@ -313,6 +329,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("patch.md"),
         help="Output patch markdown",
     )
+    patch.add_argument(
+        "--encoding-errors",
+        choices=["replace", "strict"],
+        default=None,
+        help="UTF-8 decode policy for baseline/current files",
+    )
 
     # apply
     apply = sub.add_parser("apply", help="Apply a diff-only patch Markdown to a repo.")
@@ -331,6 +353,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Parse + validate patch hunks without writing files.",
     )
+    apply.add_argument(
+        "--encoding-errors",
+        choices=["replace", "strict"],
+        default=None,
+        help="UTF-8 decode policy for patch and repository files",
+    )
     # validate-pack
     vpack = sub.add_parser(
         "validate-pack",
@@ -347,6 +375,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--strict",
         action="store_true",
         help="Treat unresolved marker mapping as validation errors.",
+    )
+    vpack.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON validation report.",
+    )
+    vpack.add_argument(
+        "--encoding-errors",
+        choices=["replace", "strict"],
+        default=None,
+        help="UTF-8 decode policy when reading pack and root files",
     )
 
     # doctor
@@ -382,6 +421,7 @@ class PackOptions:
     layout: str
     nav_mode: str
     symbol_backend: str
+    encoding_errors: str
 
     # CLI-only diagnostics
     token_report: bool
@@ -430,6 +470,14 @@ class _MeasuredFile:
     is_binary: bool = False
 
 
+def _resolve_encoding_errors(cfg: Config, cli_value: str | None) -> str:
+    if cli_value is not None:
+        value = str(cli_value).strip().lower()
+    else:
+        value = str(getattr(cfg, "encoding_errors", "replace")).strip().lower()
+    return value if value in {"replace", "strict"} else "replace"
+
+
 def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
     include = args.include if args.include is not None else cfg.include
     exclude = args.exclude if args.exclude is not None else cfg.exclude
@@ -474,7 +522,7 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         if args.security_content_pattern is None
         else [str(p) for p in args.security_content_pattern]
     )
-    dedupe = bool(args.dedupe) or bool(cfg.dedupe)
+    dedupe = bool(cfg.dedupe) if args.dedupe is None else bool(args.dedupe)
     split_max_chars = (
         cfg.split_max_chars
         if args.split_max_chars is None
@@ -495,6 +543,7 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         if args.symbol_backend is not None
         else str(getattr(cfg, "symbol_backend", "auto")).strip().lower()
     )
+    encoding_errors = _resolve_encoding_errors(cfg, args.encoding_errors)
 
     # Token diagnostics (CLI-only)
     token_count_encoding = (
@@ -576,6 +625,7 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         layout=layout,
         nav_mode=nav_mode,
         symbol_backend=symbol_backend,
+        encoding_errors=encoding_errors,
         token_report=token_report,
         token_count_tree=token_count_tree,
         token_count_tree_threshold=token_count_tree_threshold,
@@ -668,6 +718,92 @@ def _extract_diff_blocks(md_text: str) -> str:
                 i += 1
         i += 1
     return "\n".join(out) + "\n"
+
+
+def _extract_patch_metadata(md_text: str) -> dict[str, object] | None:
+    lines = md_text.splitlines()
+    i = 0
+    while i < len(lines):
+        opened = parse_fence_open(lines[i])
+        if opened is not None and opened[1] == "codecrate-patch-meta":
+            fence = opened[0]
+            i += 1
+            body: list[str] = []
+            while i < len(lines) and not is_fence_close(lines[i], fence):
+                body.append(lines[i])
+                i += 1
+            try:
+                parsed = json.loads("\n".join(body))
+            except json.JSONDecodeError:
+                return None
+            return parsed if isinstance(parsed, dict) else None
+        i += 1
+    return None
+
+
+def _read_text_with_policy(path: Path, *, encoding_errors: str) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors=encoding_errors)
+    except UnicodeDecodeError as e:
+        raise ValueError(
+            f"Failed to decode UTF-8 for {path} (encoding_errors={encoding_errors})"
+        ) from e
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _verify_patch_baseline(
+    *,
+    root: Path,
+    diffs: Sequence[object],
+    patch_meta: dict[str, object] | None,
+    encoding_errors: str,
+) -> None:
+    if not patch_meta:
+        return
+
+    baseline = patch_meta.get("baseline_files_sha256")
+    if not isinstance(baseline, dict):
+        return
+
+    mismatches: list[str] = []
+    root_resolved = root.resolve()
+    for fd in diffs:
+        rel = getattr(fd, "path", "")
+        op = getattr(fd, "op", "")
+        if not isinstance(rel, str) or not rel:
+            continue
+        expected_sha = baseline.get(rel)
+        path = root_resolved / rel
+
+        if op == "add":
+            if path.exists():
+                mismatches.append(f"{rel} (expected absent before add)")
+            continue
+
+        if not isinstance(expected_sha, str) or not expected_sha:
+            continue
+        if not path.exists():
+            mismatches.append(f"{rel} (missing; expected baseline file)")
+            continue
+
+        disk_text = normalize_newlines(
+            _read_text_with_policy(path, encoding_errors=encoding_errors)
+        )
+        disk_sha = _sha256_text(disk_text)
+        if disk_sha != expected_sha:
+            mismatches.append(f"{rel} (baseline sha mismatch)")
+
+    if mismatches:
+        preview = ", ".join(mismatches[:5])
+        suffix = "" if len(mismatches) <= 5 else ", ..."
+        raise SystemExit(
+            "apply: patch baseline does not match current repository state for "
+            f"{len(mismatches)} file(s): {preview}{suffix}. "
+            "Regenerate patch from current baseline or restore baseline files."
+        )
 
 
 def _pack_has_effective_dedupe(pack: object) -> bool:
@@ -778,6 +914,8 @@ def _read_measured_file(
     path: Path,
     root: Path,
     override_texts: dict[Path, str] | None,
+    *,
+    encoding_errors: str,
 ) -> _MeasuredFile:
     if override_texts is not None and path in override_texts:
         text = normalize_newlines(override_texts[path])
@@ -792,12 +930,19 @@ def _read_measured_file(
 
     data = path.read_bytes()
     is_binary = _is_likely_binary(data)
+    text = ""
+    if not is_binary:
+        try:
+            text = normalize_newlines(data.decode("utf-8", errors=encoding_errors))
+        except UnicodeDecodeError as e:
+            raise ValueError(
+                f"Failed to decode UTF-8 for {path.relative_to(root).as_posix()} "
+                f"(encoding_errors={encoding_errors})"
+            ) from e
     return _MeasuredFile(
         path=path,
         rel=path.relative_to(root).as_posix(),
-        text=""
-        if is_binary
-        else normalize_newlines(data.decode("utf-8", errors="replace")),
+        text=text,
         size_bytes=len(data),
         is_binary=is_binary,
     )
@@ -809,13 +954,27 @@ def _measure_files(
     root: Path,
     max_workers: int,
     override_texts: dict[Path, str] | None = None,
+    encoding_errors: str = "replace",
 ) -> list[_MeasuredFile]:
     worker_count = _resolve_worker_count(max_workers, len(files))
     if worker_count == 1:
-        return [_read_measured_file(path, root, override_texts) for path in files]
+        return [
+            _read_measured_file(
+                path, root, override_texts, encoding_errors=encoding_errors
+            )
+            for path in files
+        ]
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
         return list(
-            pool.map(lambda p: _read_measured_file(p, root, override_texts), files)
+            pool.map(
+                lambda p: _read_measured_file(
+                    p,
+                    root,
+                    override_texts,
+                    encoding_errors=encoding_errors,
+                ),
+                files,
+            )
         )
 
 
@@ -882,6 +1041,12 @@ def _validation_hint(message: str) -> str | None:
         return "manifest content changed; regenerate the pack to refresh checksum"
     if "Machine header" in message and "missing" in message:
         return "regenerate pack so machine header and manifest are emitted together"
+    if "codecrate-machine-header block" in message:
+        return "ensure exactly one machine header fence is present in the pack"
+    if "Unsupported manifest format" in message:
+        return "regenerate pack with a supported codecrate version"
+    if "id_format_version" in message or "marker_format_version" in message:
+        return "pack format metadata is incompatible; regenerate with current codecrate"
     if "Missing stubbed file block" in message:
         return "restore missing file block under ## Files or regenerate the pack"
     if "Manifest file missing from file blocks" in message:
@@ -945,6 +1110,19 @@ def _print_grouped_validation_report(report: object) -> None:
                 hint = _validation_hint(detail)
                 if hint:
                     print(f"    hint: {hint}")
+
+
+def _validation_report_json(report: object) -> str:
+    warnings = list(getattr(report, "warnings", []))
+    errors = list(getattr(report, "errors", []))
+    payload = {
+        "ok": not errors,
+        "error_count": len(errors),
+        "warning_count": len(warnings),
+        "errors": errors,
+        "warnings": warnings,
+    }
+    return json.dumps(payload, indent=2, sort_keys=False)
 
 
 def _print_top_level_help(parser: argparse.ArgumentParser) -> None:
@@ -1224,12 +1402,16 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                         file=sys.stderr,
                     )
 
-            measured_files = _measure_files(
-                files=safe_files,
-                root=disc.root,
-                max_workers=options.max_workers,
-                override_texts=redacted_files,
-            )
+            try:
+                measured_files = _measure_files(
+                    files=safe_files,
+                    root=disc.root,
+                    max_workers=options.max_workers,
+                    override_texts=redacted_files,
+                    encoding_errors=options.encoding_errors,
+                )
+            except ValueError as e:
+                parser.error(f"pack: {e}")
             binary_measured = [m for m in measured_files if m.is_binary]
             if binary_measured:
                 binary_skipped = [
@@ -1549,7 +1731,14 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     print(f"Wrote {rel_out_path} for {len(pack_runs)} repos.")
 
     elif args.cmd == "unpack":
-        md_text = args.markdown.read_text(encoding="utf-8", errors="replace")
+        unpack_encoding_errors = args.encoding_errors or "replace"
+        try:
+            md_text = _read_text_with_policy(
+                args.markdown,
+                encoding_errors=unpack_encoding_errors,
+            )
+        except ValueError as e:
+            parser.error(f"unpack: {e}")
         try:
             unpack_to_dir(md_text, args.out_dir, strict=bool(args.strict))
         except ValueError as e:
@@ -1559,7 +1748,15 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         print(f"Unpacked into {args.out_dir}")
 
     elif args.cmd == "patch":
-        old_md = args.old_markdown.read_text(encoding="utf-8", errors="replace")
+        cfg = load_config(args.root)
+        patch_encoding_errors = _resolve_encoding_errors(cfg, args.encoding_errors)
+        try:
+            old_md = _read_text_with_policy(
+                args.old_markdown,
+                encoding_errors=patch_encoding_errors,
+            )
+        except ValueError as e:
+            parser.error(f"patch: {e}")
         old_sections = split_repository_sections(old_md)
         selected_label: str | None = None
         if old_sections:
@@ -1579,7 +1776,6 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 "# Repository sections"
             )
 
-        cfg = load_config(args.root)
         try:
             patch_md = generate_patch_markdown(
                 old_md,
@@ -1587,6 +1783,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 include=cfg.include,
                 exclude=cfg.exclude,
                 respect_gitignore=cfg.respect_gitignore,
+                encoding_errors=patch_encoding_errors,
             )
         except ValueError as e:
             if _is_no_manifest_error(e):
@@ -1598,19 +1795,35 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         print(f"Wrote {args.output}")
 
     elif args.cmd == "validate-pack":
-        md_text = args.markdown.read_text(encoding="utf-8", errors="replace")
+        cfg_root = args.root if args.root is not None else Path.cwd()
+        cfg = load_config(cfg_root)
+        validate_encoding_errors = _resolve_encoding_errors(cfg, args.encoding_errors)
+        try:
+            md_text = _read_text_with_policy(
+                args.markdown,
+                encoding_errors=validate_encoding_errors,
+            )
+        except ValueError as e:
+            parser.error(f"validate-pack: {e}")
         try:
             report = validate_pack_markdown(
-                md_text, root=args.root, strict=bool(args.strict)
+                md_text,
+                root=args.root,
+                strict=bool(args.strict),
+                encoding_errors=validate_encoding_errors,
             )
         except ValueError as e:
             if _is_no_manifest_error(e):
                 _raise_no_manifest_error(parser, command_name="validate-pack")
             raise
-        _print_grouped_validation_report(report)
+        if args.json:
+            print(_validation_report_json(report))
+        else:
+            _print_grouped_validation_report(report)
         if report.errors:
             raise SystemExit(1)
-        print("OK: pack is internally consistent.")
+        if not args.json:
+            print("OK: pack is internally consistent.")
 
     elif args.cmd == "doctor":
         if not args.root.exists() or not args.root.is_dir():
@@ -1618,7 +1831,15 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         _run_doctor(args.root)
 
     elif args.cmd == "apply":
-        md_text = args.patch_markdown.read_text(encoding="utf-8", errors="replace")
+        cfg = load_config(args.root)
+        apply_encoding_errors = _resolve_encoding_errors(cfg, args.encoding_errors)
+        try:
+            md_text = _read_text_with_policy(
+                args.patch_markdown,
+                encoding_errors=apply_encoding_errors,
+            )
+        except ValueError as e:
+            parser.error(f"apply: {e}")
         patch_sections = split_repository_sections(md_text)
         if patch_sections:
             try:
@@ -1638,7 +1859,25 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
 
         diff_text = _extract_diff_blocks(md_text)
         diffs = parse_unified_diff(diff_text)
-        changed = apply_file_diffs(diffs, args.root, dry_run=bool(args.dry_run))
+        patch_meta = _extract_patch_metadata(md_text)
+        try:
+            _verify_patch_baseline(
+                root=args.root,
+                diffs=diffs,
+                patch_meta=patch_meta,
+                encoding_errors=apply_encoding_errors,
+            )
+        except ValueError as e:
+            parser.error(f"apply: {e}")
+        try:
+            changed = apply_file_diffs(
+                diffs,
+                args.root,
+                dry_run=bool(args.dry_run),
+                encoding_errors=apply_encoding_errors,
+            )
+        except ValueError as e:
+            parser.error(f"apply: {e}")
         if args.dry_run:
             print(f"Dry run OK: patch can be applied to {len(changed)} file(s).")
         else:

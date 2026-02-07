@@ -81,6 +81,19 @@ The marker references the function definition occurrence. During unpack, Codecra
 locates the marker, finds the ``def`` line above it (including decorators), and
 replaces that region with the canonical function body from the Function Library.
 
+
+Patch metadata
+--------------
+
+Generated patch markdown includes a ``codecrate-patch-meta`` fence with:
+
+* patch format id (``codecrate.patch.v1``)
+* baseline manifest checksum
+* baseline per-file original checksums
+
+``apply`` uses this metadata to verify that baseline files still match before
+applying hunks.
+
 When binary files are detected during packing, they are skipped and reported as
 ``Skipped as binary: N file(s)`` in the pack header and Safety Report (when enabled).
 

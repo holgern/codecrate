@@ -22,6 +22,7 @@
   - `full`: Complete file contents (no stubbing)
 - **Round-trip support**: Reconstruct original files exactly from Markdown packs
 - **Diff generation**: Create minimal patch Markdown files showing only changed code
+- **Baseline-aware patches**: Patch metadata binds diffs to baseline file hashes; `apply` refuses mismatched baselines
 - **Gitignore support**: Respect `.gitignore` when scanning files
 - **Tool ignore support**: Respect `.codecrateignore` (always)
 - **Targeted packing**: Optional `--stdin` / `--stdin0` mode to pack an explicit file list
@@ -135,6 +136,9 @@ nav_mode = "auto"
 # (Python files always use built-in AST parsing)
 symbol_backend = "auto"
 
+# Text decode policy when reading files: "replace" or "strict"
+encoding_errors = "replace"
+
 # Sensitive file filtering
 security_check = true
 security_content_sniff = false
@@ -179,7 +183,7 @@ codecrate pack <root> [OPTIONS]
 **Options:**
 
 - `-o, --output PATH`: Output markdown path (default: `context.md`)
-- `--dedupe`: Deduplicate identical function bodies
+- `--dedupe` / `--no-dedupe`: Enable or disable deduplication
 - `--layout {auto,stubs,full}`: Output layout mode
 - `--nav-mode {auto,compact,full}`: Navigation density mode
 - `--symbol-backend {auto,python,tree-sitter,none}`: Non-Python symbol backend
@@ -215,6 +219,7 @@ codecrate pack <root> [OPTIONS]
 - `--max-total-tokens N`: Fail if included files exceed this token limit
 - `--max-workers N`: Max worker threads for IO/parsing/token counting
 - `--manifest-json [PATH]`: Write manifest JSON for tooling
+- `--encoding-errors {replace,strict}`: UTF-8 decode policy for input files
 
 When `--stdin`/`--stdin0` is used, only explicitly listed files are considered.
 Include globs are not applied, but exclude patterns and ignore files still apply.
@@ -259,28 +264,33 @@ codecrate patch <old_markdown> <root> [--repo <label-or-slug>] [OPTIONS]
 - `--repo <label-or-slug>`: Required when `<old_markdown>` contains multiple
   `# Repository:` sections; selects which repository baseline to diff against
 - `-o, --output PATH`: Output patch markdown (default: `patch.md`)
+- `--encoding-errors {replace,strict}`: UTF-8 decode policy for baseline/current files
 
 ### `apply` - Apply Patch to Repository
 
 ```bash
-codecrate apply <patch_markdown> <root> [--repo <label-or-slug>] [--dry-run]
+codecrate apply <patch_markdown> <root> [--repo <label-or-slug>] [--dry-run] [--encoding-errors {replace,strict}]
 ```
 
 When `<patch_markdown>` contains multiple `# Repository:` sections, `--repo` is
 required to select one section.
 
 Use `--dry-run` to parse and validate hunks without writing files.
+When patch metadata contains baseline hashes, `apply` verifies baseline files and
+refuses to apply on mismatch.
 
 ### `validate-pack` - Validate Pack
 
 ```bash
-codecrate validate-pack <markdown> [--root PATH] [--strict]
+codecrate validate-pack <markdown> [--root PATH] [--strict] [--json]
 ```
 
 **Options:**
 
 - `--root PATH`: Optional repo root to compare reconstructed files against
 - `--strict`: Treat unresolved marker mapping as validation errors
+- `--json`: Emit machine-readable report (`ok`, counts, errors, warnings)
+- `--encoding-errors {replace,strict}`: UTF-8 decode policy for pack/root file reads
 
 For combined packs, validation runs per repository section and reports scope-aware
 errors/warnings grouped by section, with short reproduction hints. Cross-repo
