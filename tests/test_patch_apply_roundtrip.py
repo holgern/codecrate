@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from codecrate.cli import main
 from codecrate.diffgen import generate_patch_markdown
 from codecrate.discover import discover_python_files
 from codecrate.markdown import render_markdown
@@ -163,6 +164,24 @@ def test_apply_rejects_context_mismatch(tmp_path: Path) -> None:
         apply_file_diffs(diffs, root)
 
 
+def test_apply_error_message_includes_path_hunk_and_excerpt(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "a.py").write_text("alpha\nbeta\n", encoding="utf-8")
+
+    diff_text = "--- a/a.py\n+++ b/a.py\n@@ -1,2 +1,2 @@\n alpha\n-gamma\n+G\n"
+    diffs = parse_unified_diff(diff_text)
+
+    with pytest.raises(ValueError) as excinfo:
+        apply_file_diffs(diffs, root)
+
+    msg = str(excinfo.value)
+    assert "a.py" in msg
+    assert "@@ -1,2 +1,2 @@" in msg
+    assert "expected 'gamma'" in msg
+    assert "got 'beta'" in msg
+
+
 def test_apply_handles_trailing_newline_removal(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     root.mkdir()
@@ -204,3 +223,46 @@ def test_apply_normalizes_crlf_to_lf_consistently(tmp_path: Path) -> None:
     apply_file_diffs(diffs, root)
 
     assert target.read_text(encoding="utf-8") == "a\nB\n"
+
+
+def test_apply_creates_parent_dirs_for_nested_add(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+
+    diff_text = (
+        "--- /dev/null\n"
+        "+++ b/new/deep/file.py\n"
+        "@@ -0,0 +1,2 @@\n"
+        "+def x():\n"
+        "+    return 1\n"
+    )
+    diffs = parse_unified_diff(diff_text)
+    apply_file_diffs(diffs, root)
+
+    created = root / "new" / "deep" / "file.py"
+    assert created.exists()
+    assert created.read_text(encoding="utf-8") == "def x():\n    return 1\n"
+
+
+def test_apply_dry_run_validates_without_writing(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    target = root / "a.py"
+    target.write_text("a\nb\n", encoding="utf-8")
+
+    patch_md = tmp_path / "patch.md"
+    patch_md.write_text(
+        "# Codecrate Patch\n\n"
+        "```diff\n"
+        "--- a/a.py\n"
+        "+++ b/a.py\n"
+        "@@ -1,2 +1,2 @@\n"
+        " a\n"
+        "-b\n"
+        "+B\n"
+        "```\n",
+        encoding="utf-8",
+    )
+
+    main(["apply", str(patch_md), str(root), "--dry-run"])
+    assert target.read_text(encoding="utf-8") == "a\nb\n"

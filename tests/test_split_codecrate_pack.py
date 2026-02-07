@@ -16,11 +16,11 @@ def test_split_codecrate_pack_rewrites_symbol_index_links(tmp_path: Path) -> Non
     root.mkdir()
 
     (root / "a.py").write_text(
-        "def alpha():\n" "    return 1\n",
+        "def alpha():\n    return 1\n",
         encoding="utf-8",
     )
     (root / "b.py").write_text(
-        "def beta():\n" "    return 2\n",
+        "def beta():\n    return 2\n",
         encoding="utf-8",
     )
 
@@ -51,7 +51,7 @@ def test_split_codecrate_pack_rewrites_func_links_in_stub_layout(
     root.mkdir()
 
     (root / "x.py").write_text(
-        "def f():\n" "    return 123\n\n" "def g():\n" "    return 456\n",
+        "def f():\n    return 123\n\ndef g():\n    return 456\n",
         encoding="utf-8",
     )
 

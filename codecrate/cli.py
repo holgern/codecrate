@@ -304,6 +304,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Repository label or slug when patch_markdown contains multiple repos",
     )
+    apply.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Parse + validate patch hunks without writing files.",
+    )
     # validate-pack
     vpack = sub.add_parser(
         "validate-pack",
@@ -388,6 +393,7 @@ class _MeasuredFile:
     rel: str
     text: str
     size_bytes: int
+    is_binary: bool = False
 
 
 def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
@@ -710,6 +716,30 @@ def _resolve_worker_count(max_workers: int, item_count: int) -> int:
     return max(2, min(32, cpu * 4, item_count))
 
 
+def _is_likely_binary(data: bytes) -> bool:
+    if not data:
+        return False
+    if b"\x00" in data:
+        return True
+
+    sample = data[:4096]
+    if not sample:
+        return False
+
+    text_whitespace = {9, 10, 13}
+    suspicious = 0
+    for b in sample:
+        if b in text_whitespace:
+            continue
+        if 32 <= b <= 126:
+            continue
+        if 128 <= b <= 255:
+            # UTF-8 / extended bytes are allowed.
+            continue
+        suspicious += 1
+    return suspicious / len(sample) > 0.30
+
+
 def _read_measured_file(
     path: Path,
     root: Path,
@@ -723,14 +753,19 @@ def _read_measured_file(
             rel=path.relative_to(root).as_posix(),
             text=text,
             size_bytes=len(data),
+            is_binary=False,
         )
 
     data = path.read_bytes()
+    is_binary = _is_likely_binary(data)
     return _MeasuredFile(
         path=path,
         rel=path.relative_to(root).as_posix(),
-        text=normalize_newlines(data.decode("utf-8", errors="replace")),
+        text=""
+        if is_binary
+        else normalize_newlines(data.decode("utf-8", errors="replace")),
         size_bytes=len(data),
+        is_binary=is_binary,
     )
 
 
@@ -776,6 +811,18 @@ def _emit_budget_skip_warning(*, label: str, skipped: list[tuple[str, str]]) -> 
     )
 
 
+def _emit_binary_skip_warning(*, label: str, skipped: list[str]) -> None:
+    if not skipped:
+        return
+    preview = ", ".join(skipped[:5])
+    suffix = "" if len(skipped) <= 5 else ", ..."
+    print(
+        f"Warning: skipped {len(skipped)} likely-binary file(s) in "
+        f"{label}: {preview}{suffix}",
+        file=sys.stderr,
+    )
+
+
 def _manifest_json_output_path(
     *,
     manifest_json_arg: str | None,
@@ -803,10 +850,22 @@ def _validation_hint(message: str) -> str | None:
         return "regenerate pack so machine header and manifest are emitted together"
     if "Missing stubbed file block" in message:
         return "restore missing file block under ## Files or regenerate the pack"
+    if "Manifest file missing from file blocks" in message:
+        return (
+            "ensure every manifest path has a matching ### `<path>` block in ## Files"
+        )
+    if "File block not present in manifest" in message:
+        return "remove extra file blocks or regenerate manifest from source"
+    if "Duplicate file block" in message:
+        return "keep only one file block per path under ## Files"
     if "Missing canonical source" in message:
         return "restore the missing Function Library entry for the listed id"
+    if "Orphan function-library entry" in message:
+        return "remove unused Function Library entry or add matching manifest def"
     if "Missing FUNC marker" in message or "Unresolved marker mapping" in message:
         return "ensure stub contains a marker like ...  # ↪ FUNC:v1:<ID>"
+    if "Repo-scope marker collision" in message:
+        return "ensure each stub marker id maps to a single definition occurrence"
     if "sha mismatch" in message:
         return "pack content was edited after generation; regenerate from source files"
     if "failed to parse repository pack" in message:
@@ -951,9 +1010,6 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 skipped = safety_result.skipped
                 redacted_files = safety_result.redacted_files
                 safety_findings = safety_result.findings
-                _emit_safety_warning(
-                    label=label, root=disc.root, findings=safety_findings
-                )
 
             needs_token_counts = bool(
                 options.token_report
@@ -983,6 +1039,22 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 max_workers=options.max_workers,
                 override_texts=redacted_files,
             )
+            binary_measured = [m for m in measured_files if m.is_binary]
+            if binary_measured:
+                binary_skipped = [
+                    SafetyFinding(path=m.path, reason="binary", action="skipped")
+                    for m in binary_measured
+                ]
+                skipped.extend(binary_skipped)
+                safety_findings.extend(binary_skipped)
+                _emit_binary_skip_warning(
+                    label=label,
+                    skipped=[m.rel for m in binary_measured],
+                )
+            measured_files = [m for m in measured_files if not m.is_binary]
+
+            _emit_safety_warning(label=label, root=disc.root, findings=safety_findings)
+
             raw_token_counts: dict[str, int] = {}
             if options.max_file_tokens > 0 or options.max_total_tokens > 0:
                 raw_token_counts = _count_tokens_parallel(
@@ -1055,6 +1127,12 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             effective_layout = "stubs" if use_stubs else "full"
             manifest_obj = to_manifest(pack, minimal=not use_stubs)
             manifest_checksum = manifest_sha256(manifest_obj)
+            binary_count = sum(1 for f in skipped if f.reason == "binary")
+            skipped_for_safety_count = sum(
+                1
+                for f in skipped
+                if not (f.reason == "binary" and f.action == "skipped")
+            )
             redacted_count = sum(1 for f in safety_findings if f.action == "redacted")
             safety_entries = [
                 {
@@ -1078,7 +1156,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 nav_mode=_resolve_effective_nav_mode(
                     options.nav_mode, options.split_max_chars
                 ),
-                skipped_for_safety_count=len(skipped),
+                skipped_for_safety_count=skipped_for_safety_count,
+                skipped_for_binary_count=binary_count,
                 redacted_for_safety_count=redacted_count,
                 include_safety_report=options.safety_report,
                 safety_report_entries=safety_entries,
@@ -1127,7 +1206,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     options=options,
                     default_output=default_output,
                     file_count=len(files_for_pack),
-                    skipped_for_safety_count=len(skipped),
+                    skipped_for_safety_count=skipped_for_safety_count,
                     redacted_for_safety_count=redacted_count,
                     safety_findings=safety_findings,
                     effective_layout=effective_layout,
@@ -1332,8 +1411,11 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
 
         diff_text = _extract_diff_blocks(md_text)
         diffs = parse_unified_diff(diff_text)
-        changed = apply_file_diffs(diffs, args.root)
-        print(f"Applied patch to {len(changed)} file(s).")
+        changed = apply_file_diffs(diffs, args.root, dry_run=bool(args.dry_run))
+        if args.dry_run:
+            print(f"Dry run OK: patch can be applied to {len(changed)} file(s).")
+        else:
+            print(f"Applied patch to {len(changed)} file(s).")
 
 
 if __name__ == "__main__":

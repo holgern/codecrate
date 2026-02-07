@@ -56,6 +56,157 @@ class ValidationReport:
     warnings: list[str]
 
 
+@dataclass(frozen=True)
+class _FileValidationResult:
+    errors: list[str]
+    warnings: list[str]
+    marker_ids: list[str]
+
+
+def _validate_manifest_structure(markdown_text: str, manifest: dict) -> list[str]:
+    errors: list[str] = []
+
+    file_block_paths = _scan_file_block_paths(markdown_text)
+    manifest_paths = [
+        str(f.get("path") or "") for f in manifest.get("files") or [] if f.get("path")
+    ]
+
+    file_block_counts = Counter(file_block_paths)
+    for rel in sorted(path for path, count in file_block_counts.items() if count > 1):
+        errors.append(f"Duplicate file block for {rel}")
+
+    file_block_set = set(file_block_paths)
+    manifest_path_set = set(manifest_paths)
+    for rel in sorted(manifest_path_set - file_block_set):
+        errors.append(f"Manifest file missing from file blocks: {rel}")
+    for rel in sorted(file_block_set - manifest_path_set):
+        errors.append(f"File block not present in manifest: {rel}")
+
+    referenced_ids = {
+        str(d.get("id") or "").upper()
+        for f in manifest.get("files") or []
+        for d in f.get("defs") or []
+        if d.get("id")
+    }
+    function_library_ids = {
+        i.upper() for i in _scan_function_library_ids(markdown_text)
+    }
+    for orphan in sorted(function_library_ids - referenced_ids):
+        errors.append(f"Orphan function-library entry: id={orphan}")
+
+    return errors
+
+
+def _validate_file_entry(
+    *,
+    file_entry: dict,
+    packed: object,
+    strict: bool,
+    root_resolved: Path | None,
+) -> _FileValidationResult:
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    rel = file_entry.get("path")
+    if not rel:
+        return _FileValidationResult(
+            errors=["Manifest entry missing 'path'"],
+            warnings=[],
+            marker_ids=[],
+        )
+
+    stub = getattr(packed, "stubbed_files", {}).get(rel)
+    if stub is None:
+        return _FileValidationResult(
+            errors=[f"Missing stubbed file block for {rel}"],
+            warnings=[],
+            marker_ids=[],
+        )
+
+    stub_norm = normalize_newlines(stub)
+    exp_stub = file_entry.get("sha256_stubbed")
+    got_stub = _sha256_text(stub_norm)
+    if exp_stub and got_stub != exp_stub:
+        errors.append(
+            f"Stub sha mismatch for {rel}: expected {exp_stub}, got {got_stub}"
+        )
+
+    marker_ids = [m.group("id").upper() for m in _MARK_RE.finditer(stub_norm)]
+    if marker_ids:
+        c = Counter(marker_ids)
+        dup = [k for k, v in c.items() if v > 1]
+        if dup:
+            warnings.append(f"Marker collision in {rel}: {', '.join(sorted(dup))}")
+
+    defs = file_entry.get("defs") or []
+    canonical_sources = getattr(packed, "canonical_sources", {})
+    for d in defs:
+        cid = str(d.get("id") or "").upper()
+        lid = str(d.get("local_id") or "").upper()
+        if cid and cid not in canonical_sources:
+            errors.append(
+                f"Missing canonical source for {rel}:{d.get('qualname')} id={cid}"
+            )
+
+        if d.get("has_marker") is False:
+            continue
+
+        if (lid and lid not in marker_ids) and (cid and cid not in marker_ids):
+            msg = (
+                f"Missing FUNC marker in stub for {rel}:{d.get('qualname')} "
+                f"(local_id={lid or '∅'}, id={cid or '∅'})"
+            )
+            if strict:
+                errors.append(msg)
+            else:
+                warnings.append(msg)
+
+    try:
+        marker_issues: list[str] = []
+        reconstructed = _apply_canonical_into_stub(
+            stub_norm,
+            defs,
+            canonical_sources,
+            strict=False,
+            issues=marker_issues,
+        )
+        reconstructed = normalize_newlines(reconstructed)
+    except Exception as e:  # pragma: no cover
+        errors.append(f"Failed to reconstruct {rel}: {e}")
+        return _FileValidationResult(
+            errors=errors, warnings=warnings, marker_ids=marker_ids
+        )
+
+    for issue in marker_issues:
+        msg = f"Unresolved marker mapping for {rel}: {issue}"
+        if strict:
+            errors.append(msg)
+        else:
+            warnings.append(msg)
+
+    exp_orig = file_entry.get("sha256_original")
+    got_orig = _sha256_text(reconstructed)
+    if exp_orig and got_orig != exp_orig:
+        errors.append(
+            f"Original sha mismatch for {rel}: expected {exp_orig}, got {got_orig}"
+        )
+
+    if root_resolved is not None:
+        disk_path = root_resolved / str(rel)
+        if not disk_path.exists():
+            warnings.append(f"On-disk file missing under root: {rel}")
+        else:
+            disk_text = normalize_newlines(
+                disk_path.read_text(encoding="utf-8", errors="replace")
+            )
+            if _sha256_text(disk_text) != got_orig:
+                warnings.append(f"On-disk file differs from pack for {rel}")
+
+    return _FileValidationResult(
+        errors=errors, warnings=warnings, marker_ids=marker_ids
+    )
+
+
 def validate_pack_markdown(
     markdown_text: str,
     *,
@@ -144,92 +295,30 @@ def _validate_single_pack_markdown(
         )
     )
 
+    errors.extend(_validate_manifest_structure(markdown_text, manifest))
+
     files = manifest.get("files") or []
+    marker_owners: dict[str, set[str]] = {}
     for f in files:
-        rel = f.get("path")
-        if not rel:
-            errors.append("Manifest entry missing 'path'")
+        result = _validate_file_entry(
+            file_entry=f,
+            packed=packed,
+            strict=strict,
+            root_resolved=root_resolved,
+        )
+        errors.extend(result.errors)
+        warnings.extend(result.warnings)
+        rel = str(f.get("path") or "")
+        for marker_id in result.marker_ids:
+            marker_owners.setdefault(marker_id, set()).add(rel)
+
+    for marker_id in sorted(marker_owners):
+        owners = sorted(marker_owners[marker_id])
+        if len(owners) <= 1:
             continue
-
-        stub = packed.stubbed_files.get(rel)
-        if stub is None:
-            errors.append(f"Missing stubbed file block for {rel}")
-            continue
-
-        stub_norm = normalize_newlines(stub)
-        exp_stub = f.get("sha256_stubbed")
-        got_stub = _sha256_text(stub_norm)
-        if exp_stub and got_stub != exp_stub:
-            errors.append(
-                f"Stub sha mismatch for {rel}: expected {exp_stub}, got {got_stub}"
-            )
-
-        marker_ids = [m.group("id").upper() for m in _MARK_RE.finditer(stub_norm)]
-        if marker_ids:
-            c = Counter(marker_ids)
-            dup = [k for k, v in c.items() if v > 1]
-            if dup:
-                warnings.append(f"Marker collision in {rel}: {', '.join(sorted(dup))}")
-
-        defs = f.get("defs") or []
-        for d in defs:
-            cid = str(d.get("id") or "").upper()
-            lid = str(d.get("local_id") or "").upper()
-            if cid and cid not in packed.canonical_sources:
-                errors.append(
-                    f"Missing canonical source for {rel}:{d.get('qualname')} id={cid}"
-                )
-
-            # local_id marker is preferred; fall back to id for older packs
-            if (lid and lid not in marker_ids) and (cid and cid not in marker_ids):
-                msg = (
-                    f"Missing FUNC marker in stub for {rel}:{d.get('qualname')} "
-                    f"(local_id={lid or '∅'}, id={cid or '∅'})"
-                )
-                if strict:
-                    errors.append(msg)
-                else:
-                    warnings.append(msg)
-
-        try:
-            marker_issues: list[str] = []
-            reconstructed = _apply_canonical_into_stub(
-                stub_norm,
-                defs,
-                packed.canonical_sources,
-                strict=False,
-                issues=marker_issues,
-            )
-            reconstructed = normalize_newlines(reconstructed)
-        except Exception as e:  # pragma: no cover
-            errors.append(f"Failed to reconstruct {rel}: {e}")
-            continue
-
-        if marker_issues:
-            for issue in marker_issues:
-                msg = f"Unresolved marker mapping for {rel}: {issue}"
-                if strict:
-                    errors.append(msg)
-                else:
-                    warnings.append(msg)
-
-        exp_orig = f.get("sha256_original")
-        got_orig = _sha256_text(reconstructed)
-        if exp_orig and got_orig != exp_orig:
-            errors.append(
-                f"Original sha mismatch for {rel}: expected {exp_orig}, got {got_orig}"
-            )
-
-        if root_resolved is not None:
-            disk_path = root_resolved / rel
-            if not disk_path.exists():
-                warnings.append(f"On-disk file missing under root: {rel}")
-            else:
-                disk_text = normalize_newlines(
-                    disk_path.read_text(encoding="utf-8", errors="replace")
-                )
-                if _sha256_text(disk_text) != got_orig:
-                    warnings.append(f"On-disk file differs from pack for {rel}")
+        warnings.append(
+            f"Repo-scope marker collision for {marker_id}: {', '.join(owners)}"
+        )
 
     return ValidationReport(errors=errors, warnings=warnings)
 
@@ -267,3 +356,94 @@ def _iter_anchor_ids(markdown_text: str) -> list[str]:
         if is_fence_close(line, fence):
             fence = None
     return anchors
+
+
+def _scan_section_lines(markdown_text: str, section_title: str) -> list[str]:
+    lines = markdown_text.splitlines()
+    fence: str | None = None
+    start: int | None = None
+
+    for i, line in enumerate(lines):
+        if fence is None:
+            opened = parse_fence_open(line)
+            if opened is not None:
+                fence = opened[0]
+                continue
+            if line.strip() == section_title:
+                start = i + 1
+                break
+        else:
+            if is_fence_close(line, fence):
+                fence = None
+
+    if start is None:
+        return []
+
+    fence = None
+    end = len(lines)
+    for j in range(start, len(lines)):
+        line = lines[j]
+        if fence is None:
+            opened = parse_fence_open(line)
+            if opened is not None:
+                fence = opened[0]
+                continue
+            if line.startswith("## ") and line.strip() != section_title:
+                end = j
+                break
+        else:
+            if is_fence_close(line, fence):
+                fence = None
+
+    return lines[start:end]
+
+
+def _scan_file_block_paths(markdown_text: str) -> list[str]:
+    paths: list[str] = []
+    fence: str | None = None
+    for line in _scan_section_lines(markdown_text, "## Files"):
+        if fence is None:
+            opened = parse_fence_open(line)
+            if opened is not None:
+                fence = opened[0]
+                continue
+        else:
+            if is_fence_close(line, fence):
+                fence = None
+            continue
+
+        if not line.startswith("### `"):
+            continue
+        first_tick = line.find("`")
+        if first_tick < 0:
+            continue
+        second_tick = line.find("`", first_tick + 1)
+        if second_tick <= first_tick:
+            continue
+        rel = line[first_tick + 1 : second_tick].strip()
+        if rel:
+            paths.append(rel)
+    return paths
+
+
+def _scan_function_library_ids(markdown_text: str) -> list[str]:
+    ids: list[str] = []
+    fence: str | None = None
+    for line in _scan_section_lines(markdown_text, "## Function Library"):
+        if fence is None:
+            opened = parse_fence_open(line)
+            if opened is not None:
+                fence = opened[0]
+                continue
+        else:
+            if is_fence_close(line, fence):
+                fence = None
+            continue
+
+        if not line.startswith("### "):
+            continue
+        title = line.replace("###", "", 1).strip()
+        maybe_id = title.split(" — ", 1)[0].strip()
+        if maybe_id:
+            ids.append(maybe_id)
+    return ids

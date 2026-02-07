@@ -212,6 +212,88 @@ def test_discover_files_explicit_respects_codecrateignore(tmp_path: Path) -> Non
     assert disc.files == [tmp_path / "a.py"]
 
 
+def test_discover_files_explicit_respects_exclude_patterns(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=["b.py"],
+        respect_gitignore=False,
+        explicit_files=[Path("a.py"), Path("b.py")],
+    )
+
+    assert disc.files == [tmp_path / "a.py"]
+
+
+def test_discover_files_explicit_respects_gitignore_when_enabled(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
+    (tmp_path / "ok.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "ignored.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=True,
+        explicit_files=[Path("ok.py"), Path("ignored.py")],
+    )
+
+    assert disc.files == [tmp_path / "ok.py"]
+
+
+def test_discover_files_explicit_rejects_outside_root_paths(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "inside.py").write_text("pass\n", encoding="utf-8")
+
+    outside = tmp_path / "outside.py"
+    outside.write_text("pass\n", encoding="utf-8")
+
+    disc = discover_files(
+        root=repo,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=False,
+        explicit_files=[Path("inside.py"), outside],
+    )
+
+    assert disc.files == [repo / "inside.py"]
+
+
+def test_discover_codecrateignore_supports_negation(tmp_path: Path) -> None:
+    (tmp_path / ".codecrateignore").write_text("*.py\n!keep.py\n", encoding="utf-8")
+    (tmp_path / "drop.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "keep.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_python_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=False,
+    )
+
+    assert disc.files == [tmp_path / "keep.py"]
+
+
+def test_codecrateignore_precedence_over_gitignore(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
+    (tmp_path / ".codecrateignore").write_text("!ignored.py\n", encoding="utf-8")
+    (tmp_path / "ignored.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_python_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=True,
+    )
+
+    assert disc.files == [tmp_path / "ignored.py"]
+
+
 def _symlink_or_skip(link: Path, target: Path) -> None:
     try:
         link.symlink_to(target)

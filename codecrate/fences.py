@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 
 _BACKTICK_RUN_RE = re.compile(r"`+")
-_FENCE_OPEN_RE = re.compile(r"^(?P<fence>`{3,})(?P<info>[A-Za-z0-9_-]+)\s*$")
+_FENCE_OPEN_RE = re.compile(
+    r"^(?P<fence>`{3,})[ \t]*(?P<info>[A-Za-z0-9_-]+)(?:[ \t]+.*)?$"
+)
 
 
 def longest_backtick_run(text: str) -> int:

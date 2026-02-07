@@ -150,16 +150,16 @@ def apply_hunks_to_text(old_text: str, hunks: list[list[str]]) -> str:
     for hunk in hunks:
         m = _HUNK_RE.match(hunk[0])
         if not m:
-            raise ValueError(f"Bad hunk header: {hunk[0]}")
+            raise ValueError(f"bad hunk header: {hunk[0]}")
         old_start = max(0, int(m.group(1)) - 1)  # 0-based; -0 in hunks means start
         old_count = _parse_count(m.group(2))
         new_count = _parse_count(m.group(4))
 
         # copy unchanged prefix
         if old_start < old_i and not (old_i == 0 and len(old_lines) == 0):
-            raise ValueError("Overlapping hunks")
+            raise ValueError(f"{hunk[0]}: overlapping hunks")
         if old_start > len(old_lines):
-            raise ValueError("Hunk start out of range")
+            raise ValueError(f"{hunk[0]}: hunk start out of range")
         new_lines.extend(old_lines[old_i:old_start])
         old_i = old_start
 
@@ -173,14 +173,18 @@ def apply_hunks_to_text(old_text: str, hunks: list[list[str]]) -> str:
                 if prev_tag in {" ", "+"}:
                     new_has_trailing_newline = False
                 elif prev_tag is None:
-                    raise ValueError("Dangling no-newline marker in patch")
+                    raise ValueError(f"{hunk[0]}: dangling no-newline marker in patch")
                 continue
 
             tag = line[:1]
             payload = line[1:]
             if tag == " ":
                 if old_i >= len(old_lines) or old_lines[old_i] != payload:
-                    raise ValueError("Context mismatch while applying patch")
+                    actual = old_lines[old_i] if old_i < len(old_lines) else "<EOF>"
+                    raise ValueError(
+                        f"{hunk[0]}: context mismatch at line {old_i + 1}; "
+                        f"expected {payload!r}, got {actual!r}"
+                    )
                 new_lines.append(payload)
                 old_i += 1
                 consumed_old += 1
@@ -189,7 +193,11 @@ def apply_hunks_to_text(old_text: str, hunks: list[list[str]]) -> str:
                 prev_tag = " "
             elif tag == "-":
                 if old_i >= len(old_lines) or old_lines[old_i] != payload:
-                    raise ValueError("Delete mismatch while applying patch")
+                    actual = old_lines[old_i] if old_i < len(old_lines) else "<EOF>"
+                    raise ValueError(
+                        f"{hunk[0]}: delete mismatch at line {old_i + 1}; "
+                        f"expected {payload!r}, got {actual!r}"
+                    )
                 old_i += 1
                 consumed_old += 1
                 prev_tag = "-"
@@ -199,12 +207,18 @@ def apply_hunks_to_text(old_text: str, hunks: list[list[str]]) -> str:
                 new_has_trailing_newline = True
                 prev_tag = "+"
             else:
-                raise ValueError(f"Unexpected diff tag: {tag}")
+                raise ValueError(f"{hunk[0]}: unexpected diff tag: {tag}")
 
         if consumed_old != old_count:
-            raise ValueError("Hunk old-line count mismatch")
+            raise ValueError(
+                f"{hunk[0]}: hunk old-line count mismatch "
+                f"(expected {old_count}, got {consumed_old})"
+            )
         if produced_new != new_count:
-            raise ValueError("Hunk new-line count mismatch")
+            raise ValueError(
+                f"{hunk[0]}: hunk new-line count mismatch "
+                f"(expected {new_count}, got {produced_new})"
+            )
 
     # copy remainder
     new_lines.extend(old_lines[old_i:])
@@ -217,7 +231,12 @@ def apply_hunks_to_text(old_text: str, hunks: list[list[str]]) -> str:
     return out
 
 
-def apply_file_diffs(diffs: list[FileDiff], root: Path) -> list[Path]:
+def apply_file_diffs(
+    diffs: list[FileDiff],
+    root: Path,
+    *,
+    dry_run: bool = False,
+) -> list[Path]:
     """
     Applies diffs to files under root. Returns list of modified paths.
     """
@@ -228,7 +247,7 @@ def apply_file_diffs(diffs: list[FileDiff], root: Path) -> list[Path]:
         path = safe_join(root, fd.path)
 
         if fd.op == "delete":
-            if path.exists():
+            if path.exists() and not dry_run:
                 path.unlink()
             changed.append(path)
             continue
@@ -236,9 +255,14 @@ def apply_file_diffs(diffs: list[FileDiff], root: Path) -> list[Path]:
         old = ""
         if path.exists():
             old = path.read_text(encoding="utf-8", errors="replace")
-        new = apply_hunks_to_text(old, fd.hunks)
-        ensure_parent_dir(path)
-        path.write_text(new, encoding="utf-8")
+        try:
+            new = apply_hunks_to_text(old, fd.hunks)
+        except ValueError as e:
+            hunk_header = fd.hunks[0][0] if fd.hunks else "@@ <unknown> @@"
+            raise ValueError(f"{fd.path}: {hunk_header}: {e}") from e
+        if not dry_run:
+            ensure_parent_dir(path)
+            path.write_text(new, encoding="utf-8")
         changed.append(path)
 
     return changed

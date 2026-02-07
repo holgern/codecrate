@@ -385,6 +385,7 @@ def render_markdown(  # noqa: C901
     layout: str = "auto",
     nav_mode: Literal["compact", "full"] = "full",
     skipped_for_safety_count: int = 0,
+    skipped_for_binary_count: int = 0,
     redacted_for_safety_count: int = 0,
     *,
     include_safety_report: bool = False,
@@ -412,6 +413,8 @@ def render_markdown(  # noqa: C901
     lines.append(f"Layout: `{resolved_layout}`\n\n")
     if skipped_for_safety_count > 0:
         lines.append(f"Skipped for safety: {skipped_for_safety_count} file(s)\n\n")
+    if skipped_for_binary_count > 0:
+        lines.append(f"Skipped as binary: {skipped_for_binary_count} file(s)\n\n")
     if redacted_for_safety_count > 0:
         lines.append(f"Redacted for safety: {redacted_for_safety_count} file(s)\n\n")
 

@@ -57,6 +57,74 @@ def test_pack_stdin_requires_non_empty_input(tmp_path: Path, monkeypatch) -> Non
     assert excinfo.value.code == 2
 
 
+def test_pack_stdin_applies_excludes(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("def b():\n    return 2\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("a.py\nb.py\n"))
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--stdin",
+            "--exclude",
+            "b.py",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `a.py`" in text
+    assert "### `b.py`" not in text
+
+
+def test_pack_stdin_applies_ignore_rules(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / ".gitignore").write_text("git_ignored.py\n", encoding="utf-8")
+    (tmp_path / ".codecrateignore").write_text("cc_ignored.py\n", encoding="utf-8")
+    (tmp_path / "ok.py").write_text("def ok():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "git_ignored.py").write_text(
+        "def git_ignored():\n    return 2\n", encoding="utf-8"
+    )
+    (tmp_path / "cc_ignored.py").write_text(
+        "def cc_ignored():\n    return 3\n", encoding="utf-8"
+    )
+    out_path = tmp_path / "context.md"
+
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO("ok.py\ngit_ignored.py\ncc_ignored.py\n"),
+    )
+    main(["pack", str(tmp_path), "--stdin", "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `ok.py`" in text
+    assert "### `git_ignored.py`" not in text
+    assert "### `cc_ignored.py`" not in text
+
+
+def test_pack_stdin_rejects_paths_outside_root(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "inside.py").write_text("def inside():\n    return 1\n", encoding="utf-8")
+    outside = tmp_path / "outside.py"
+    outside.write_text("def outside():\n    return 2\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(f"inside.py\n{outside.as_posix()}\n"),
+    )
+    main(["pack", str(repo), "--stdin", "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `inside.py`" in text
+    assert "### `outside.py`" not in text
+
+
 def test_pack_invalid_token_encoding_does_not_crash(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
@@ -395,6 +463,59 @@ def test_pack_security_redaction_masks_sensitive_file(tmp_path: Path) -> None:
     assert "**redacted**" in text
 
 
+def test_pack_security_redaction_masks_only_content_matches(tmp_path: Path) -> None:
+    (tmp_path / "token.txt").write_text(
+        "token=ABC123456789\nsafe=value\n",
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include",
+            "*.txt",
+            "--security-content-sniff",
+            "--security-redaction",
+            "--security-content-pattern",
+            r"token-rule=token=[A-Za-z0-9]{8,}",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `token.txt`" in text
+    assert "ABC123456789" not in text
+    assert "safe=value" in text
+
+
+def test_pack_skips_binary_files_with_explicit_report(tmp_path: Path, capsys) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "blob.bin").write_bytes(b"\x00\x01\x02\x03")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include",
+            "*",
+            "--safety-report",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    text = out_path.read_text(encoding="utf-8")
+    assert "likely-binary" in captured.err
+    assert "Skipped as binary: 1 file(s)" in text
+    assert "`blob.bin` - **skipped** (binary)" in text
+    assert "### `blob.bin`" not in text
+
+
 def test_pack_custom_security_path_pattern_overrides_defaults(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
     (tmp_path / ".env").write_text("SECRET=123\n", encoding="utf-8")
@@ -439,7 +560,7 @@ def test_pack_custom_security_content_pattern(tmp_path: Path) -> None:
     assert "### `token.txt`" not in text
 
 
-def test_pack_invalid_security_content_pattern_fails(tmp_path: Path) -> None:
+def test_pack_invalid_security_content_pattern_fails(tmp_path: Path, capsys) -> None:
     (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
 
     with pytest.raises(SystemExit) as excinfo:
@@ -454,6 +575,9 @@ def test_pack_invalid_security_content_pattern_fails(tmp_path: Path) -> None:
         )
 
     assert excinfo.value.code == 2
+    captured = capsys.readouterr()
+    assert "invalid security rule pattern" in captured.err
+    assert "Invalid content regex 'bad'" in captured.err
 
 
 def test_pack_manifest_json_default_path(tmp_path: Path) -> None:
