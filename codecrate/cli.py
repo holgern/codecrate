@@ -31,7 +31,7 @@ from .tokens import (
     format_top_files,
     format_top_files_by_size,
 )
-from .udiff import apply_file_diffs, parse_unified_diff
+from .udiff import apply_file_diffs, normalize_newlines, parse_unified_diff
 from .unpacker import unpack_to_dir
 from .validate import validate_pack_markdown
 
@@ -716,7 +716,7 @@ def _read_measured_file(
     override_texts: dict[Path, str] | None,
 ) -> _MeasuredFile:
     if override_texts is not None and path in override_texts:
-        text = override_texts[path]
+        text = normalize_newlines(override_texts[path])
         data = text.encode("utf-8")
         return _MeasuredFile(
             path=path,
@@ -729,7 +729,7 @@ def _read_measured_file(
     return _MeasuredFile(
         path=path,
         rel=path.relative_to(root).as_posix(),
-        text=data.decode("utf-8", errors="replace"),
+        text=normalize_newlines(data.decode("utf-8", errors="replace")),
         size_bytes=len(data),
     )
 
