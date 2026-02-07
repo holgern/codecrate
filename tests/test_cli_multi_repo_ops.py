@@ -359,7 +359,7 @@ def test_pack_multi_repo_split_preserves_repo_boundaries_and_fences(
             "--repo",
             str(repo2),
             "--split-max-chars",
-            "500",
+            "700",
             "-o",
             str(packed),
         ]

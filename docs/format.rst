@@ -15,9 +15,6 @@ High-level structure
 A typical pack includes:
 
 * **How to Use This Pack**: reading guidance for LLMs
-* **Machine Header**: compact metadata in a ``codecrate-machine-header`` fence
-* **Manifest (optional)**: machine-readable metadata in a ``codecrate-manifest`` fence
-* **Safety Report (optional)**: skipped/redacted files and reasons
 * **Directory Tree**: a simple text tree of files
 * **Symbol Index**: per-file symbol list with line ranges
 * **Function Library** (stub layout only): canonical function bodies keyed by ID
@@ -120,8 +117,9 @@ When binary files are detected during packing, they are skipped and reported as
 Line ranges
 -----------
 
-The Symbol Index can include markdown line ranges ``(Lx-y)`` that refer to line numbers inside the packed Markdown file itself.
+The Symbol Index can include markdown line ranges ``(Lx-y)`` that refer to line numbers
+inside the packed Markdown file itself.
 
-When a pack is split into ``.partN.md`` files, these markdown line ranges are omitted in the split parts because they are not stable across files.
-Use the per-part links (e.g. ``context.part3.md#src-...`` / ``#func-...``)
-nstead.
+When a pack is split into ``.partN.md`` files, these markdown line ranges are omitted in
+the split parts because they are not stable across files. Use the per-part links
+instead (for example ``context.part3.md#src-...`` / ``#func-...``).

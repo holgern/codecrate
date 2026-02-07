@@ -55,7 +55,7 @@ pip install -e ".[dev]"
 Pack your current directory into `context.md`:
 
 ```bash
-codecrate pack .
+codecrate pack . -o context.md
 ```
 
 Pack with specific output file:
@@ -257,7 +257,7 @@ codecrate unpack <markdown> -o <out-dir>
 **Options:**
 
 - `-o, --out-dir PATH`: Output directory for reconstructed files (required)
-- `--strict`: Fail when marker-based reconstruction cannot be fully resolved
+- `--strict`: Fail on missing/broken part mappings
 
 For combined packs (multiple `# Repository: ...` sections), files are unpacked to
 `<out-dir>/<repo-slug>/...` per repository section.
@@ -425,8 +425,8 @@ codecrate --version
 
 ```bash
 # Pack different directories separately
-codecrate pack src/backend -o backend.md
-codecrate pack src/frontend -o frontend.md
+codecrate pack src/backend -o backend
+codecrate pack src/frontend -o frontend
 
 # Or pack with specific include patterns
 codecrate pack . --include "**/*.py" --exclude "**/migrations/**"
@@ -435,7 +435,7 @@ codecrate pack . --include "**/*.py" --exclude "**/migrations/**"
 ### Handling Large Contexts
 
 ```bash
-# Split into multiple files to fit context windows
+# Configure a soft cap per part file
 codecrate pack . --split-max-chars 50000
 
 # This creates context.md, context.part1.md, context.part2.md, etc.

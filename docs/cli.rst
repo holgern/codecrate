@@ -59,6 +59,7 @@ Overview
    codecrate --version
    codecrate pack [ROOT] [--repo REPO ...] [options]
    codecrate unpack PACK.md -o OUT_DIR [--strict]
+   codecrate unpack PACK.md -o OUT_DIR [--strict]
    codecrate patch OLD_PACK.md ROOT [-o patch.md]
    codecrate apply PATCH.md ROOT [--check-baseline|--ignore-baseline]
    codecrate validate-pack PACK.md [--root ROOT] [--strict]
@@ -72,7 +73,7 @@ Create a packed Markdown context file from one or more repositories.
 
 .. code-block:: console
 
-   codecrate pack . -o context.md
+   codecrate pack . -o context
    codecrate pack --repo /path/to/repo1 --repo /path/to/repo2 -o multi.md
 
 When using ``--repo``, omit the positional ``ROOT``. Specifying both is an error.
@@ -122,7 +123,7 @@ Useful flags:
 * ``--manifest-json [PATH]``: write manifest JSON for tooling (default:
   ``<output>.manifest.json``)
 * ``--encoding-errors replace|strict``: UTF-8 decode policy when reading files
-* ``-o/--output PATH``: output path (defaults to config ``output`` or ``context.md``)
+* ``-o/--output PATH``: output directory (defaults to config ``output`` or ``context``)
 
 ``--stdin`` / ``--stdin0`` notes:
 
@@ -169,7 +170,7 @@ Reconstruct files into an output directory:
 
    codecrate unpack context.md -o /tmp/out
 
-Use ``--strict`` to fail when marker-based reconstruction cannot be fully resolved.
+Use ``--strict`` to fail on missing/broken part mappings.
 If the input pack omits the Manifest section (for example from
 ``codecrate pack --no-manifest``), unpack fails with a clear hint to re-pack with
 manifest enabled.

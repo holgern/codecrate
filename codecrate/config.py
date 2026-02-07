@@ -55,6 +55,10 @@ class Config:
     )
     exclude: list[str] = field(default_factory=list)
     split_max_chars: int = 0  # 0 means no splitting
+    # Export layout.
+    export_layout: Literal["monolith", "file"] = "monolith"
+    split_strict: bool = False
+    split_allow_cut_files: bool = False
     # Emit the `## Manifest` section (required for unpack/patch/validate-pack).
     # Disable only for LLM-only packs to save tokens.
     manifest: bool = True
@@ -145,7 +149,12 @@ def load_config(root: Path) -> Config:  # noqa: C901
     cfg = Config()
     out = section.get("output", cfg.output)
     if isinstance(out, str) and out.strip():
-        cfg.output = out.strip()
+        raw_output = out.strip()
+        output_path = Path(raw_output)
+        if output_path.suffix or raw_output.endswith(("/", "\\")):
+            cfg.output = raw_output
+        else:
+            cfg.output = f"{raw_output}.md"
     cfg.keep_docstrings = bool(section.get("keep_docstrings", cfg.keep_docstrings))
     cfg.dedupe = bool(section.get("dedupe", cfg.dedupe))
     cfg.respect_gitignore = bool(
@@ -179,6 +188,17 @@ def load_config(root: Path) -> Config:  # noqa: C901
         cfg.split_max_chars = int(split)
     except Exception:
         pass
+
+    export_layout = section.get("export_layout", cfg.export_layout)
+    if isinstance(export_layout, str):
+        export_layout = export_layout.strip().lower()
+        if export_layout in {"monolith", "file"}:
+            cfg.export_layout = export_layout  # type: ignore[assignment]
+
+    cfg.split_strict = bool(section.get("split_strict", cfg.split_strict))
+    cfg.split_allow_cut_files = bool(
+        section.get("split_allow_cut_files", cfg.split_allow_cut_files)
+    )
 
     enc = section.get("token_count_encoding", cfg.token_count_encoding)
     if isinstance(enc, str) and enc.strip():

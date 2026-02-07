@@ -21,7 +21,7 @@ Example:
 .. code-block:: toml
 
    [codecrate]
-   output = "context.md"
+   output = "context"
    security_check = true
    security_content_sniff = false
    symbol_backend = "auto"
@@ -57,11 +57,11 @@ Pack a repository into ``context.md``:
    codecrate pack /path/to/repo -o context.md
    codecrate pack /path/to/repo -o context.md --manifest-json
 
-Pack multiple repositories into a single output:
+Pack multiple repositories into one output root:
 
 .. code-block:: console
 
-   codecrate pack --repo /path/to/repo1 --repo /path/to/repo2 -o multi.md
+   codecrate pack --repo /path/to/repo1 --repo /path/to/repo2 -o multi
 
 Common options:
 

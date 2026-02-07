@@ -85,6 +85,18 @@ split_max_chars = 100000
     assert cfg.split_max_chars == 100000
 
 
+def test_load_config_output_without_suffix_adds_md(tmp_path: Path) -> None:
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+output = "context"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path)
+    assert cfg.output == "context.md"
+
+
 def test_load_config_partial_values(tmp_path: Path) -> None:
     """Test loading config with only some values overridden."""
     (tmp_path / "codecrate.toml").write_text(

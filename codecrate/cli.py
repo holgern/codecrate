@@ -6,6 +6,7 @@ import importlib
 import importlib.metadata as importlib_metadata
 import json
 import os
+import re
 import sys
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -43,7 +44,7 @@ from .repositories import (
     split_repository_sections,
 )
 from .security import SafetyFinding, apply_safety_filters, build_ruleset
-from .token_budget import split_by_max_chars
+from .token_budget import Part, split_by_max_chars
 from .tokens import (
     TokenCounter,
     approx_token_count,
@@ -251,7 +252,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--split-max-chars",
         type=int,
         default=None,
-        help="Split output into .partN.md files",
+        help=(
+            "Max chars per part file. Oversize single-file parts remain intact by "
+            "default unless --split-strict is set."
+        ),
+    )
+    pack.add_argument(
+        "--split-strict",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Fail when a single file part exceeds --split-max-chars.",
+    )
+    pack.add_argument(
+        "--split-allow-cut-files",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Explicitly allow cutting oversized files into multiple part files.",
     )
 
     pack.add_argument(
@@ -334,7 +350,11 @@ def build_parser() -> argparse.ArgumentParser:
     unpack = sub.add_parser(
         "unpack", help="Reconstruct files from a packed context Markdown."
     )
-    unpack.add_argument("markdown", type=Path, help="Packed Markdown file from `pack`")
+    unpack.add_argument(
+        "markdown",
+        type=Path,
+        help="Packed Markdown file from `pack`",
+    )
     unpack.add_argument(
         "-o",
         "--out-dir",
@@ -422,7 +442,11 @@ def build_parser() -> argparse.ArgumentParser:
         "validate-pack",
         help="Validate a packed context Markdown (sha/markers/canonical consistency).",
     )
-    vpack.add_argument("markdown", type=Path, help="Packed Markdown to validate")
+    vpack.add_argument(
+        "markdown",
+        type=Path,
+        help="Packed Markdown to validate",
+    )
     vpack.add_argument(
         "--root",
         type=Path,
@@ -477,6 +501,8 @@ class PackOptions:
     security_content_patterns: list[str]
     dedupe: bool
     split_max_chars: int
+    split_strict: bool
+    split_allow_cut_files: bool
     layout: str
     nav_mode: str
     symbol_backend: str
@@ -595,6 +621,16 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         if args.split_max_chars is None
         else int(args.split_max_chars or 0)
     )
+    split_strict = (
+        bool(getattr(cfg, "split_strict", False))
+        if args.split_strict is None
+        else bool(args.split_strict)
+    )
+    split_allow_cut_files = (
+        bool(getattr(cfg, "split_allow_cut_files", False))
+        if args.split_allow_cut_files is None
+        else bool(args.split_allow_cut_files)
+    )
     layout = (
         str(args.layout).strip().lower()
         if args.layout is not None
@@ -690,6 +726,8 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         security_content_patterns=security_content_patterns,
         dedupe=dedupe,
         split_max_chars=split_max_chars,
+        split_strict=split_strict,
+        split_allow_cut_files=split_allow_cut_files,
         layout=layout,
         nav_mode=nav_mode,
         symbol_backend=symbol_backend,
@@ -715,6 +753,12 @@ def _resolve_output_path(cfg: Config, args: argparse.Namespace, root: Path) -> P
     if not out_path.is_absolute():
         out_path = root / out_path
     return out_path
+
+
+def _resolve_output_dir_and_prefix(output_path: Path) -> tuple[Path, str]:
+    if output_path.suffix:
+        return output_path.parent.resolve(), output_path.stem or "context"
+    return output_path.resolve(), "context"
 
 
 def _default_repo_label(root: Path) -> str:
@@ -767,6 +811,51 @@ def _combine_pack_markdown(packs: list[PackRun]) -> str:
             out.append("\n\n")
         out.append(_prefix_repo_header(pack.markdown.rstrip() + "\n", pack.label))
     return "".join(out).rstrip() + "\n"
+
+
+def _rewrite_split_part_links(text: str, filename_map: dict[str, str]) -> str:
+    if not filename_map:
+        return text
+    pattern = re.compile("|".join(re.escape(name) for name in filename_map))
+    return pattern.sub(lambda m: filename_map[m.group(0)], text)
+
+
+def _index_and_part_paths(base_path: Path, count: int) -> list[Path]:
+    paths = [base_path.with_name(f"{base_path.stem}.index{base_path.suffix}")]
+    paths.extend(
+        base_path.with_name(f"{base_path.stem}.part{i}{base_path.suffix}")
+        for i in range(1, count)
+    )
+    return paths
+
+
+def _rename_split_parts(
+    parts: Sequence[Part], base_path: Path
+) -> list[tuple[Path, str]]:
+    if len(parts) <= 1:
+        return [(base_path, parts[0].content)]
+
+    new_paths = _index_and_part_paths(base_path, len(parts))
+    old_names = [Path(p.path).name for p in parts]
+    new_names = [p.name for p in new_paths]
+    filename_map = {old: new for old, new in zip(old_names, new_names, strict=True)}
+
+    out: list[tuple[Path, str]] = []
+    for old, new_path in zip(parts, new_paths, strict=True):
+        content = old.content
+        out.append((new_path, _rewrite_split_part_links(content, filename_map)))
+    return out
+
+
+def _split_parts_fit_limit(outputs: Sequence[tuple[Path, str]], max_chars: int) -> bool:
+    if max_chars <= 0:
+        return True
+    for idx, (_, content) in enumerate(outputs):
+        if idx == 0:
+            continue
+        if len(content) > max_chars:
+            return False
+    return True
 
 
 def _extract_diff_blocks(md_text: str) -> str:
@@ -1664,7 +1753,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 canonical,
                 layout=options.layout,
                 nav_mode=_resolve_effective_nav_mode(
-                    options.nav_mode, options.split_max_chars
+                    options.nav_mode,
+                    options.split_max_chars,
                 ),
                 skipped_for_safety_count=skipped_for_safety_count,
                 skipped_for_binary_count=binary_count,
@@ -1707,6 +1797,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 total_file_tokens = sum(file_tokens.values())
 
             default_output = _resolve_output_path(cfg, args, root)
+
             pack_runs.append(
                 PackRun(
                     root=root,
@@ -1738,37 +1829,56 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         else:
             md = _combine_pack_markdown(pack_runs)
 
-        # Always write the canonical, unsplit pack
-        # for machine parsing (unpack/validate).
-        out_path.write_text(md, encoding="utf-8")
-        try:
-            rel_out_path = out_path.relative_to(Path.cwd())
-        except ValueError:
-            rel_out_path = out_path
-
-        extra_count = 0
+        wrote_split_outputs = False
+        split_files_written: list[Path] = []
         if len(pack_runs) == 1:
             split_max_chars = pack_runs[0].options.split_max_chars
             parts = split_by_max_chars(md, out_path, split_max_chars)
-            extra = [p for p in parts if p.path != out_path]
-            for part in extra:
-                part.path.write_text(part.content, encoding="utf-8")
-            extra_count += len(extra)
+            if len(parts) == 1 and parts[0].path == out_path:
+                out_path.write_text(md, encoding="utf-8")
+            else:
+                renamed = _rename_split_parts(parts, out_path)
+                if _split_parts_fit_limit(renamed, split_max_chars):
+                    for part_path, content in renamed:
+                        part_path.write_text(content, encoding="utf-8")
+                        split_files_written.append(part_path)
+                    wrote_split_outputs = True
+                else:
+                    out_path.write_text(md, encoding="utf-8")
         else:
+            all_repo_split = True
+            split_candidates: list[tuple[PackRun, list[tuple[Path, str]]]] = []
             for run_pack in pack_runs:
-                if run_pack.options.split_max_chars <= 0:
-                    continue
+                split_max_chars = run_pack.options.split_max_chars
+                if split_max_chars <= 0:
+                    all_repo_split = False
+                    break
                 repo_base = out_path.with_name(
                     f"{out_path.stem}.{run_pack.slug}{out_path.suffix}"
                 )
                 parts = split_by_max_chars(
                     run_pack.markdown, repo_base, run_pack.options.split_max_chars
                 )
-                extra = [p for p in parts if p.path != repo_base]
-                for part in extra:
-                    content = _prefix_repo_header(part.content, run_pack.label)
-                    part.path.write_text(content, encoding="utf-8")
-                extra_count += len(extra)
+                if len(parts) == 1 and parts[0].path == repo_base:
+                    all_repo_split = False
+                    break
+                renamed = _rename_split_parts(parts, repo_base)
+                if not _split_parts_fit_limit(renamed, split_max_chars):
+                    all_repo_split = False
+                    break
+                split_candidates.append((run_pack, renamed))
+
+            if all_repo_split:
+                wrote_split_outputs = True
+                for run_pack, renamed in split_candidates:
+                    for part_path, content in renamed:
+                        content_with_header = _prefix_repo_header(
+                            content, run_pack.label
+                        )
+                        part_path.write_text(content_with_header, encoding="utf-8")
+                        split_files_written.append(part_path)
+            else:
+                out_path.write_text(md, encoding="utf-8")
 
         manifest_json_path = _manifest_json_output_path(
             manifest_json_arg=args.manifest_json,
@@ -1792,7 +1902,6 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 encoding="utf-8",
             )
 
-        # Token diagnostics (stderr)
         for run in pack_runs:
             if not run.options.token_report:
                 continue
@@ -1827,7 +1936,11 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 )
 
         summary_run = next((run for run in pack_runs if run.options.file_summary), None)
-        if summary_run is not None:
+        if summary_run is not None and not wrote_split_outputs:
+            try:
+                rel_out_path = out_path.relative_to(Path.cwd())
+            except ValueError:
+                rel_out_path = out_path
             summary_encoding = summary_run.options.token_count_encoding
             _print_pack_summary(
                 out_path=rel_out_path,
@@ -1836,20 +1949,25 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 encoding=summary_encoding,
             )
         else:
-            if extra_count:
+            if wrote_split_outputs:
                 if len(pack_runs) == 1:
-                    print(f"Wrote {rel_out_path} and {extra_count} split part file(s).")
+                    index_path = out_path.with_name(
+                        f"{out_path.stem}.index{out_path.suffix}"
+                    )
+                    part_count = max(0, len(split_files_written) - 1)
+                    print(f"Wrote {index_path} and {part_count} split part file(s).")
                 else:
                     print(
-                        f"Wrote {rel_out_path} and {extra_count} "
-                        "split part file(s) for "
-                        f"{len(pack_runs)} repos."
+                        f"Wrote split outputs for {len(pack_runs)} repos "
+                        f"({len(split_files_written)} file(s))."
                     )
             else:
                 if len(pack_runs) == 1:
-                    print(f"Wrote {rel_out_path}.")
+                    print(f"Wrote {out_path}.")
                 else:
-                    print(f"Wrote {rel_out_path} for {len(pack_runs)} repos.")
+                    print(f"Wrote {out_path} for {len(pack_runs)} repos.")
+            if manifest_json_path is not None:
+                print(f"Wrote {manifest_json_path}.")
 
     elif args.cmd == "unpack":
         unpack_encoding_errors = args.encoding_errors or "replace"
