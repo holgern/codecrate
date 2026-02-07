@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import sys
@@ -10,7 +11,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from .config import Config, load_config
+try:
+    import tomllib  # py311+
+except ModuleNotFoundError:  # pragma: no cover
+    import tomli as tomllib  # pyright: ignore[reportMissingImports]
+
+from .config import CONFIG_FILENAMES, PYPROJECT_FILENAME, Config, load_config
 from .diffgen import generate_patch_markdown
 from .discover import discover_files
 from .fences import is_fence_close, parse_fence_open
@@ -60,10 +66,26 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Additional repo root to pack (repeatable; use instead of ROOT)",
     )
-    pack.add_argument(
+    stdin_group = pack.add_mutually_exclusive_group()
+    stdin_group.add_argument(
         "--stdin",
         action="store_true",
         help="Read file paths from stdin (one per line) instead of scanning the root",
+    )
+    stdin_group.add_argument(
+        "--stdin0",
+        action="store_true",
+        help="Read file paths from stdin as NUL-separated entries",
+    )
+    pack.add_argument(
+        "--print-files",
+        action="store_true",
+        help="Debug: print selected files after filtering",
+    )
+    pack.add_argument(
+        "--print-skipped",
+        action="store_true",
+        help="Debug: print skipped files with reasons",
     )
     pack.add_argument(
         "-o",
@@ -325,6 +347,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--strict",
         action="store_true",
         help="Treat unresolved marker mapping as validation errors.",
+    )
+
+    # doctor
+    doctor = sub.add_parser(
+        "doctor", help="Run repository diagnostics and capability checks."
+    )
+    doctor.add_argument(
+        "root",
+        type=Path,
+        nargs="?",
+        default=Path("."),
+        help="Repository root to inspect (default: .)",
     )
 
     return p
@@ -922,6 +956,148 @@ def _print_top_level_help(parser: argparse.ArgumentParser) -> None:
     print("  codecrate patch baseline.md . -o changes.md")
     print("  codecrate apply changes.md .")
     print("  codecrate validate-pack context.md --strict")
+    print("  codecrate doctor .")
+
+
+_NO_MANIFEST_HELP = (
+    "packed markdown is missing a Manifest section; re-run `codecrate pack` "
+    "without `--no-manifest` (or use `--manifest`)."
+)
+
+
+def _is_no_manifest_error(error: Exception) -> bool:
+    return "No codecrate-manifest block found" in str(error)
+
+
+def _raise_no_manifest_error(
+    parser: argparse.ArgumentParser,
+    *,
+    command_name: str,
+) -> None:
+    parser.error(f"{command_name}: {_NO_MANIFEST_HELP}")
+
+
+def _print_selected_files(*, label: str, root: Path, selected: list[Path]) -> None:
+    print(
+        f"Debug: selected files for {label} ({len(selected)}):",
+        file=sys.stderr,
+    )
+    for path in selected:
+        print(f"  - {path.relative_to(root).as_posix()}", file=sys.stderr)
+
+
+def _print_skipped_files(*, label: str, skipped: list[tuple[str, str]]) -> None:
+    print(
+        f"Debug: skipped files for {label} ({len(skipped)}):",
+        file=sys.stderr,
+    )
+    for rel, reason in skipped:
+        print(f"  - {rel} ({reason})", file=sys.stderr)
+
+
+def _doctor_find_selected_config(root: Path) -> Path | None:
+    for name in CONFIG_FILENAMES:
+        p = root / name
+        if p.exists():
+            return p
+    pyproject = root / PYPROJECT_FILENAME
+    if pyproject.exists():
+        return pyproject
+    return None
+
+
+def _doctor_config_state(path: Path, *, pyproject: bool) -> str:
+    if not path.exists():
+        return "missing"
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        return f"present (parse error: {type(e).__name__})"
+
+    if not isinstance(data, dict):
+        return "present (invalid TOML root)"
+
+    section_found = False
+    if pyproject:
+        tool = data.get("tool")
+        section_found = isinstance(tool, dict) and isinstance(
+            tool.get("codecrate"), dict
+        )
+    else:
+        cc = data.get("codecrate")
+        if isinstance(cc, dict):
+            section_found = True
+        else:
+            tool = data.get("tool")
+            section_found = isinstance(tool, dict) and isinstance(
+                tool.get("codecrate"), dict
+            )
+
+    return "present (section found)" if section_found else "present (section missing)"
+
+
+def _doctor_tree_sitter_status() -> str:
+    try:
+        tsl = importlib.import_module("tree_sitter_languages")
+    except ModuleNotFoundError:
+        return "missing"
+    except Exception as e:  # pragma: no cover
+        return f"error ({type(e).__name__})"
+
+    get_parser = getattr(tsl, "get_parser", None)
+    if not callable(get_parser):
+        return "installed (get_parser missing)"
+
+    try:
+        get_parser("javascript")
+    except Exception as e:
+        return f"installed (unusable: {type(e).__name__})"
+    return "available"
+
+
+def _run_doctor(root: Path) -> None:
+    root = root.resolve()
+    selected = _doctor_find_selected_config(root)
+
+    print("Codecrate Doctor")
+    print(f"Root: {root.as_posix()}")
+    print()
+
+    print("Config discovery:")
+    print(
+        "- precedence: .codecrate.toml > codecrate.toml > "
+        "pyproject.toml[tool.codecrate]"
+    )
+    for name in CONFIG_FILENAMES:
+        p = root / name
+        print(f"- {name}: {_doctor_config_state(p, pyproject=False)}")
+    pyproject = root / PYPROJECT_FILENAME
+    print(f"- {PYPROJECT_FILENAME}: {_doctor_config_state(pyproject, pyproject=True)}")
+    if selected is None:
+        print("- selected: none (defaults only)")
+    else:
+        print(f"- selected: {selected.relative_to(root).as_posix()}")
+
+    print()
+    print("Ignore files:")
+    print(f"- .gitignore: {'yes' if (root / '.gitignore').exists() else 'no'}")
+    print(
+        f"- .codecrateignore: {'yes' if (root / '.codecrateignore').exists() else 'no'}"
+    )
+
+    print()
+    print("Token backend:")
+    token_counter = TokenCounter("o200k_base")
+    print(f"- backend: {token_counter.backend}")
+    try:
+        token_counter.count("def _doctor_probe():\n    return 1\n")
+        print("- encoding o200k_base: ok")
+    except Exception as e:
+        print(f"- encoding o200k_base: error ({type(e).__name__})")
+
+    print()
+    print("Optional parsing backends:")
+    print(f"- tree-sitter: {_doctor_tree_sitter_status()}")
 
 
 def main(argv: list[str] | None = None) -> None:  # noqa: C901
@@ -958,16 +1134,31 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 parser.error("pack: ROOT is required when --repo is not used")
             roots = [args.root.resolve()]
         stdin_files: list[Path] | None = None
-        if args.stdin:
+        if args.stdin or args.stdin0:
             if args.repo:
-                parser.error("pack: --stdin requires a single ROOT (do not use --repo)")
-            raw_lines = [ln.strip() for ln in sys.stdin.read().splitlines()]
-            raw_lines = [ln for ln in raw_lines if ln and not ln.startswith("#")]
-            if not raw_lines:
                 parser.error(
-                    "pack: --stdin was set but no file paths were provided on stdin"
+                    "pack: --stdin/--stdin0 requires a single ROOT (do not use --repo)"
                 )
-            stdin_files = [Path(ln) for ln in raw_lines]
+            if args.stdin0:
+                raw_chunks = sys.stdin.buffer.read().split(b"\0")
+                raw_paths = [
+                    chunk.decode("utf-8", errors="replace")
+                    for chunk in raw_chunks
+                    if chunk
+                ]
+                if not raw_paths:
+                    parser.error(
+                        "pack: --stdin0 was set but no file paths were provided "
+                        "on stdin"
+                    )
+            else:
+                raw_paths = [ln.strip() for ln in sys.stdin.read().splitlines()]
+                raw_paths = [ln for ln in raw_paths if ln and not ln.startswith("#")]
+                if not raw_paths:
+                    parser.error(
+                        "pack: --stdin was set but no file paths were provided on stdin"
+                    )
+            stdin_files = [Path(raw) for raw in raw_paths]
 
         used_labels: set[str] = set()
         used_slugs: set[str] = set()
@@ -1111,6 +1302,21 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             files_for_pack = [m.path for m in kept_measured]
             file_texts = {m.path: m.text for m in kept_measured}
             file_bytes = {m.rel: m.size_bytes for m in kept_measured}
+
+            if args.print_files:
+                _print_selected_files(
+                    label=label, root=disc.root, selected=files_for_pack
+                )
+
+            if args.print_skipped:
+                skipped_details = [
+                    (f.path.relative_to(disc.root).as_posix(), f.reason)
+                    for f in skipped
+                    if f.action == "skipped"
+                ]
+                skipped_details.extend(skipped_for_budget)
+                skipped_details = sorted(set(skipped_details))
+                _print_skipped_files(label=label, skipped=skipped_details)
 
             pack, canonical = pack_repo(
                 disc.root,
@@ -1343,7 +1549,12 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
 
     elif args.cmd == "unpack":
         md_text = args.markdown.read_text(encoding="utf-8", errors="replace")
-        unpack_to_dir(md_text, args.out_dir, strict=bool(args.strict))
+        try:
+            unpack_to_dir(md_text, args.out_dir, strict=bool(args.strict))
+        except ValueError as e:
+            if _is_no_manifest_error(e):
+                _raise_no_manifest_error(parser, command_name="unpack")
+            raise
         print(f"Unpacked into {args.out_dir}")
 
     elif args.cmd == "patch":
@@ -1368,13 +1579,18 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             )
 
         cfg = load_config(args.root)
-        patch_md = generate_patch_markdown(
-            old_md,
-            args.root,
-            include=cfg.include,
-            exclude=cfg.exclude,
-            respect_gitignore=cfg.respect_gitignore,
-        )
+        try:
+            patch_md = generate_patch_markdown(
+                old_md,
+                args.root,
+                include=cfg.include,
+                exclude=cfg.exclude,
+                respect_gitignore=cfg.respect_gitignore,
+            )
+        except ValueError as e:
+            if _is_no_manifest_error(e):
+                _raise_no_manifest_error(parser, command_name="patch")
+            raise
         if old_sections and selected_label is not None:
             patch_md = _prefix_repo_header(patch_md.rstrip() + "\n", selected_label)
         args.output.write_text(patch_md, encoding="utf-8")
@@ -1382,13 +1598,23 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
 
     elif args.cmd == "validate-pack":
         md_text = args.markdown.read_text(encoding="utf-8", errors="replace")
-        report = validate_pack_markdown(
-            md_text, root=args.root, strict=bool(args.strict)
-        )
+        try:
+            report = validate_pack_markdown(
+                md_text, root=args.root, strict=bool(args.strict)
+            )
+        except ValueError as e:
+            if _is_no_manifest_error(e):
+                _raise_no_manifest_error(parser, command_name="validate-pack")
+            raise
         _print_grouped_validation_report(report)
         if report.errors:
             raise SystemExit(1)
         print("OK: pack is internally consistent.")
+
+    elif args.cmd == "doctor":
+        if not args.root.exists() or not args.root.is_dir():
+            parser.error(f"doctor: root is not a directory: {args.root}")
+        _run_doctor(args.root)
 
     elif args.cmd == "apply":
         md_text = args.patch_markdown.read_text(encoding="utf-8", errors="replace")

@@ -47,6 +47,17 @@ def test_pack_stdin_rejects_repo_mode(tmp_path: Path) -> None:
     assert excinfo.value.code == 2
 
 
+def test_pack_stdin0_rejects_repo_mode(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["pack", "--repo", str(repo), "--stdin0"])
+
+    assert excinfo.value.code == 2
+
+
 def test_pack_stdin_requires_non_empty_input(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
 
@@ -55,6 +66,84 @@ def test_pack_stdin_requires_non_empty_input(tmp_path: Path, monkeypatch) -> Non
         main(["pack", str(tmp_path), "--stdin"])
 
     assert excinfo.value.code == 2
+
+
+def test_pack_stdin0_requires_non_empty_input(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys, "stdin", io.TextIOWrapper(io.BytesIO(b""), encoding="utf-8")
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main(["pack", str(tmp_path), "--stdin0"])
+
+    assert excinfo.value.code == 2
+
+
+def test_pack_stdin_and_stdin0_are_mutually_exclusive(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["pack", str(tmp_path), "--stdin", "--stdin0"])
+
+    assert excinfo.value.code == 2
+
+
+def test_pack_stdin0_uses_explicit_files_not_include_globs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("hello\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(io.BytesIO(b"notes.txt\x00"), encoding="utf-8"),
+    )
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--stdin0",
+            "--include",
+            "**/*.py",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `notes.txt`" in text
+    assert "### `a.py`" not in text
+
+
+def test_pack_stdin0_applies_ignore_rules(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / ".gitignore").write_text("git_ignored.py\n", encoding="utf-8")
+    (tmp_path / ".codecrateignore").write_text("cc_ignored.py\n", encoding="utf-8")
+    (tmp_path / "ok.py").write_text("def ok():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "git_ignored.py").write_text(
+        "def git_ignored():\n    return 2\n", encoding="utf-8"
+    )
+    (tmp_path / "cc_ignored.py").write_text(
+        "def cc_ignored():\n    return 3\n", encoding="utf-8"
+    )
+    out_path = tmp_path / "context.md"
+
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(
+            io.BytesIO(b"ok.py\x00git_ignored.py\x00cc_ignored.py\x00"),
+            encoding="utf-8",
+        ),
+    )
+    main(["pack", str(tmp_path), "--stdin0", "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `ok.py`" in text
+    assert "### `git_ignored.py`" not in text
+    assert "### `cc_ignored.py`" not in text
 
 
 def test_pack_stdin_applies_excludes(tmp_path: Path, monkeypatch) -> None:
@@ -179,6 +268,55 @@ def test_pack_max_file_bytes_skips_large_files(tmp_path: Path, capsys) -> None:
     assert "big.py" in captured.err
     assert "### `small.py`" in text
     assert "### `big.py`" not in text
+
+
+def test_pack_print_files_debug_lists_selected_files(tmp_path: Path, capsys) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("hello\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include",
+            "*.py",
+            "--print-files",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert "Debug: selected files" in captured.err
+    assert "a.py" in captured.err
+    assert "b.txt" not in captured.err
+
+
+def test_pack_print_skipped_debug_lists_reasons(tmp_path: Path, capsys) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "big.py").write_text("x = 1\n" * 200, encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=123\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include",
+            "*",
+            "--max-file-bytes",
+            "100",
+            "--print-skipped",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert "Debug: skipped files" in captured.err
+    assert ".env (path:.env)" in captured.err
+    assert "big.py (bytes>100)" in captured.err
 
 
 def test_pack_max_total_bytes_fails_when_exceeded(tmp_path: Path) -> None:
