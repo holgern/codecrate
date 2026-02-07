@@ -49,6 +49,18 @@ def _load_combined_ignore(root: Path, *, respect_gitignore: bool) -> pathspec.Pa
     return pathspec.PathSpec.from_lines("gitwildmatch", lines)
 
 
+def _is_confined_to_root(path: Path, root: Path) -> bool:
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return False
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
 def _resolve_explicit_files(root: Path, files: Sequence[Path]) -> list[Path]:
     out: list[Path] = []
     seen: set[str] = set()
@@ -57,14 +69,12 @@ def _resolve_explicit_files(root: Path, files: Sequence[Path]) -> list[Path]:
         p = Path(raw)
         if not p.is_absolute():
             p = root / p
-        p = p.resolve()
-
         if not p.is_file():
             continue
-        try:
-            p.relative_to(root)
-        except ValueError:
+        if not _is_confined_to_root(p, root):
             continue
+
+        p = p.resolve()
 
         key = p.as_posix()
         if key in seen:
@@ -112,6 +122,8 @@ def discover_files(
         apply_inc = False
 
     for p in candidates:
+        if not _is_confined_to_root(p, root):
+            continue
         rel = p.relative_to(root)
         rel_s = rel.as_posix()
 
@@ -144,6 +156,8 @@ def discover_python_files(
 
     out: list[Path] = []
     for p in root.rglob("*.py"):
+        if not _is_confined_to_root(p, root):
+            continue
         rel = p.relative_to(root)
         rel_s = rel.as_posix()
 

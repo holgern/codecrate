@@ -1,15 +1,51 @@
 from __future__ import annotations
 
+import posixpath
 import re
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 _HUNK_RE = re.compile(r"^@@\s+-(\d+),?(\d*)\s+\+(\d+),?(\d*)\s+@@")
+_WINDOWS_ABS_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 def normalize_newlines(s: str) -> str:
     return s.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _is_absolute_like(path: str) -> bool:
+    return (
+        path.startswith(("/", "\\"))
+        or bool(_WINDOWS_ABS_RE.match(path))
+        or Path(path).is_absolute()
+    )
+
+
+def _normalize_diff_path(path: str) -> str:
+    raw = path.strip()
+    if not raw:
+        raise ValueError("Refusing empty diff path")
+    if _is_absolute_like(raw):
+        raise ValueError(f"Refusing absolute diff path: {raw}")
+
+    normalized = posixpath.normpath(raw.replace("\\", "/"))
+    if normalized in {"", "."}:
+        raise ValueError(f"Refusing invalid diff path: {raw}")
+    if any(part == ".." for part in PurePosixPath(normalized).parts):
+        raise ValueError(f"Refusing path traversal in diff path: {raw}")
+    return normalized
+
+
+def safe_join(root: Path, relpath: str) -> Path:
+    root_resolved = root.resolve()
+    normalized_rel = _normalize_diff_path(relpath)
+    target = (root_resolved / normalized_rel).resolve()
+    try:
+        target.relative_to(root_resolved)
+    except ValueError as e:
+        raise ValueError(f"Refusing path outside root: {relpath}") from e
+    return target
 
 
 def ensure_parent_dir(path: Path) -> None:
@@ -45,8 +81,13 @@ def parse_unified_diff(diff_text: str) -> list[FileDiff]:
                 return None
             return raw[len(prefix) :] if raw.startswith(prefix) else raw
 
-        from_path = _side(from_raw, "a/")
-        to_path = _side(to_raw, "b/")
+        from_path_raw = _side(from_raw, "a/")
+        to_path_raw = _side(to_raw, "b/")
+
+        from_path = (
+            _normalize_diff_path(from_path_raw) if from_path_raw is not None else None
+        )
+        to_path = _normalize_diff_path(to_path_raw) if to_path_raw is not None else None
 
         if from_path is None and to_path is None:
             i += 2
@@ -54,7 +95,9 @@ def parse_unified_diff(diff_text: str) -> list[FileDiff]:
 
         if from_path is None:
             op: Literal["add", "modify", "delete"] = "add"
-            path = to_path or ""
+            if to_path is None:
+                raise ValueError("Patch has no file path")
+            path = to_path
         elif to_path is None:
             op = "delete"
             path = from_path
@@ -168,7 +211,7 @@ def apply_file_diffs(diffs: list[FileDiff], root: Path) -> list[Path]:
     changed: list[Path] = []
 
     for fd in diffs:
-        path = root / fd.path
+        path = safe_join(root, fd.path)
 
         if fd.op == "delete":
             if path.exists():

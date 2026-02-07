@@ -3,11 +3,13 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
+
 from codecrate.diffgen import generate_patch_markdown
 from codecrate.discover import discover_python_files
 from codecrate.markdown import render_markdown
 from codecrate.packer import pack_repo
-from codecrate.udiff import apply_file_diffs, parse_unified_diff
+from codecrate.udiff import FileDiff, apply_file_diffs, parse_unified_diff
 
 
 def _extract_diff_blocks(md_text: str) -> str:
@@ -108,3 +110,34 @@ def test_patch_apply_add_delete(tmp_path: Path) -> None:
     assert (apply_root / "c.py").read_text(encoding="utf-8") == (
         cur / "c.py"
     ).read_text(encoding="utf-8")
+
+
+def _single_add_diff(to_path: str) -> str:
+    return f"--- /dev/null\n+++ {to_path}\n@@ -0,0 +1 @@\n+owned\n"
+
+
+@pytest.mark.parametrize(
+    "to_path",
+    ["b/../evil.txt", "/abs/path", "b/a/../../evil", "b/"],
+    ids=["parent-traversal", "absolute", "nested-traversal", "empty"],
+)
+def test_parse_unified_diff_rejects_unsafe_paths(to_path: str) -> None:
+    with pytest.raises(ValueError):
+        parse_unified_diff(_single_add_diff(to_path))
+
+
+@pytest.mark.parametrize(
+    "bad_path",
+    ["../evil.txt", "/abs/path", "a/../../evil", ""],
+    ids=["parent-traversal", "absolute", "nested-traversal", "empty"],
+)
+def test_apply_rejects_unsafe_filediff_paths(tmp_path: Path, bad_path: str) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+
+    diffs = [
+        FileDiff(path=bad_path, hunks=[["@@ -0,0 +1 @@", "+owned"]], op="add"),
+    ]
+
+    with pytest.raises(ValueError):
+        apply_file_diffs(diffs, root)

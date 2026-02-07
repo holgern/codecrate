@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from codecrate.config import DEFAULT_INCLUDES
 from codecrate.discover import discover_files, discover_python_files
 
@@ -208,3 +210,50 @@ def test_discover_files_explicit_respects_codecrateignore(tmp_path: Path) -> Non
     )
 
     assert disc.files == [tmp_path / "a.py"]
+
+
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink not supported: {exc}")
+
+
+def test_discover_files_excludes_symlink_outside_root(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "inside.py").write_text("pass\n", encoding="utf-8")
+
+    outside = tmp_path / "outside.py"
+    outside.write_text("pass\n", encoding="utf-8")
+    _symlink_or_skip(root / "leak.py", outside)
+
+    disc = discover_files(
+        root=root,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=False,
+    )
+    rels = {p.relative_to(root).as_posix() for p in disc.files}
+    assert "inside.py" in rels
+    assert "leak.py" not in rels
+
+
+def test_discover_python_files_excludes_symlink_outside_root(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "inside.py").write_text("pass\n", encoding="utf-8")
+
+    outside = tmp_path / "outside.py"
+    outside.write_text("pass\n", encoding="utf-8")
+    _symlink_or_skip(root / "leak.py", outside)
+
+    disc = discover_python_files(
+        root=root,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=False,
+    )
+    rels = {p.relative_to(root).as_posix() for p in disc.files}
+    assert "inside.py" in rels
+    assert "leak.py" not in rels
