@@ -35,7 +35,7 @@ def _load_ignore_lines(root: Path, filename: str) -> list[str]:
 
 def _load_gitignore(root: Path) -> pathspec.PathSpec:
     return pathspec.PathSpec.from_lines(
-        "gitwildmatch", _load_ignore_lines(root, ".gitignore")
+        "gitignore", _load_ignore_lines(root, ".gitignore")
     )
 
 
@@ -46,7 +46,7 @@ def _load_combined_ignore(root: Path, *, respect_gitignore: bool) -> pathspec.Pa
         lines.extend(_load_ignore_lines(root, ".gitignore"))
     # Tool-specific ignore is always respected and has higher priority.
     lines.extend(_load_ignore_lines(root, ".codecrateignore"))
-    return pathspec.PathSpec.from_lines("gitwildmatch", lines)
+    return pathspec.PathSpec.from_lines("gitignore", lines)
 
 
 def _is_confined_to_root(path: Path, root: Path) -> bool:
@@ -108,10 +108,10 @@ def discover_files(
     root = root.resolve()
 
     ignore = _load_combined_ignore(root, respect_gitignore=respect_gitignore)
-    inc = pathspec.PathSpec.from_lines("gitwildmatch", include or ["**/*.py"])
+    inc = pathspec.PathSpec.from_lines("gitignore", include or ["**/*.py"])
 
     effective_exclude = DEFAULT_EXCLUDES + (exclude or [])
-    exc = pathspec.PathSpec.from_lines("gitwildmatch", effective_exclude)
+    exc = pathspec.PathSpec.from_lines("gitignore", effective_exclude)
 
     out: list[Path] = []
     if explicit_files is None:
@@ -149,10 +149,10 @@ def discover_python_files(
     root = root.resolve()
 
     ignore = _load_combined_ignore(root, respect_gitignore=respect_gitignore)
-    inc = pathspec.PathSpec.from_lines("gitwildmatch", include or ["**/*.py"])
+    inc = pathspec.PathSpec.from_lines("gitignore", include or ["**/*.py"])
 
     effective_exclude = DEFAULT_EXCLUDES + (exclude or [])
-    exc = pathspec.PathSpec.from_lines("gitwildmatch", effective_exclude)
+    exc = pathspec.PathSpec.from_lines("gitignore", effective_exclude)
 
     out: list[Path] = []
     for p in root.rglob("*.py"):
