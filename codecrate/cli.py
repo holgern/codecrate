@@ -686,9 +686,25 @@ def _emit_budget_skip_warning(*, label: str, skipped: list[tuple[str, str]]) -> 
     )
 
 
+def _print_top_level_help(parser: argparse.ArgumentParser) -> None:
+    parser.print_help()
+    print()
+    print("Quick start examples:")
+    print("  codecrate pack . -o context.md")
+    print("  codecrate unpack context.md -o out/ --strict")
+    print("  codecrate patch baseline.md . -o changes.md")
+    print("  codecrate apply changes.md .")
+    print("  codecrate validate-pack context.md --strict")
+
+
 def main(argv: list[str] | None = None) -> None:  # noqa: C901
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if not raw_argv:
+        _print_top_level_help(parser)
+        return
+
+    args = parser.parse_args(raw_argv)
 
     if args.cmd == "pack":
         # argparse with nargs="?" can consume ROOT as the option value when users run
