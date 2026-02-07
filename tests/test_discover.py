@@ -264,6 +264,41 @@ def test_discover_files_explicit_rejects_outside_root_paths(tmp_path: Path) -> N
     assert disc.files == [repo / "inside.py"]
 
 
+def test_discover_files_explicit_reports_skipped_reasons(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".codecrateignore").write_text("ignored.py\n", encoding="utf-8")
+    (repo / "keep.py").write_text("pass\n", encoding="utf-8")
+    (repo / "ignored.py").write_text("pass\n", encoding="utf-8")
+    (repo / "excluded.py").write_text("pass\n", encoding="utf-8")
+
+    outside = tmp_path / "outside.py"
+    outside.write_text("pass\n", encoding="utf-8")
+
+    disc = discover_files(
+        root=repo,
+        include=["**/*.py"],
+        exclude=["excluded.py"],
+        respect_gitignore=False,
+        explicit_files=[
+            Path("keep.py"),
+            Path("keep.py"),
+            Path("ignored.py"),
+            Path("excluded.py"),
+            Path("missing.py"),
+            outside,
+        ],
+    )
+
+    assert disc.files == [repo / "keep.py"]
+    got = {(item.path, item.reason) for item in disc.skipped}
+    assert ("keep.py", "duplicate") in got
+    assert ("ignored.py", "ignored") in got
+    assert ("excluded.py", "excluded") in got
+    assert ("missing.py", "not-a-file") in got
+    assert (outside.as_posix(), "outside-root") in got
+
+
 def test_discover_codecrateignore_supports_negation(tmp_path: Path) -> None:
     (tmp_path / ".codecrateignore").write_text("*.py\n!keep.py\n", encoding="utf-8")
     (tmp_path / "drop.py").write_text("pass\n", encoding="utf-8")

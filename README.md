@@ -24,12 +24,14 @@
 - **Diff generation**: Create minimal patch Markdown files showing only changed code
 - **Gitignore support**: Respect `.gitignore` when scanning files
 - **Tool ignore support**: Respect `.codecrateignore` (always)
-- **Targeted packing**: Optional `--stdin` mode to pack an explicit file list
+- **Targeted packing**: Optional `--stdin` / `--stdin0` mode to pack an explicit file list
+- **Debug visibility**: Optional `--print-files` and `--print-skipped` diagnostics
 - **Token diagnostics**: Optional CLI token reports (encoding, tree, top files)
 - **Scale controls**: Per-file skip budgets and hard total budgets (bytes/tokens)
 - **Machine header**: Compact checksum block for fast manifest validation
 - **Tooling manifests**: Optional JSON manifest sidecar output (`--manifest-json`)
 - **Safety controls**: Configurable path/content scanning rules, optional redaction, optional safety report
+- **Environment diagnostics**: `codecrate doctor` reports config precedence, ignore files, and backend availability
 
 ## Installation
 
@@ -197,6 +199,9 @@ codecrate pack <root> [OPTIONS]
 - `--include GLOB`: Include glob pattern (repeatable)
 - `--exclude GLOB`: Exclude glob pattern (repeatable)
 - `--stdin`: Read file paths from stdin (one per line)
+- `--stdin0`: Read file paths from stdin as NUL-separated entries
+- `--print-files`: Debug-print selected files after filtering
+- `--print-skipped`: Debug-print skipped files and reasons
 - `--split-max-chars N`: Split output into `.partN.md` files
 - `--token-count-tree [threshold]`: Show file tree with token counts; optional
   threshold shows only files with >=N tokens (for example,
@@ -211,8 +216,10 @@ codecrate pack <root> [OPTIONS]
 - `--max-workers N`: Max worker threads for IO/parsing/token counting
 - `--manifest-json [PATH]`: Write manifest JSON for tooling
 
-When `--stdin` is used, only stdin-listed files are considered. Include globs are
-not applied, but exclude patterns and ignore files still apply.
+When `--stdin`/`--stdin0` is used, only explicitly listed files are considered.
+Include globs are not applied, but exclude patterns and ignore files still apply.
+With `--print-skipped`, explicit-file filtering also reports reasons such as
+`not-a-file`, `outside-root`, `duplicate`, `ignored`, and `excluded`.
 
 By default, codecrate prints a compact pack summary (total files, total tokens,
 total chars, output path). Disable it with `--no-file-summary` or
@@ -256,11 +263,13 @@ codecrate patch <old_markdown> <root> [--repo <label-or-slug>] [OPTIONS]
 ### `apply` - Apply Patch to Repository
 
 ```bash
-codecrate apply <patch_markdown> <root> [--repo <label-or-slug>]
+codecrate apply <patch_markdown> <root> [--repo <label-or-slug>] [--dry-run]
 ```
 
 When `<patch_markdown>` contains multiple `# Repository:` sections, `--repo` is
 required to select one section.
+
+Use `--dry-run` to parse and validate hunks without writing files.
 
 ### `validate-pack` - Validate Pack
 
@@ -276,6 +285,22 @@ codecrate validate-pack <markdown> [--root PATH] [--strict]
 For combined packs, validation runs per repository section and reports scope-aware
 errors/warnings grouped by section, with short reproduction hints. Cross-repo
 anchor collisions are reported as errors.
+
+If a pack was created with `--no-manifest`, machine operations (`unpack`, `patch`,
+`validate-pack`) fail with a consistent hint to re-pack with manifest enabled.
+
+### `doctor` - Environment Diagnostics
+
+```bash
+codecrate doctor [root]
+```
+
+Reports:
+
+- config discovery and precedence (`.codecrate.toml` > `codecrate.toml` > `pyproject.toml`)
+- detected ignore files (`.gitignore`, `.codecrateignore`)
+- token backend availability and encoding probe
+- optional parsing backend availability (tree-sitter)
 
 ## Layout Modes
 

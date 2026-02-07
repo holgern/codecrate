@@ -11,6 +11,7 @@ It is designed for LLM workflows:
 * **patch**: generate a diff-only Markdown patch between an old pack and a repo
 * **apply**: apply a diff-only Markdown patch to a repo
 * **validate-pack**: validate internal consistency of a pack (sha/markers/etc.)
+* **doctor**: inspect config precedence and backend availability
 
 .. toctree::
    :maxdepth: 2

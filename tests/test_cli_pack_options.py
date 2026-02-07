@@ -319,6 +319,47 @@ def test_pack_print_skipped_debug_lists_reasons(tmp_path: Path, capsys) -> None:
     assert "big.py (bytes>100)" in captured.err
 
 
+def test_pack_print_skipped_includes_explicit_discovery_reasons(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    (tmp_path / ".codecrateignore").write_text("ignored.py\n", encoding="utf-8")
+    (tmp_path / "keep.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "ignored.py").write_text("x = 2\n", encoding="utf-8")
+    (tmp_path / "excluded.py").write_text("x = 3\n", encoding="utf-8")
+    outside = tmp_path.parent / "outside.py"
+    outside.write_text("x = 4\n", encoding="utf-8")
+
+    out_path = tmp_path / "context.md"
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.StringIO(
+            "keep.py\nkeep.py\nignored.py\nexcluded.py\nmissing.py\n"
+            f"{outside.as_posix()}\n"
+        ),
+    )
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--stdin",
+            "--exclude",
+            "excluded.py",
+            "--print-skipped",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert "keep.py (duplicate)" in captured.err
+    assert "ignored.py (ignored)" in captured.err
+    assert "excluded.py (excluded)" in captured.err
+    assert "missing.py (not-a-file)" in captured.err
+    assert f"{outside.as_posix()} (outside-root)" in captured.err
+
+
 def test_pack_max_total_bytes_fails_when_exceeded(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("x = 1\n" * 200, encoding="utf-8")
     (tmp_path / "b.py").write_text("x = 2\n" * 200, encoding="utf-8")

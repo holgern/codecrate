@@ -31,6 +31,7 @@ Manifest metadata also records explicit ID/marker schemes for forward compatibil
 
 * ``id_format_version`` (currently ``sha1-8-upper:v1``)
 * ``marker_format_version`` (currently ``v1``)
+* per-definition ``has_marker`` hints in stub layouts (for validation accuracy)
 
 Machine Header includes:
 
@@ -79,6 +80,9 @@ Stubbed file bodies contain markers like:
 The marker references the function definition occurrence. During unpack, Codecrate
 locates the marker, finds the ``def`` line above it (including decorators), and
 replaces that region with the canonical function body from the Function Library.
+
+When binary files are detected during packing, they are skipped and reported as
+``Skipped as binary: N file(s)`` in the pack header and Safety Report (when enabled).
 
 
 Line ranges

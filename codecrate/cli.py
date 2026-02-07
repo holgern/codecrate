@@ -1309,11 +1309,12 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 )
 
             if args.print_skipped:
-                skipped_details = [
+                skipped_details = [(item.path, item.reason) for item in disc.skipped]
+                skipped_details.extend(
                     (f.path.relative_to(disc.root).as_posix(), f.reason)
                     for f in skipped
                     if f.action == "skipped"
-                ]
+                )
                 skipped_details.extend(skipped_for_budget)
                 skipped_details = sorted(set(skipped_details))
                 _print_skipped_files(label=label, skipped=skipped_details)

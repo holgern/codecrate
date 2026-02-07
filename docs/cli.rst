@@ -59,6 +59,7 @@ Overview
    codecrate patch OLD_PACK.md ROOT [-o patch.md]
    codecrate apply PATCH.md ROOT
    codecrate validate-pack PACK.md [--root ROOT] [--strict]
+   codecrate doctor [ROOT]
 
 
 pack
@@ -98,6 +99,9 @@ Useful flags:
 * ``--include GLOB`` (repeatable): include patterns
 * ``--exclude GLOB`` (repeatable): exclude patterns
 * ``--stdin``: read file paths from stdin (one per line) instead of scanning
+* ``--stdin0``: read file paths from stdin as NUL-separated entries
+* ``--print-files``: debug-print selected files after filtering
+* ``--print-skipped``: debug-print skipped files and reasons
 * ``--split-max-chars N``: additionally emit ``.partN.md`` files for LLMs
 * ``--token-count-tree [threshold]``: show file tree with token counts; optional
   threshold shows only files with >=N tokens (for example,
@@ -114,13 +118,16 @@ Useful flags:
   ``<output>.manifest.json``)
 * ``-o/--output PATH``: output path (defaults to config ``output`` or ``context.md``)
 
-``--stdin`` notes:
+``--stdin`` / ``--stdin0`` notes:
 
-* Accepts one path per line from stdin.
-* Blank lines and lines starting with ``#`` are ignored.
+* ``--stdin`` accepts one path per line from stdin.
+* ``--stdin0`` accepts NUL-separated paths from stdin.
+* ``--stdin`` ignores blank lines and lines starting with ``#``.
 * Requires a single ``ROOT`` (cannot be combined with ``--repo``).
 * Include globs are not applied to explicit stdin files.
 * Exclude rules and ignore files still apply.
+* With ``--print-skipped``, explicit file filtering reports reasons like
+  ``not-a-file``, ``outside-root``, ``duplicate``, ``ignored``, and ``excluded``.
 
 Token diagnostics notes:
 
@@ -148,6 +155,9 @@ Reconstruct files into an output directory:
    codecrate unpack context.md -o /tmp/out
 
 Use ``--strict`` to fail when marker-based reconstruction cannot be fully resolved.
+If the input pack omits the Manifest section (for example from
+``codecrate pack --no-manifest``), unpack fails with a clear hint to re-pack with
+manifest enabled.
 
 
 patch
@@ -160,6 +170,8 @@ Generate a diff-only Markdown patch between an old pack and the current repo:
    codecrate patch old_context.md . -o patch.md
 
 The output is Markdown containing one or more `````diff`` fences.
+Patch requires a pack with Manifest; ``--no-manifest`` packs are rejected with a
+clear hint.
 
 
 apply
@@ -170,6 +182,9 @@ Apply a patch Markdown to a repo root:
 .. code-block:: console
 
    codecrate apply patch.md .
+   codecrate apply patch.md . --dry-run
+
+Use ``--dry-run`` to parse and validate hunks without writing files.
 
 
 validate-pack
@@ -185,3 +200,22 @@ files on disk:
 
 Use ``--strict`` to treat unresolved marker mapping as validation errors.
 Validation output groups issues by repository section and includes short hints.
+Packs created with ``--no-manifest`` are rejected with a consistent error message.
+
+
+doctor
+------
+
+Inspect configuration and runtime capabilities:
+
+.. code-block:: console
+
+   codecrate doctor .
+
+Doctor reports:
+
+* config discovery and precedence
+* selected config source (if any)
+* ignore file detection (``.gitignore``, ``.codecrateignore``)
+* token backend availability
+* optional parsing backend availability (tree-sitter)

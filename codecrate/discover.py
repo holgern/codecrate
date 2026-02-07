@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pathspec
@@ -21,9 +21,16 @@ DEFAULT_EXCLUDES = [
 
 
 @dataclass(frozen=True)
+class DiscoverySkip:
+    path: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class Discovery:
     files: list[Path]
     root: Path
+    skipped: list[DiscoverySkip] = field(default_factory=list)
 
 
 def _load_ignore_lines(root: Path, filename: str) -> list[str]:
@@ -61,29 +68,42 @@ def _is_confined_to_root(path: Path, root: Path) -> bool:
     return True
 
 
-def _resolve_explicit_files(root: Path, files: Sequence[Path]) -> list[Path]:
+def _resolve_explicit_files(
+    root: Path, files: Sequence[Path]
+) -> tuple[list[Path], list[DiscoverySkip]]:
     out: list[Path] = []
+    skipped: list[DiscoverySkip] = []
     seen: set[str] = set()
 
     for raw in files:
         p = Path(raw)
+        raw_display = str(raw)
         if not p.is_absolute():
             p = root / p
+            raw_display = Path(raw).as_posix()
         if not p.is_file():
+            skipped.append(DiscoverySkip(path=raw_display, reason="not-a-file"))
             continue
         if not _is_confined_to_root(p, root):
+            skipped.append(DiscoverySkip(path=raw_display, reason="outside-root"))
             continue
 
         p = p.resolve()
 
         key = p.as_posix()
         if key in seen:
+            skipped.append(
+                DiscoverySkip(
+                    path=p.relative_to(root).as_posix(),
+                    reason="duplicate",
+                )
+            )
             continue
         seen.add(key)
         out.append(p)
 
     out.sort()
-    return out
+    return out, skipped
 
 
 def discover_files(
@@ -114,11 +134,12 @@ def discover_files(
     exc = pathspec.PathSpec.from_lines("gitignore", effective_exclude)
 
     out: list[Path] = []
+    skipped: list[DiscoverySkip] = []
     if explicit_files is None:
         candidates = [p for p in root.rglob("*") if p.is_file()]
         apply_inc = True
     else:
-        candidates = _resolve_explicit_files(root, explicit_files)
+        candidates, skipped = _resolve_explicit_files(root, explicit_files)
         apply_inc = False
 
     for p in candidates:
@@ -128,16 +149,20 @@ def discover_files(
         rel_s = rel.as_posix()
 
         if ignore.match_file(rel_s):
+            if explicit_files is not None:
+                skipped.append(DiscoverySkip(path=rel_s, reason="ignored"))
             continue
         if apply_inc and not inc.match_file(rel_s):
             continue
         if exc.match_file(rel_s):
+            if explicit_files is not None:
+                skipped.append(DiscoverySkip(path=rel_s, reason="excluded"))
             continue
 
         out.append(p)
 
     out.sort()
-    return Discovery(files=out, root=root)
+    return Discovery(files=out, root=root, skipped=skipped)
 
 
 def discover_python_files(

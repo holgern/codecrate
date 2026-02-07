@@ -73,6 +73,8 @@ Common options:
 * ``--max-total-bytes`` / ``--max-total-tokens``: fail fast when total included size exceeds budget
 * ``--security-redaction``: mask flagged files instead of skipping
 * ``--safety-report``: include a Safety Report section with reasons
+* ``--stdin`` / ``--stdin0``: pack an explicit file list from stdin
+* ``--print-files`` / ``--print-skipped``: debug selected and skipped files
 
 
 Unpack a context pack
@@ -84,6 +86,11 @@ Reconstruct files from a pack into a directory:
 
    codecrate unpack context.md -o /tmp/reconstructed
    codecrate unpack context.md -o /tmp/reconstructed --strict
+
+.. note::
+
+   Packs created with ``--no-manifest`` are LLM-only and cannot be used for
+   ``unpack``, ``patch``, or ``validate-pack``.
 
 
 Generate a patch Markdown
@@ -104,6 +111,7 @@ Apply the patch to a repo:
 .. code-block:: console
 
    codecrate apply patch.md /path/to/repo
+   codecrate apply patch.md /path/to/repo --dry-run
 
 
 Validate a context pack
@@ -116,3 +124,13 @@ Validate internal consistency (and optionally compare against a repo on disk):
    codecrate validate-pack context.md
    codecrate validate-pack context.md --root /path/to/repo
    codecrate validate-pack context.md --strict
+
+
+Doctor checks
+-------------
+
+Inspect config precedence, ignore files, and backend availability:
+
+.. code-block:: console
+
+   codecrate doctor /path/to/repo
