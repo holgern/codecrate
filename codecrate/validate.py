@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .fences import is_fence_close, parse_fence_open
 from .ids import MARKER_NAMESPACE
+from .manifest import manifest_sha256
 from .mdparse import parse_packed_markdown
 from .repositories import split_repository_sections
 from .udiff import normalize_newlines
@@ -19,6 +20,34 @@ _ANCHOR_RE = re.compile(r'^\s*<a id="([^"]+)"></a>\s*$')
 
 def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _validate_machine_header(
+    *,
+    machine_header: dict | None,
+    manifest: dict,
+) -> list[str]:
+    if machine_header is None:
+        return []
+
+    errors: list[str] = []
+    got_format = str(machine_header.get("format") or "")
+    exp_format = str(manifest.get("format") or "")
+    if got_format and exp_format and got_format != exp_format:
+        errors.append(
+            f"Machine header format mismatch: expected {exp_format}, got {got_format}"
+        )
+
+    got_manifest_sha = str(machine_header.get("manifest_sha256") or "")
+    exp_manifest_sha = manifest_sha256(manifest)
+    if not got_manifest_sha:
+        errors.append("Machine header missing manifest_sha256")
+    elif got_manifest_sha != exp_manifest_sha:
+        errors.append(
+            "Machine header checksum mismatch: "
+            f"expected {exp_manifest_sha}, got {got_manifest_sha}"
+        )
+    return errors
 
 
 @dataclass(frozen=True)
@@ -108,6 +137,12 @@ def _validate_single_pack_markdown(
     packed = parse_packed_markdown(markdown_text)
     manifest = packed.manifest
     root_resolved = root.resolve() if root is not None else None
+    errors.extend(
+        _validate_machine_header(
+            machine_header=packed.machine_header,
+            manifest=manifest,
+        )
+    )
 
     files = manifest.get("files") or []
     for f in files:

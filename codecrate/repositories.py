@@ -68,7 +68,7 @@ def split_repository_sections(markdown_text: str) -> list[RepositorySection]:
     for pos, (start_idx, label) in enumerate(headers):
         body_start = start_idx + 1
         body_end = headers[pos + 1][0] if pos + 1 < len(headers) else len(lines)
-        content = "".join(lines[body_start:body_end]).lstrip("\n")
+        content = "".join(lines[body_start:body_end]).lstrip("\r\n")
         sections.append(
             RepositorySection(
                 label=label,

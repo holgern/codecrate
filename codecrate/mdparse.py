@@ -10,6 +10,7 @@ from .fences import is_fence_close, parse_fence_open
 @dataclass(frozen=True)
 class PackedMarkdown:
     manifest: dict
+    machine_header: dict | None
     canonical_sources: dict[str, str]  # id -> python code
     # NOTE: we don't strictly need stubbed files for unpack, but helpful for debugging
     stubbed_files: dict[str, str]  # rel path -> code
@@ -80,7 +81,10 @@ def _parse_function_library(text_lines: list[str]) -> dict[str, str]:
                 buf.append(text_lines[k])
                 k += 1
             if buf:
-                canonical_sources[maybe_id] = "\n".join(buf).rstrip() + "\n"
+                chunk = "".join(buf)
+                if not chunk.endswith("\n"):
+                    chunk += "\n"
+                canonical_sources[maybe_id] = chunk
     return canonical_sources
 
 
@@ -108,7 +112,7 @@ def _parse_stubbed_files(text_lines: list[str]) -> dict[str, str]:
                         buf.append(text_lines[k])
                         k += 1
                     if buf:
-                        chunk = "\n".join(buf)
+                        chunk = "".join(buf)
                         if not chunk.endswith("\n"):
                             chunk += "\n"
                         parts.append(chunk)
@@ -128,7 +132,15 @@ def _parse_stubbed_files(text_lines: list[str]) -> dict[str, str]:
 def parse_packed_markdown(text: str) -> PackedMarkdown:
     lines = text.splitlines(keepends=True)
     manifest = None
+    machine_header: dict | None = None
     for lang, body in _iter_fenced_blocks(lines):
+        if lang == "codecrate-machine-header" and machine_header is None:
+            try:
+                parsed = json.loads(body)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict):
+                machine_header = parsed
         if lang == "codecrate-manifest":
             manifest = json.loads(body)
             break
@@ -139,12 +151,13 @@ def parse_packed_markdown(text: str) -> PackedMarkdown:
             "(or omit --no-manifest)."
         )
 
-    text_lines = text.splitlines()
+    text_lines = text.splitlines(keepends=True)
     canonical_sources = _parse_function_library(text_lines)
     stubbed_files = _parse_stubbed_files(text_lines)
 
     return PackedMarkdown(
         manifest=manifest,
+        machine_header=machine_header,
         canonical_sources=canonical_sources,
         stubbed_files=stubbed_files,
     )

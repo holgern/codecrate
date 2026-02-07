@@ -55,6 +55,7 @@ Pack a repository into ``context.md``:
 .. code-block:: console
 
    codecrate pack /path/to/repo -o context.md
+   codecrate pack /path/to/repo -o context.md --manifest-json
 
 Pack multiple repositories into a single output:
 

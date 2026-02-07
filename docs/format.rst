@@ -15,6 +15,7 @@ High-level structure
 A typical pack includes:
 
 * **How to Use This Pack**: reading guidance for LLMs
+* **Machine Header**: compact metadata in a ``codecrate-machine-header`` fence
 * **Manifest (optional)**: machine-readable metadata in a ``codecrate-manifest`` fence
 * **Directory Tree**: a simple text tree of files
 * **Symbol Index**: per-file symbol list with line ranges
@@ -29,6 +30,12 @@ Manifest metadata also records explicit ID/marker schemes for forward compatibil
 
 * ``id_format_version`` (currently ``sha1-8-upper:v1``)
 * ``marker_format_version`` (currently ``v1``)
+
+Machine Header includes:
+
+* ``format``
+* ``repo_label`` / ``repo_slug``
+* ``manifest_sha256``
 
 Layouts
 -------

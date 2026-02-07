@@ -5,7 +5,7 @@ from collections import defaultdict
 from typing import Any, Literal
 
 from .fences import choose_backtick_fence, is_fence_close, parse_fence_open
-from .manifest import to_manifest
+from .manifest import machine_header, to_manifest
 from .model import ClassRef, FilePack, PackResult
 from .parse import parse_symbols
 
@@ -387,6 +387,9 @@ def render_markdown(  # noqa: C901
     skipped_for_safety_count: int = 0,
     *,
     include_manifest: bool = True,
+    manifest_data: dict[str, Any] | None = None,
+    repo_label: str = "repo",
+    repo_slug: str = "repo",
 ) -> str:
     lines: list[str] = []
     lines.append("# Codecrate Context Pack\n\n")
@@ -452,15 +455,23 @@ def render_markdown(  # noqa: C901
     )
 
     if include_manifest:
+        manifest_obj = manifest_data or to_manifest(pack, minimal=not use_stubs)
+        header_obj = machine_header(
+            manifest=manifest_obj,
+            repo_label=repo_label,
+            repo_slug=repo_slug,
+        )
+        lines.append("## Machine Header\n\n")
+        _append_fenced_block(
+            lines,
+            json.dumps(header_obj, sort_keys=True, separators=(",", ":")) + "\n",
+            "codecrate-machine-header",
+        )
+
         lines.append("## Manifest\n\n")
         _append_fenced_block(
             lines,
-            json.dumps(
-                to_manifest(pack, minimal=not use_stubs),
-                indent=2,
-                sort_keys=False,
-            )
-            + "\n",
+            json.dumps(manifest_obj, indent=2, sort_keys=False) + "\n",
             "codecrate-manifest",
         )
 

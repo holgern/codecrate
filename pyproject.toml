@@ -16,7 +16,7 @@ urls = { Homepage = "https://github.com/holgern/codecrate" }
 readme = "README.md"
 requires-python = ">3.9.0"
 dependencies = [
-  "pathspec"
+  "pathspec >= 1.0.0"
 ]
 license = {file = "LICENSE"}
 classifiers=[

@@ -100,6 +100,8 @@ Useful flags:
 * ``--max-file-tokens N``: skip files above N tokens
 * ``--max-total-tokens N``: fail if included files exceed N tokens
 * ``--max-workers N``: cap thread pool size for IO/parsing/token counting
+* ``--manifest-json [PATH]``: write manifest JSON for tooling (default:
+  ``<output>.manifest.json``)
 * ``-o/--output PATH``: output path (defaults to config ``output`` or ``context.md``)
 
 ``--stdin`` notes:
@@ -169,3 +171,4 @@ files on disk:
    codecrate validate-pack context.md --root .
 
 Use ``--strict`` to treat unresolved marker mapping as validation errors.
+Validation output groups issues by repository section and includes short hints.

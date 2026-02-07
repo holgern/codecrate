@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,30 @@ def test_unpack_combined_pack_writes_slug_subdirs(tmp_path: Path) -> None:
 
     packed = tmp_path / "combined.md"
     main(["pack", "--repo", str(repo1), "--repo", str(repo2), "-o", str(packed)])
+
+    out_dir = tmp_path / "out"
+    main(["unpack", str(packed), "-o", str(out_dir)])
+
+    assert (out_dir / "repo1" / "a.py").read_text(encoding="utf-8") == (
+        repo1 / "a.py"
+    ).read_text(encoding="utf-8")
+    assert (out_dir / "repo2" / "b.py").read_text(encoding="utf-8") == (
+        repo2 / "b.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_unpack_combined_pack_crlf_markdown_is_stable(tmp_path: Path) -> None:
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    _write_repo(repo1, "a.py", "def alpha():\n    return 1\n")
+    _write_repo(repo2, "b.py", "def beta():\n    return 2\n")
+
+    packed = tmp_path / "combined.md"
+    main(["pack", "--repo", str(repo1), "--repo", str(repo2), "-o", str(packed)])
+
+    # Simulate Windows-style line endings in the combined markdown file.
+    text = packed.read_text(encoding="utf-8")
+    packed.write_text(text.replace("\n", "\r\n"), encoding="utf-8", newline="")
 
     out_dir = tmp_path / "out"
     main(["unpack", str(packed), "-o", str(out_dir)])
@@ -183,7 +208,60 @@ def test_validate_pack_combined_scopes_errors_and_checks_anchor_collisions(
     assert excinfo.value.code == 1
 
     captured = capsys.readouterr()
-    assert "repo 'repo2' (repo2): expected exactly one codecrate-manifest block" in (
-        captured.out
-    )
+    assert "[repo 'repo2' (repo2)]" in captured.out
+    assert "expected exactly one codecrate-manifest block" in captured.out
+    assert "hint:" in captured.out
     assert "Cross-repo anchor collision" in captured.out
+
+
+def test_validate_pack_detects_machine_header_manifest_checksum_mismatch(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo, "a.py", "def alpha():\n    return 1\n")
+
+    packed = tmp_path / "context.md"
+    main(["pack", str(repo), "-o", str(packed)])
+
+    text = packed.read_text(encoding="utf-8")
+    tampered = text.replace('"manifest_sha256":"', '"manifest_sha256":"BAD', 1)
+    packed.write_text(tampered, encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["validate-pack", str(packed)])
+    assert excinfo.value.code == 1
+
+    captured = capsys.readouterr()
+    assert "Machine header checksum mismatch" in captured.out
+    assert "hint: manifest content changed" in captured.out
+
+
+def test_pack_multi_repo_manifest_json_contains_all_sections(tmp_path: Path) -> None:
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    _write_repo(repo1, "a.py", "def alpha():\n    return 1\n")
+    _write_repo(repo2, "b.py", "def beta():\n    return 2\n")
+
+    out_md = tmp_path / "combined.md"
+    out_json = tmp_path / "combined.manifest.json"
+    main(
+        [
+            "pack",
+            "--repo",
+            str(repo1),
+            "--repo",
+            str(repo2),
+            "-o",
+            str(out_md),
+            "--manifest-json",
+            str(out_json),
+        ]
+    )
+
+    payload = json.loads(out_json.read_text(encoding="utf-8"))
+    assert payload["format"] == "codecrate.manifest-json.v1"
+    repos = payload.get("repositories")
+    assert isinstance(repos, list)
+    assert len(repos) == 2
+    assert {repo.get("slug") for repo in repos} == {"repo1", "repo2"}

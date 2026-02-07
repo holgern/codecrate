@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from collections.abc import Callable
@@ -13,6 +14,7 @@ from .config import Config, load_config
 from .diffgen import generate_patch_markdown
 from .discover import discover_files
 from .fences import is_fence_close, parse_fence_open
+from .manifest import manifest_sha256, to_manifest
 from .markdown import render_markdown
 from .packer import pack_repo
 from .repositories import (
@@ -211,6 +213,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Max worker threads for IO/parsing/token counting (<=0 uses auto).",
     )
+    pack.add_argument(
+        "--manifest-json",
+        nargs="?",
+        const="",
+        default=None,
+        help=(
+            "Write manifest JSON for tooling. Optionally pass output path; "
+            "without a path writes <output>.manifest.json"
+        ),
+    )
 
     # unpack
     unpack = sub.add_parser(
@@ -333,6 +345,8 @@ class PackRun:
     file_tokens: dict[str, int]
     file_bytes: dict[str, int]
     token_backend: str
+    manifest: dict[str, object]
+    manifest_sha256: str
 
 
 @dataclass(frozen=True)
@@ -686,6 +700,84 @@ def _emit_budget_skip_warning(*, label: str, skipped: list[tuple[str, str]]) -> 
     )
 
 
+def _manifest_json_output_path(
+    *,
+    manifest_json_arg: str | None,
+    markdown_output: Path,
+) -> Path | None:
+    if manifest_json_arg is None:
+        return None
+    if manifest_json_arg.strip():
+        return Path(manifest_json_arg)
+    return markdown_output.with_name(f"{markdown_output.stem}.manifest.json")
+
+
+def _validation_hint(message: str) -> str | None:
+    if "expected exactly one codecrate-manifest block" in message:
+        return (
+            "ensure each repo section contains exactly one ```codecrate-manifest block"
+        )
+    if "Cross-repo anchor collision" in message:
+        return (
+            "make anchor ids unique across sections (or regenerate with codecrate pack)"
+        )
+    if "Machine header checksum mismatch" in message:
+        return "manifest content changed; regenerate the pack to refresh checksum"
+    if "Machine header" in message and "missing" in message:
+        return "regenerate pack so machine header and manifest are emitted together"
+    if "Missing stubbed file block" in message:
+        return "restore missing file block under ## Files or regenerate the pack"
+    if "Missing canonical source" in message:
+        return "restore the missing Function Library entry for the listed id"
+    if "Missing FUNC marker" in message or "Unresolved marker mapping" in message:
+        return "ensure stub contains a marker like ...  # ↪ FUNC:v1:<ID>"
+    if "sha mismatch" in message:
+        return "pack content was edited after generation; regenerate from source files"
+    if "failed to parse repository pack" in message:
+        return "verify markdown fences/manifest JSON are intact"
+    return None
+
+
+def _split_validation_scope(message: str) -> tuple[str, str]:
+    if message.startswith("repo '") and ": " in message:
+        scope, rest = message.split(": ", 1)
+        return scope, rest
+    return "global", message
+
+
+def _print_grouped_validation_report(report: object) -> None:
+    warnings = list(getattr(report, "warnings", []))
+    errors = list(getattr(report, "errors", []))
+
+    if warnings:
+        print("Warnings:")
+        by_scope: dict[str, list[str]] = {}
+        for msg in warnings:
+            scope, detail = _split_validation_scope(msg)
+            by_scope.setdefault(scope, []).append(detail)
+        for scope, msgs in by_scope.items():
+            print(f"- [{scope}]")
+            for detail in msgs:
+                print(f"  - {detail}")
+                hint = _validation_hint(detail)
+                if hint:
+                    print(f"    hint: {hint}")
+
+    if errors:
+        print("Errors:")
+        by_scope_err: dict[str, list[str]] = {}
+        for msg in errors:
+            scope, detail = _split_validation_scope(msg)
+            by_scope_err.setdefault(scope, []).append(detail)
+        for scope, msgs in by_scope_err.items():
+            print(f"- [{scope}]")
+            for detail in msgs:
+                print(f"  - {detail}")
+                hint = _validation_hint(detail)
+                if hint:
+                    print(f"    hint: {hint}")
+
+
 def _print_top_level_help(parser: argparse.ArgumentParser) -> None:
     parser.print_help()
     print()
@@ -862,6 +954,12 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 file_texts=file_texts,
                 max_workers=options.max_workers,
             )
+            use_stubs = options.layout == "stubs" or (
+                options.layout == "auto" and _pack_has_effective_dedupe(pack)
+            )
+            effective_layout = "stubs" if use_stubs else "full"
+            manifest_obj = to_manifest(pack, minimal=not use_stubs)
+            manifest_checksum = manifest_sha256(manifest_obj)
             md = render_markdown(
                 pack,
                 canonical,
@@ -871,12 +969,10 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 ),
                 skipped_for_safety_count=len(skipped),
                 include_manifest=options.include_manifest,
+                manifest_data=manifest_obj,
+                repo_label=label,
+                repo_slug=slug,
             )
-            effective_layout = options.layout
-            if effective_layout == "auto":
-                effective_layout = (
-                    "stubs" if _pack_has_effective_dedupe(pack) else "full"
-                )
 
             file_tokens: dict[str, int] = {}
             output_tokens = 0
@@ -924,6 +1020,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     file_tokens=file_tokens,
                     file_bytes=file_bytes,
                     token_backend=token_backend,
+                    manifest=manifest_obj,
+                    manifest_sha256=manifest_checksum,
                 )
             )
 
@@ -966,6 +1064,28 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     content = _prefix_repo_header(part.content, run_pack.label)
                     part.path.write_text(content, encoding="utf-8")
                 extra_count += len(extra)
+
+        manifest_json_path = _manifest_json_output_path(
+            manifest_json_arg=args.manifest_json,
+            markdown_output=out_path,
+        )
+        if manifest_json_path is not None:
+            payload: dict[str, object] = {
+                "format": "codecrate.manifest-json.v1",
+                "repositories": [
+                    {
+                        "label": run.label,
+                        "slug": run.slug,
+                        "manifest_sha256": run.manifest_sha256,
+                        "manifest": run.manifest,
+                    }
+                    for run in pack_runs
+                ],
+            }
+            manifest_json_path.write_text(
+                json.dumps(payload, indent=2, sort_keys=False) + "\n",
+                encoding="utf-8",
+            )
 
         # Token diagnostics (stderr)
         for run in pack_runs:
@@ -1070,14 +1190,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         report = validate_pack_markdown(
             md_text, root=args.root, strict=bool(args.strict)
         )
-        if report.warnings:
-            print("Warnings:")
-            for w in report.warnings:
-                print(f"- {w}")
+        _print_grouped_validation_report(report)
         if report.errors:
-            print("Errors:")
-            for err in report.errors:
-                print(f"- {err}")
             raise SystemExit(1)
         print("OK: pack is internally consistent.")
 

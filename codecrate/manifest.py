@@ -1,11 +1,36 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import asdict
 from typing import Any
 
 from .ids import ID_FORMAT_VERSION, MARKER_FORMAT_VERSION
 from .model import PackResult
+
+
+def manifest_sha256(manifest: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        manifest,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def machine_header(
+    *,
+    manifest: dict[str, Any],
+    repo_label: str,
+    repo_slug: str,
+) -> dict[str, str]:
+    return {
+        "format": str(manifest.get("format") or "codecrate.v4"),
+        "repo_label": repo_label,
+        "repo_slug": repo_slug,
+        "manifest_sha256": manifest_sha256(manifest),
+    }
 
 
 def to_manifest(pack: PackResult, *, minimal: bool = False) -> dict[str, Any]:

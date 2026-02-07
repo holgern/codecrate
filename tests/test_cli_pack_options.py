@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import sys
 from pathlib import Path
 
@@ -365,3 +366,43 @@ def test_pack_security_content_sniff_skips_private_key(tmp_path: Path) -> None:
 
     text = out_path.read_text(encoding="utf-8")
     assert "### `token.txt`" not in text
+
+
+def test_pack_manifest_json_default_path(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path), "--manifest-json"])
+
+    manifest_json_path = tmp_path / "context.manifest.json"
+    assert manifest_json_path.exists()
+    payload = json.loads(manifest_json_path.read_text(encoding="utf-8"))
+    assert payload["format"] == "codecrate.manifest-json.v1"
+    repos = payload.get("repositories")
+    assert isinstance(repos, list)
+    assert len(repos) == 1
+    assert "manifest" in repos[0]
+    assert "manifest_sha256" in repos[0]
+
+
+def test_pack_manifest_json_explicit_path(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+    json_path = tmp_path / "manifests.json"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(out_path),
+            "--manifest-json",
+            str(json_path),
+        ]
+    )
+
+    assert json_path.exists()
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    repos = payload.get("repositories")
+    assert isinstance(repos, list)
+    assert len(repos) == 1

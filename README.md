@@ -27,6 +27,8 @@
 - **Targeted packing**: Optional `--stdin` mode to pack an explicit file list
 - **Token diagnostics**: Optional CLI token reports (encoding, tree, top files)
 - **Scale controls**: Per-file skip budgets and hard total budgets (bytes/tokens)
+- **Machine header**: Compact checksum block for fast manifest validation
+- **Tooling manifests**: Optional JSON manifest sidecar output (`--manifest-json`)
 
 ## Installation
 
@@ -193,6 +195,7 @@ codecrate pack <root> [OPTIONS]
 - `--max-file-tokens N`: Skip files above this token limit
 - `--max-total-tokens N`: Fail if included files exceed this token limit
 - `--max-workers N`: Max worker threads for IO/parsing/token counting
+- `--manifest-json [PATH]`: Write manifest JSON for tooling
 
 When `--stdin` is used, only stdin-listed files are considered. Include globs are
 not applied, but exclude patterns and ignore files still apply.
@@ -254,7 +257,8 @@ codecrate validate-pack <markdown> [--root PATH] [--strict]
 - `--strict`: Treat unresolved marker mapping as validation errors
 
 For combined packs, validation runs per repository section and reports scope-aware
-errors/warnings. Cross-repo anchor collisions are reported as errors.
+errors/warnings grouped by section, with short reproduction hints. Cross-repo
+anchor collisions are reported as errors.
 
 ## Layout Modes
 
