@@ -34,6 +34,7 @@
 - **Tooling manifests**: Optional JSON manifest sidecar output (`--manifest-json`)
 - **Safety controls**: Configurable path/content scanning rules, optional redaction, optional safety report
 - **Environment diagnostics**: `codecrate doctor` reports config precedence, ignore files, and backend availability
+- **CLI ergonomics**: `--version`, `pack --print-rules`, and baseline policy flags for `apply`
 
 ## Installation
 
@@ -212,6 +213,7 @@ codecrate pack <root> [OPTIONS]
 - `--stdin0`: Read file paths from stdin as NUL-separated entries
 - `--print-files`: Debug-print selected files after filtering
 - `--print-skipped`: Debug-print skipped files and reasons
+- `--print-rules`: Debug-print effective include/exclude/ignore/safety rules
 - `--split-max-chars N`: Split output into `.partN.md` files
 - `--token-count-tree [threshold]`: Show file tree with token counts; optional
   threshold shows only files with >=N tokens (for example,
@@ -229,6 +231,7 @@ codecrate pack <root> [OPTIONS]
 
 When `--stdin`/`--stdin0` is used, only explicitly listed files are considered.
 Include globs are not applied, but exclude patterns and ignore files still apply.
+Outside-root and missing entries are skipped (see `--print-skipped`).
 With `--print-skipped`, explicit-file filtering also reports reasons such as
 `not-a-file`, `outside-root`, `duplicate`, `ignored`, and `excluded`.
 
@@ -275,15 +278,19 @@ codecrate patch <old_markdown> <root> [--repo <label-or-slug>] [OPTIONS]
 ### `apply` - Apply Patch to Repository
 
 ```bash
-codecrate apply <patch_markdown> <root> [--repo <label-or-slug>] [--dry-run] [--encoding-errors {replace,strict}]
+codecrate apply <patch_markdown> <root> [--repo <label-or-slug>] [--dry-run] [--check-baseline|--ignore-baseline] [--encoding-errors {replace,strict}]
 ```
 
 When `<patch_markdown>` contains multiple `# Repository:` sections, `--repo` is
 required to select one section.
 
 Use `--dry-run` to parse and validate hunks without writing files.
-When patch metadata contains baseline hashes, `apply` verifies baseline files and
-refuses to apply on mismatch.
+Baseline policy flags:
+
+- `--check-baseline`: require metadata + verify baseline hashes
+- `--ignore-baseline`: skip baseline verification
+
+Default behavior verifies baseline hashes when metadata exists.
 
 ### `validate-pack` - Validate Pack
 
@@ -407,6 +414,12 @@ codecrate pack . -o baseline.md
 ```
 
 ## Advanced Usage
+
+### Version
+
+```bash
+codecrate --version
+```
 
 ### Packing Multiple Projects
 

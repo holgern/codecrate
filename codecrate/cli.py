@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib
+import importlib.metadata as importlib_metadata
 import json
 import os
 import sys
@@ -26,7 +27,7 @@ from .config import (
     load_config,
 )
 from .diffgen import generate_patch_markdown
-from .discover import discover_files
+from .discover import DEFAULT_EXCLUDES, discover_files
 from .fences import is_fence_close, parse_fence_open
 from .formats import (
     FENCE_PATCH_META,
@@ -55,10 +56,27 @@ from .unpacker import unpack_to_dir
 from .validate import validate_pack_markdown
 
 
+def _codecrate_version() -> str:
+    try:
+        return importlib_metadata.version("codecrate")
+    except importlib_metadata.PackageNotFoundError:
+        try:
+            from ._version import __version__ as fallback
+
+            return str(fallback)
+        except Exception:
+            return "0+unknown"
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="codecrate",
         description="Pack/unpack/patch/apply for repositories  (Python + text files).",
+    )
+    p.add_argument(
+        "--version",
+        action="version",
+        version=f"codecrate {_codecrate_version()}",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -83,12 +101,18 @@ def build_parser() -> argparse.ArgumentParser:
     stdin_group.add_argument(
         "--stdin",
         action="store_true",
-        help="Read file paths from stdin (one per line) instead of scanning the root",
+        help=(
+            "Read explicit file paths from stdin (one per line). "
+            "Include globs are not applied; excludes/ignore files still apply."
+        ),
     )
     stdin_group.add_argument(
         "--stdin0",
         action="store_true",
-        help="Read file paths from stdin as NUL-separated entries",
+        help=(
+            "Read explicit file paths from stdin as NUL-separated entries. "
+            "Include globs are not applied; excludes/ignore files still apply."
+        ),
     )
     pack.add_argument(
         "--print-files",
@@ -99,6 +123,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--print-skipped",
         action="store_true",
         help="Debug: print skipped files with reasons",
+    )
+    pack.add_argument(
+        "--print-rules",
+        action="store_true",
+        help="Debug: print effective include/exclude/ignore/safety rules",
     )
     pack.add_argument(
         "-o",
@@ -371,6 +400,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Parse + validate patch hunks without writing files.",
     )
+    baseline_mode = apply.add_mutually_exclusive_group()
+    baseline_mode.add_argument(
+        "--check-baseline",
+        action="store_true",
+        help="Require and verify baseline metadata before applying patch.",
+    )
+    baseline_mode.add_argument(
+        "--ignore-baseline",
+        action="store_true",
+        help="Skip baseline metadata verification.",
+    )
     apply.add_argument(
         "--encoding-errors",
         choices=["replace", "strict"],
@@ -424,6 +464,7 @@ def build_parser() -> argparse.ArgumentParser:
 @dataclass(frozen=True)
 class PackOptions:
     include: list[str] | None
+    include_source: str
     exclude: list[str] | None
     keep_docstrings: bool
     include_manifest: bool
@@ -499,10 +540,13 @@ def _resolve_encoding_errors(cfg: Config, cli_value: str | None) -> str:
 def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
     if args.include is not None:
         include = args.include
+        include_source = "cli --include"
     elif args.include_preset is not None:
         include = include_patterns_for_preset(str(args.include_preset))
+        include_source = f"cli --include-preset={args.include_preset}"
     else:
         include = cfg.include
+        include_source = f"config include/include_preset={cfg.include_preset}"
     exclude = args.exclude if args.exclude is not None else cfg.exclude
     keep_docstrings = (
         cfg.keep_docstrings
@@ -633,6 +677,7 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
 
     return PackOptions(
         include=include,
+        include_source=include_source,
         exclude=exclude,
         keep_docstrings=keep_docstrings,
         include_manifest=include_manifest,
@@ -783,12 +828,26 @@ def _verify_patch_baseline(
     diffs: Sequence[object],
     patch_meta: dict[str, object] | None,
     encoding_errors: str,
+    policy: Literal["auto", "require", "ignore"] = "auto",
 ) -> None:
+    if policy == "ignore":
+        return
+
     if not patch_meta:
+        if policy == "require":
+            raise SystemExit(
+                "apply: --check-baseline requires patch metadata "
+                f"fence `{FENCE_PATCH_META}` with baseline hashes."
+            )
         return
 
     baseline = patch_meta.get("baseline_files_sha256")
     if not isinstance(baseline, dict):
+        if policy == "require":
+            raise SystemExit(
+                "apply: --check-baseline requires 'baseline_files_sha256' "
+                "in patch metadata."
+            )
         return
 
     mismatches: list[str] = []
@@ -1158,6 +1217,11 @@ def _print_top_level_help(parser: argparse.ArgumentParser) -> None:
     print("  codecrate apply changes.md .")
     print("  codecrate validate-pack context.md --strict")
     print("  codecrate doctor .")
+    print()
+    print("Explicit-file mode notes:")
+    print("  --stdin/--stdin0 treat stdin paths as the candidate set.")
+    print("  Include globs are bypassed; exclude + ignore rules still apply.")
+    print("  Outside-root and missing files are skipped (see --print-skipped).")
 
 
 _NO_MANIFEST_HELP = (
@@ -1194,6 +1258,37 @@ def _print_skipped_files(*, label: str, skipped: list[tuple[str, str]]) -> None:
     )
     for rel, reason in skipped:
         print(f"  - {rel} ({reason})", file=sys.stderr)
+
+
+def _print_effective_rules(*, label: str, root: Path, options: PackOptions) -> None:
+    include = options.include or []
+    exclude = DEFAULT_EXCLUDES + (options.exclude or [])
+    print(f"Debug: effective rules for {label}:", file=sys.stderr)
+    print(f"  include-source: {options.include_source}", file=sys.stderr)
+    print(
+        f"  include ({len(include)}): {', '.join(include) if include else '<none>'}",
+        file=sys.stderr,
+    )
+    print(
+        f"  exclude ({len(exclude)}): {', '.join(exclude) if exclude else '<none>'}",
+        file=sys.stderr,
+    )
+    print(
+        "  ignore-files: "
+        f".gitignore={'yes' if options.respect_gitignore else 'no'}, "
+        f".codecrateignore={'yes' if (root / '.codecrateignore').exists() else 'no'}",
+        file=sys.stderr,
+    )
+    print(
+        "  safety: "
+        f"check={'on' if options.security_check else 'off'}, "
+        f"content_sniff={'on' if options.security_content_sniff else 'off'}, "
+        f"redaction={'on' if options.security_redaction else 'off'}, "
+        f"report={'on' if options.safety_report else 'off'}, "
+        f"path_rules={len(options.security_path_patterns)}, "
+        f"content_rules={len(options.security_content_patterns)}",
+        file=sys.stderr,
+    )
 
 
 def _doctor_find_selected_config(root: Path) -> Path | None:
@@ -1370,6 +1465,9 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             options = _resolve_pack_options(cfg, args)
             label = _unique_label(root, used_labels)
             slug = _unique_slug(label, used_slugs)
+
+            if args.print_rules:
+                _print_effective_rules(label=label, root=root, options=options)
 
             disc = discover_files(
                 root=root,
@@ -1883,12 +1981,18 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         diff_text = _extract_diff_blocks(md_text)
         diffs = parse_unified_diff(diff_text)
         patch_meta = _extract_patch_metadata(md_text)
+        baseline_policy: Literal["auto", "require", "ignore"] = "auto"
+        if args.check_baseline:
+            baseline_policy = "require"
+        elif args.ignore_baseline:
+            baseline_policy = "ignore"
         try:
             _verify_patch_baseline(
                 root=args.root,
                 diffs=diffs,
                 patch_meta=patch_meta,
                 encoding_errors=apply_encoding_errors,
+                policy=baseline_policy,
             )
         except ValueError as e:
             parser.error(f"apply: {e}")

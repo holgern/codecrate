@@ -75,6 +75,7 @@ Common options:
 * ``--safety-report``: include a Safety Report section with reasons
 * ``--stdin`` / ``--stdin0``: pack an explicit file list from stdin
 * ``--print-files`` / ``--print-skipped``: debug selected and skipped files
+* ``--print-rules``: debug-print effective include/exclude/ignore/safety rules
 * ``--include-preset``: switch between ``python-only``, ``python+docs``, and ``everything``
 * ``--encoding-errors {replace,strict}``: UTF-8 decode policy while reading files
 
@@ -114,9 +115,14 @@ Apply the patch to a repo:
 
    codecrate apply patch.md /path/to/repo
    codecrate apply patch.md /path/to/repo --dry-run
+   codecrate apply patch.md /path/to/repo --check-baseline
+   codecrate apply patch.md /path/to/repo --ignore-baseline
 
 Apply validates baseline metadata embedded in generated patches and refuses to
 apply when baseline file hashes do not match.
+
+Use ``--check-baseline`` to require metadata and ``--ignore-baseline`` to skip
+baseline verification.
 
 
 Validate a context pack
@@ -139,4 +145,5 @@ Inspect config precedence, ignore files, and backend availability:
 
 .. code-block:: console
 
+   codecrate --version
    codecrate doctor /path/to/repo

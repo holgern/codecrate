@@ -206,6 +206,16 @@ def test_pack_include_preset_python_only(tmp_path: Path) -> None:
     assert "### `README.md`" not in text
 
 
+def test_pack_output_header_includes_format_version(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "Format: `codecrate.v4`" in text
+
+
 def test_pack_include_preset_everything(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
     (tmp_path / "notes.txt").write_text("hello\n", encoding="utf-8")
@@ -421,6 +431,33 @@ def test_pack_print_skipped_debug_lists_reasons(tmp_path: Path, capsys) -> None:
     assert "Debug: skipped files" in captured.err
     assert ".env (path:.env)" in captured.err
     assert "big.py (bytes>100)" in captured.err
+
+
+def test_pack_print_rules_shows_effective_rule_summary(tmp_path: Path, capsys) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / ".codecrateignore").write_text("ignored.py\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include-preset",
+            "python-only",
+            "--exclude",
+            "build/**",
+            "--print-rules",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert "Debug: effective rules" in captured.err
+    assert "include-source: cli --include-preset=python-only" in captured.err
+    assert "ignore-files:" in captured.err
+    assert ".codecrateignore=yes" in captured.err
+    assert "safety:" in captured.err
 
 
 def test_pack_print_skipped_includes_explicit_discovery_reasons(

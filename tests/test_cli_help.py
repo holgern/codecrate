@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from codecrate.cli import main
 
 
@@ -24,3 +26,23 @@ def test_main_help_flag_still_works(capsys) -> None:
     assert "pack" in captured.out
     assert "unpack" in captured.out
     assert "validate-pack" in captured.out
+
+
+def test_main_version_flag_prints_version(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+
+    captured = capsys.readouterr()
+    assert captured.out.startswith("codecrate ")
+
+
+def test_pack_help_clarifies_explicit_file_behavior(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["pack", "-h"])
+    assert exc.value.code == 0
+
+    captured = capsys.readouterr()
+    assert "Include globs are not applied" in captured.out
+    assert "exclude" in captured.out
+    assert "ignore files still apply" in captured.out

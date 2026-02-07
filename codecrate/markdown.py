@@ -5,7 +5,7 @@ from collections import defaultdict
 from typing import Any, Literal
 
 from .fences import choose_backtick_fence, is_fence_close, parse_fence_open
-from .formats import FENCE_MACHINE_HEADER, FENCE_MANIFEST
+from .formats import FENCE_MACHINE_HEADER, FENCE_MANIFEST, PACK_FORMAT_VERSION
 from .manifest import machine_header, to_manifest
 from .model import ClassRef, FilePack, PackResult
 from .ordering import sort_paths
@@ -401,6 +401,7 @@ def render_markdown(  # noqa: C901
     lines.append("# Codecrate Context Pack\n\n")
     # Do not leak absolute local paths; keep the header root stable + relative.
     lines.append("Root: `.`\n\n")
+    lines.append(f"Format: `{PACK_FORMAT_VERSION}`\n\n")
     layout_norm = (layout or "auto").strip().lower()
     if layout_norm not in {"auto", "stubs", "full"}:
         layout_norm = "auto"

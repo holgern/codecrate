@@ -58,6 +58,7 @@ def generate_patch_markdown(
     blocks.append("# Codecrate Patch\n\n")
     # Do not leak absolute local paths; keep the header root stable + relative.
     blocks.append("Root: `.`\n\n")
+    blocks.append(f"Format: `{PATCH_FORMAT_VERSION}`\n\n")
     blocks.append(f"```{FENCE_PATCH_META}\n")
     blocks.append(
         json.dumps(

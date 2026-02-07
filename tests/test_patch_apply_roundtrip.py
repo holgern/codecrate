@@ -340,6 +340,7 @@ def test_generate_patch_includes_baseline_metadata(tmp_path: Path) -> None:
     (root / "a.py").write_text("def f():\n    return 2\n", encoding="utf-8")
     patch_md = generate_patch_markdown(old_md, root)
 
+    assert "Format: `codecrate.patch.v1`" in patch_md
     assert "```codecrate-patch-meta" in patch_md
     assert "baseline_manifest_sha256" in patch_md
     assert "baseline_files_sha256" in patch_md
@@ -371,6 +372,58 @@ def test_apply_refuses_when_baseline_mismatch_detected(tmp_path: Path) -> None:
         main(["apply", str(patch_md), str(apply_root)])
 
     assert "baseline does not match" in str(excinfo.value)
+
+
+def test_apply_ignore_baseline_allows_mismatch(tmp_path: Path) -> None:
+    base = tmp_path / "base"
+    base.mkdir()
+    (base / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    disc = discover_python_files(
+        base, include=["**/*.py"], exclude=[], respect_gitignore=False
+    )
+    pack, canon = pack_repo(disc.root, disc.files, keep_docstrings=True, dedupe=False)
+    old_md = render_markdown(pack, canon)
+
+    cur = tmp_path / "cur"
+    shutil.copytree(base, cur)
+    (cur / "new.py").write_text("def n():\n    return 2\n", encoding="utf-8")
+
+    patch_md = tmp_path / "patch.md"
+    patch_md.write_text(generate_patch_markdown(old_md, cur), encoding="utf-8")
+
+    apply_root = tmp_path / "apply"
+    shutil.copytree(base, apply_root)
+    (apply_root / "new.py").write_text("", encoding="utf-8")
+
+    main(["apply", str(patch_md), str(apply_root), "--ignore-baseline"])
+    assert (apply_root / "new.py").read_text(encoding="utf-8") == (
+        cur / "new.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_apply_check_baseline_requires_metadata(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "a.py").write_text("a\n", encoding="utf-8")
+
+    patch_md = tmp_path / "patch.md"
+    patch_md.write_text(
+        "# Codecrate Patch\n\n"
+        "```diff\n"
+        "--- a/a.py\n"
+        "+++ b/a.py\n"
+        "@@ -1 +1 @@\n"
+        "-a\n"
+        "+A\n"
+        "```\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(["apply", str(patch_md), str(root), "--check-baseline"])
+
+    assert "requires patch metadata" in str(excinfo.value)
 
 
 def test_generate_patch_strict_encoding_fails_on_invalid_utf8(tmp_path: Path) -> None:

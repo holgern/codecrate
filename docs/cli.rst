@@ -56,10 +56,11 @@ Overview
 
 .. code-block:: console
 
+   codecrate --version
    codecrate pack [ROOT] [--repo REPO ...] [options]
    codecrate unpack PACK.md -o OUT_DIR [--strict]
    codecrate patch OLD_PACK.md ROOT [-o patch.md]
-   codecrate apply PATCH.md ROOT
+   codecrate apply PATCH.md ROOT [--check-baseline|--ignore-baseline]
    codecrate validate-pack PACK.md [--root ROOT] [--strict]
    codecrate doctor [ROOT]
 
@@ -105,6 +106,7 @@ Useful flags:
 * ``--stdin0``: read file paths from stdin as NUL-separated entries
 * ``--print-files``: debug-print selected files after filtering
 * ``--print-skipped``: debug-print skipped files and reasons
+* ``--print-rules``: debug-print effective include/exclude/ignore/safety rules
 * ``--split-max-chars N``: additionally emit ``.partN.md`` files for LLMs
 * ``--token-count-tree [threshold]``: show file tree with token counts; optional
   threshold shows only files with >=N tokens (for example,
@@ -130,6 +132,7 @@ Useful flags:
 * Requires a single ``ROOT`` (cannot be combined with ``--repo``).
 * Include globs are not applied to explicit stdin files.
 * Exclude rules and ignore files still apply.
+* Outside-root and missing explicit paths are skipped.
 * With ``--print-skipped``, explicit file filtering reports reasons like
   ``not-a-file``, ``outside-root``, ``duplicate``, ``ignored``, and ``excluded``.
 
@@ -196,10 +199,15 @@ Apply a patch Markdown to a repo root:
 
    codecrate apply patch.md .
    codecrate apply patch.md . --dry-run
+   codecrate apply patch.md . --check-baseline
+   codecrate apply patch.md . --ignore-baseline
 
 Use ``--dry-run`` to parse and validate hunks without writing files.
-When baseline metadata is present, apply verifies baseline file hashes and refuses
-to apply on mismatch.
+Baseline policy:
+
+* default: verify baseline hashes when metadata is present
+* ``--check-baseline``: require metadata and verify
+* ``--ignore-baseline``: skip baseline verification
 
 
 validate-pack
