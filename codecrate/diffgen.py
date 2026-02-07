@@ -10,6 +10,25 @@ from .udiff import normalize_newlines
 from .unpacker import _apply_canonical_into_stub
 
 
+def _to_lf_keepends(text: str) -> list[str]:
+    return normalize_newlines(text).splitlines(keepends=True)
+
+
+def _render_unified_diff(diff: list[str]) -> list[str]:
+    out: list[str] = []
+    for line in diff:
+        has_newline = line.endswith("\n")
+        out.append(line[:-1] if has_newline else line)
+        is_hunk_body_line = (
+            bool(line)
+            and line[0] in {" ", "+", "-"}
+            and not line.startswith(("---", "+++", "@@"))
+        )
+        if is_hunk_body_line and not has_newline:
+            out.append(r"\ No newline at end of file")
+    return out
+
+
 def generate_patch_markdown(
     old_pack_md: str,
     root: Path,
@@ -44,31 +63,31 @@ def generate_patch_markdown(
         old_text = _apply_canonical_into_stub(
             stub, f.get("defs", []), packed.canonical_sources
         )
-        old_text = normalize_newlines(old_text)
+        old_lines = _to_lf_keepends(old_text)
 
         cur_path = root / rel
         if not cur_path.exists():
             # treat as deleted in current
             diff = difflib.unified_diff(
-                old_text.splitlines(),
+                old_lines,
                 [],
                 fromfile=f"a/{rel}",
                 tofile="/dev/null",
                 lineterm="",
             )
         else:
-            new_text = normalize_newlines(
+            new_lines = _to_lf_keepends(
                 cur_path.read_text(encoding="utf-8", errors="replace")
             )
             diff = difflib.unified_diff(
-                old_text.splitlines(),
-                new_text.splitlines(),
+                old_lines,
+                new_lines,
                 fromfile=f"a/{rel}",
                 tofile=f"b/{rel}",
                 lineterm="",
             )
 
-        diff_lines = list(diff)
+        diff_lines = _render_unified_diff(list(diff))
         if diff_lines:
             any_changes = True
             blocks.append(f"## `{rel}`\n\n")
@@ -88,15 +107,15 @@ def generate_patch_markdown(
         if rel in old_paths:
             continue
 
-        new_text = normalize_newlines(p.read_text(encoding="utf-8", errors="replace"))
+        new_lines = _to_lf_keepends(p.read_text(encoding="utf-8", errors="replace"))
         diff = difflib.unified_diff(
             [],
-            new_text.splitlines(),
+            new_lines,
             fromfile="/dev/null",
             tofile=f"b/{rel}",
             lineterm="",
         )
-        diff_lines = list(diff)
+        diff_lines = _render_unified_diff(list(diff))
         if diff_lines:
             any_changes = True
             blocks.append(f"## `{rel}`\n\n")

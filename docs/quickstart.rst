@@ -80,6 +80,7 @@ Reconstruct files from a pack into a directory:
 .. code-block:: console
 
    codecrate unpack context.md -o /tmp/reconstructed
+   codecrate unpack context.md -o /tmp/reconstructed --strict
 
 
 Generate a patch Markdown
@@ -111,3 +112,4 @@ Validate internal consistency (and optionally compare against a repo on disk):
 
    codecrate validate-pack context.md
    codecrate validate-pack context.md --root /path/to/repo
+   codecrate validate-pack context.md --strict

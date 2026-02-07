@@ -26,6 +26,7 @@ def test_pack_basic_function(tmp_path: Path) -> None:
     assert file_pack.module == "a"
     assert "def f(x):" in file_pack.original_text
     assert "# ↪ FUNC:" in file_pack.stubbed_text
+    assert "FUNC:v1:" in file_pack.stubbed_text
 
     func_def = pack.defs[0]
     assert func_def.qualname == "f"

@@ -51,10 +51,10 @@ Overview
 .. code-block:: console
 
    codecrate pack [ROOT] [--repo REPO ...] [options]
-   codecrate unpack PACK.md -o OUT_DIR
+   codecrate unpack PACK.md -o OUT_DIR [--strict]
    codecrate patch OLD_PACK.md ROOT [-o patch.md]
    codecrate apply PATCH.md ROOT
-   codecrate validate-pack PACK.md [--root ROOT]
+   codecrate validate-pack PACK.md [--root ROOT] [--strict]
 
 
 pack
@@ -132,6 +132,8 @@ Reconstruct files into an output directory:
 
    codecrate unpack context.md -o /tmp/out
 
+Use ``--strict`` to fail when marker-based reconstruction cannot be fully resolved.
+
 
 patch
 -----
@@ -165,3 +167,5 @@ files on disk:
 
    codecrate validate-pack context.md
    codecrate validate-pack context.md --root .
+
+Use ``--strict`` to treat unresolved marker mapping as validation errors.

@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import asdict
 from typing import Any
 
+from .ids import ID_FORMAT_VERSION, MARKER_FORMAT_VERSION
 from .model import PackResult
 
 
@@ -28,4 +29,10 @@ def to_manifest(pack: PackResult, *, minimal: bool = False) -> dict[str, Any]:
             }
         files.append(entry)
     # Root is already shown at the top of the pack; keep manifest root stable + short.
-    return {"format": "codecrate.v4", "root": ".", "files": files}
+    return {
+        "format": "codecrate.v4",
+        "id_format_version": ID_FORMAT_VERSION,
+        "marker_format_version": MARKER_FORMAT_VERSION,
+        "root": ".",
+        "files": files,
+    }

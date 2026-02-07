@@ -5,11 +5,14 @@ import re
 import warnings
 from pathlib import Path
 
+from .ids import MARKER_NAMESPACE
 from .mdparse import parse_packed_markdown
 from .repositories import split_repository_sections
 from .udiff import ensure_parent_dir
 
-_MARK_RE = re.compile(r"FUNC:([0-9A-Fa-f]{8})")
+_MARK_RE = re.compile(
+    rf"{MARKER_NAMESPACE}:(?:v\d+:)?(?P<id>[0-9A-Fa-f]{{8}})",
+)
 
 
 def _ws_len(s: str) -> int:
@@ -17,7 +20,12 @@ def _ws_len(s: str) -> int:
 
 
 def _apply_canonical_into_stub(
-    stub: str, defs: list[dict], canonical: dict[str, str]
+    stub: str,
+    defs: list[dict],
+    canonical: dict[str, str],
+    *,
+    strict: bool = False,
+    issues: list[str] | None = None,
 ) -> str:
     """
     Reconstruct original by locating FUNC:<id> markers in the stub and replacing the
@@ -33,16 +41,24 @@ def _apply_canonical_into_stub(
 
     # Allow multiple occurrences of the same marker id (older dedupe packs).
     marker_lines_for: dict[str, list[int]] = {}
+
+    def _record_issue(message: str) -> None:
+        if issues is not None:
+            issues.append(message)
+        if strict:
+            raise ValueError(message)
+
     for i, ln in enumerate(lines):
         m = _MARK_RE.search(ln)
         if m:
-            marker_lines_for.setdefault(m.group(1).upper(), []).append(i)
+            marker_lines_for.setdefault(m.group("id").upper(), []).append(i)
 
     # Apply bottom-up so indices remain stable.
     work: list[tuple[int, dict, str]] = []
     for d in defs:
         cid = d.get("id") or d.get("local_id")
         if not cid:
+            _record_issue("definition missing both id and local_id")
             continue
 
         # Prefer locating the marker by local_id (unique), but fall back to cid for
@@ -53,6 +69,11 @@ def _apply_canonical_into_stub(
             idxs = marker_lines_for.get(str(cid).upper())
 
         if not idxs:
+            _record_issue(
+                "missing marker for "
+                f"{d.get('qualname') or '<unknown>'} "
+                f"(local_id={d.get('local_id') or '∅'}, id={cid})"
+            )
             continue
 
         mi = idxs.pop()  # consume the bottom-most occurrence
@@ -68,6 +89,11 @@ def _apply_canonical_into_stub(
             if alt:
                 code = canonical.get(str(alt))
         if code is None:
+            _record_issue(
+                "missing canonical source for "
+                f"{d.get('qualname') or '<unknown>'} "
+                f"(id={cid}, local_id={d.get('local_id') or '∅'})"
+            )
             continue
 
         # Find def line above (supports single-line defs where marker is on def line).
@@ -78,6 +104,10 @@ def _apply_canonical_into_stub(
                 break
             def_i -= 1
         if def_i < 0:
+            _record_issue(
+                "unable to locate def line above marker for "
+                f"{d.get('qualname') or '<unknown>'}"
+            )
             continue
 
         def_indent = _ws_len(lines[def_i])
@@ -105,7 +135,7 @@ def _apply_canonical_into_stub(
     return "".join(lines)
 
 
-def _unpack_single_markdown(markdown_text: str, out_dir: Path) -> None:
+def _unpack_single_markdown(markdown_text: str, out_dir: Path, *, strict: bool) -> None:
     packed = parse_packed_markdown(markdown_text)
     manifest = packed.manifest
     if manifest.get("format") != "codecrate.v4":
@@ -123,7 +153,21 @@ def _unpack_single_markdown(markdown_text: str, out_dir: Path) -> None:
             continue
 
         defs = f.get("defs", [])
-        reconstructed = _apply_canonical_into_stub(stub, defs, packed.canonical_sources)
+        marker_issues: list[str] = []
+        reconstructed = _apply_canonical_into_stub(
+            stub,
+            defs,
+            packed.canonical_sources,
+            strict=strict,
+            issues=marker_issues,
+        )
+        if marker_issues:
+            msg = (
+                f"Unresolved marker mapping for {rel}: "
+                + "; ".join(marker_issues[:5])
+                + ("; ..." if len(marker_issues) > 5 else "")
+            )
+            warnings.warn(msg, RuntimeWarning, stacklevel=2)
 
         exp_sha = f.get("sha256_original")
         if exp_sha:
@@ -150,12 +194,12 @@ def _unpack_single_markdown(markdown_text: str, out_dir: Path) -> None:
         warnings.warn(msg, RuntimeWarning, stacklevel=2)
 
 
-def unpack_to_dir(markdown_text: str, out_dir: Path) -> None:
+def unpack_to_dir(markdown_text: str, out_dir: Path, *, strict: bool = False) -> None:
     sections = split_repository_sections(markdown_text)
     if not sections:
-        _unpack_single_markdown(markdown_text, out_dir)
+        _unpack_single_markdown(markdown_text, out_dir, strict=strict)
         return
 
     out_root = out_dir.resolve()
     for section in sections:
-        _unpack_single_markdown(section.content, out_root / section.slug)
+        _unpack_single_markdown(section.content, out_root / section.slug, strict=strict)

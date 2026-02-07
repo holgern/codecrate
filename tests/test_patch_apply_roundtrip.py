@@ -39,11 +39,13 @@ def test_patch_apply_roundtrip(tmp_path: Path):
         "```codecrate-manifest\n"
         "{\n"
         '  "format": "codecrate.v4",\n'
+        '  "id_format_version": "sha1-8-upper:v1",\n'
+        '  "marker_format_version": "v1",\n'
         '  "root": ".",\n'
         '  "files": [\n'
         '    {"path": "a.py", "module": "a", "line_count": 2, "classes": [],\n'
         '     "defs": [{"path": "a.py", "module": "a", "qualname": "f", '
-        '"id": "ID", "local_id": "ID", "kind": "function", '
+        '"id": "DEADBEEF", "local_id": "DEADBEEF", "kind": "function", '
         '"decorator_start": 1, "def_line": 1, "body_start": 2, '
         '"end_line": 2, "doc_start": null, "doc_end": null, '
         '"is_single_line": false}]}\n'
@@ -51,7 +53,7 @@ def test_patch_apply_roundtrip(tmp_path: Path):
         "}\n"
         "```\n\n"
         "## Function Library\n\n"
-        "### ID — `a.f` (a.py:L1–L2)\n"
+        "### DEADBEEF — `a.f` (a.py:L1–L2)\n"
         "```python\n"
         "def f():\n"
         "    return 1\n"
@@ -60,19 +62,25 @@ def test_patch_apply_roundtrip(tmp_path: Path):
         "### `a.py` (L1–L2)\n"
         "```python\n"
         "def f():\n"
-        "    ...  # ↪ FUNC:ID\n"
+        "    ...  # ↪ FUNC:v1:DEADBEEF\n"
         "```\n"
     )
 
-    # change current file
-    f.write_text("def f():\n    return 2\n", encoding="utf-8")
+    # change current file in a working copy
+    cur = tmp_path / "cur"
+    shutil.copytree(root, cur)
+    (cur / "a.py").write_text("def f():\n    return 2\n", encoding="utf-8")
 
-    patch_md = generate_patch_markdown(old_md, root)
+    patch_md = generate_patch_markdown(old_md, cur)
     diff_text = _extract_diff_blocks(patch_md)
     diffs = parse_unified_diff(diff_text)
-    apply_file_diffs(diffs, root)
+    apply_root = tmp_path / "apply"
+    shutil.copytree(root, apply_root)
+    apply_file_diffs(diffs, apply_root)
 
-    assert f.read_text(encoding="utf-8") == "def f():\n    return 2\n"
+    assert (apply_root / "a.py").read_text(encoding="utf-8") == (
+        cur / "a.py"
+    ).read_text(encoding="utf-8")
 
 
 def test_patch_apply_add_delete(tmp_path: Path) -> None:
@@ -141,3 +149,58 @@ def test_apply_rejects_unsafe_filediff_paths(tmp_path: Path, bad_path: str) -> N
 
     with pytest.raises(ValueError):
         apply_file_diffs(diffs, root)
+
+
+def test_apply_rejects_context_mismatch(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "a.py").write_text("a\nb\n", encoding="utf-8")
+
+    diff_text = "--- a/a.py\n+++ b/a.py\n@@ -1,2 +1,2 @@\n a\n-x\n+b\n"
+    diffs = parse_unified_diff(diff_text)
+
+    with pytest.raises(ValueError):
+        apply_file_diffs(diffs, root)
+
+
+def test_apply_handles_trailing_newline_removal(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    target = root / "a.py"
+    target.write_text("a\n", encoding="utf-8")
+
+    diff_text = (
+        "--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-a\n+a\n\\ No newline at end of file\n"
+    )
+    diffs = parse_unified_diff(diff_text)
+    apply_file_diffs(diffs, root)
+
+    assert target.read_text(encoding="utf-8") == "a"
+
+
+def test_apply_handles_trailing_newline_addition(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    target = root / "a.py"
+    target.write_text("a", encoding="utf-8")
+
+    diff_text = (
+        "--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+a\n"
+    )
+    diffs = parse_unified_diff(diff_text)
+    apply_file_diffs(diffs, root)
+
+    assert target.read_text(encoding="utf-8") == "a\n"
+
+
+def test_apply_normalizes_crlf_to_lf_consistently(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    target = root / "a.py"
+    target.write_bytes(b"a\r\nb\r\n")
+
+    diff_text = "--- a/a.py\n+++ b/a.py\n@@ -1,2 +1,2 @@\n a\n-b\n+B\n"
+    diffs = parse_unified_diff(diff_text)
+    apply_file_diffs(diffs, root)
+
+    assert target.read_text(encoding="utf-8") == "a\nB\n"

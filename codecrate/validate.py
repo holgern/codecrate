@@ -7,12 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .fences import is_fence_close, parse_fence_open
+from .ids import MARKER_NAMESPACE
 from .mdparse import parse_packed_markdown
 from .repositories import split_repository_sections
 from .udiff import normalize_newlines
 from .unpacker import _apply_canonical_into_stub
 
-_MARK_RE = re.compile(r"FUNC:([0-9A-Fa-f]{8})")
+_MARK_RE = re.compile(rf"{MARKER_NAMESPACE}:(?:v\d+:)?(?P<id>[0-9A-Fa-f]{{8}})")
 _ANCHOR_RE = re.compile(r'^\s*<a id="([^"]+)"></a>\s*$')
 
 
@@ -27,11 +28,14 @@ class ValidationReport:
 
 
 def validate_pack_markdown(
-    markdown_text: str, *, root: Path | None = None
+    markdown_text: str,
+    *,
+    root: Path | None = None,
+    strict: bool = False,
 ) -> ValidationReport:
     sections = split_repository_sections(markdown_text)
     if not sections:
-        return _validate_single_pack_markdown(markdown_text, root=root)
+        return _validate_single_pack_markdown(markdown_text, root=root, strict=strict)
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -66,7 +70,11 @@ def validate_pack_markdown(
             root_resolved / section.slug if root_resolved is not None else None
         )
         try:
-            report = _validate_single_pack_markdown(section.content, root=section_root)
+            report = _validate_single_pack_markdown(
+                section.content,
+                root=section_root,
+                strict=strict,
+            )
         except Exception as e:
             errors.append(f"{scope}: failed to parse repository pack: {e}")
             continue
@@ -77,7 +85,10 @@ def validate_pack_markdown(
 
 
 def _validate_single_pack_markdown(
-    markdown_text: str, *, root: Path | None = None
+    markdown_text: str,
+    *,
+    root: Path | None = None,
+    strict: bool = False,
 ) -> ValidationReport:
     """Validate a packed Codecrate Markdown for internal consistency.
 
@@ -118,7 +129,7 @@ def _validate_single_pack_markdown(
                 f"Stub sha mismatch for {rel}: expected {exp_stub}, got {got_stub}"
             )
 
-        marker_ids = [m.group(1).upper() for m in _MARK_RE.finditer(stub_norm)]
+        marker_ids = [m.group("id").upper() for m in _MARK_RE.finditer(stub_norm)]
         if marker_ids:
             c = Counter(marker_ids)
             dup = [k for k, v in c.items() if v > 1]
@@ -136,19 +147,36 @@ def _validate_single_pack_markdown(
 
             # local_id marker is preferred; fall back to id for older packs
             if (lid and lid not in marker_ids) and (cid and cid not in marker_ids):
-                warnings.append(
+                msg = (
                     f"Missing FUNC marker in stub for {rel}:{d.get('qualname')} "
                     f"(local_id={lid or '∅'}, id={cid or '∅'})"
                 )
+                if strict:
+                    errors.append(msg)
+                else:
+                    warnings.append(msg)
 
         try:
+            marker_issues: list[str] = []
             reconstructed = _apply_canonical_into_stub(
-                stub_norm, defs, packed.canonical_sources
+                stub_norm,
+                defs,
+                packed.canonical_sources,
+                strict=False,
+                issues=marker_issues,
             )
             reconstructed = normalize_newlines(reconstructed)
         except Exception as e:  # pragma: no cover
             errors.append(f"Failed to reconstruct {rel}: {e}")
             continue
+
+        if marker_issues:
+            for issue in marker_issues:
+                msg = f"Unresolved marker mapping for {rel}: {issue}"
+                if strict:
+                    errors.append(msg)
+                else:
+                    warnings.append(msg)
 
         exp_orig = f.get("sha256_original")
         got_orig = _sha256_text(reconstructed)

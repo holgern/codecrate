@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import tokenize
 
+from .ids import marker_token
 from .model import DefRef
 
 
@@ -49,7 +50,7 @@ def stub_file_text(text: str, defs: list[DefRef], keep_docstrings: bool = True) 
     )
 
     for d in defs_sorted:
-        marker = f"# ↪ FUNC:{d.local_id}"
+        marker = f"# ↪ {marker_token(d.local_id)}"
 
         if d.is_single_line:
             i = d.def_line - 1

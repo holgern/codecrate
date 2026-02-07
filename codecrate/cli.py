@@ -224,6 +224,11 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Output directory for reconstructed files",
     )
+    unpack.add_argument(
+        "--strict",
+        action="store_true",
+        help="Fail when marker-based reconstruction cannot be fully resolved.",
+    )
 
     # patch
     patch = sub.add_parser(
@@ -271,6 +276,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Optional repo root to compare reconstructed files against",
+    )
+    vpack.add_argument(
+        "--strict",
+        action="store_true",
+        help="Treat unresolved marker mapping as validation errors.",
     )
 
     return p
@@ -1002,7 +1012,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
 
     elif args.cmd == "unpack":
         md_text = args.markdown.read_text(encoding="utf-8", errors="replace")
-        unpack_to_dir(md_text, args.out_dir)
+        unpack_to_dir(md_text, args.out_dir, strict=bool(args.strict))
         print(f"Unpacked into {args.out_dir}")
 
     elif args.cmd == "patch":
@@ -1041,7 +1051,9 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
 
     elif args.cmd == "validate-pack":
         md_text = args.markdown.read_text(encoding="utf-8", errors="replace")
-        report = validate_pack_markdown(md_text, root=args.root)
+        report = validate_pack_markdown(
+            md_text, root=args.root, strict=bool(args.strict)
+        )
         if report.warnings:
             print("Warnings:")
             for w in report.warnings:

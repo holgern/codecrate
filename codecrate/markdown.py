@@ -363,7 +363,7 @@ def _render_how_to_use_section(*, use_stubs: bool) -> str:
         )
         lines.append(f"4. **Files** {_range_token('SECTION', 'Files')}\n")
         lines.append(
-            "5. For stubbed functions (`...  # ↪ FUNC:XXXXXXXX`), use **Function "
+            "5. For stubbed functions (`...  # ↪ FUNC:v1:XXXXXXXX`), use **Function "
             "Library** to read full bodies by ID.\n"
         )
     else:

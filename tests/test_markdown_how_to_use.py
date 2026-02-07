@@ -35,6 +35,9 @@ def test_how_to_use_is_adaptive_for_stubs_and_compact_nav(tmp_path: Path) -> Non
     assert "4. **Files** (L" in md
     assert "stubbed functions" in md
     assert "Prefer minimal unified diffs" in md
+    assert "FUNC:v1:" in md
+    assert '"marker_format_version": "v1"' in md
+    assert '"id_format_version": "sha1-8-upper:v1"' in md
     assert "Compact navigation mode is active" not in md
     assert "Manifest section is included" not in md
     assert "Line numbers" not in md

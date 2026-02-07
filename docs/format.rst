@@ -25,6 +25,11 @@ The Manifest is required for machine operations (unpack/patch/validate-pack). Fo
 efficiency, split ``.partN.md`` files omit it, and you can disable it entirely with
 ``--no-manifest`` (LLM-only packs).
 
+Manifest metadata also records explicit ID/marker schemes for forward compatibility:
+
+* ``id_format_version`` (currently ``sha1-8-upper:v1``)
+* ``marker_format_version`` (currently ``v1``)
+
 Layouts
 -------
 
@@ -61,7 +66,7 @@ Stubbed file bodies contain markers like:
 
 .. code-block:: text
 
-   ...  # ↪ FUNC:XXXXXXXX
+   ...  # ↪ FUNC:v1:XXXXXXXX
 
 The marker references the function definition occurrence. During unpack, Codecrate
 locates the marker, finds the ``def`` line above it (including decorators), and

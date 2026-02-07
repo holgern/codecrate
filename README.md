@@ -216,6 +216,7 @@ codecrate unpack <markdown> -o <out-dir>
 **Options:**
 
 - `-o, --out-dir PATH`: Output directory for reconstructed files (required)
+- `--strict`: Fail when marker-based reconstruction cannot be fully resolved
 
 For combined packs (multiple `# Repository: ...` sections), files are unpacked to
 `<out-dir>/<repo-slug>/...` per repository section.
@@ -244,12 +245,13 @@ required to select one section.
 ### `validate-pack` - Validate Pack
 
 ```bash
-codecrate validate-pack <markdown> [--root PATH]
+codecrate validate-pack <markdown> [--root PATH] [--strict]
 ```
 
 **Options:**
 
 - `--root PATH`: Optional repo root to compare reconstructed files against
+- `--strict`: Treat unresolved marker mapping as validation errors
 
 For combined packs, validation runs per repository section and reports scope-aware
 errors/warnings. Cross-repo anchor collisions are reported as errors.
@@ -262,11 +264,11 @@ Creates compact file stubs with function bodies replaced by markers:
 
 ```python
 def f(x):
-    ...  # ↪ FUNC:0F203CE2
+    ...  # ↪ FUNC:v1:0F203CE2
 
 class C:
     def m(self):
-        ...  # ↪ FUNC:6F8ECF73
+        ...  # ↪ FUNC:v1:6F8ECF73
 ```
 
 Function bodies are stored in a separate "Function Library" section:

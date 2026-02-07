@@ -118,7 +118,7 @@ def parse_unified_diff(diff_text: str) -> list[FileDiff]:
                     and not lines[i].startswith("@@")
                     and not lines[i].startswith("--- ")
                 ):
-                    if lines[i].startswith((" ", "+", "-")):
+                    if lines[i].startswith((" ", "+", "-", "\\")):
                         h.append(lines[i])
                     i += 1
                 hunks.append(h)
@@ -136,24 +136,46 @@ def apply_hunks_to_text(old_text: str, hunks: list[list[str]]) -> str:
     - Expects hunks in order and matching context lines.
     - Raises ValueError on mismatch.
     """
-    old_lines = normalize_newlines(old_text).splitlines()
+
+    def _parse_count(raw: str) -> int:
+        return 1 if raw == "" else int(raw)
+
+    old_text_norm = normalize_newlines(old_text)
+    old_lines = old_text_norm.splitlines()
+    old_has_trailing_newline = old_text_norm.endswith("\n")
     new_lines: list[str] = []
     old_i = 0
+    new_has_trailing_newline = old_has_trailing_newline
 
     for hunk in hunks:
         m = _HUNK_RE.match(hunk[0])
         if not m:
             raise ValueError(f"Bad hunk header: {hunk[0]}")
-        old_start = int(m.group(1)) - 1  # 0-based
+        old_start = max(0, int(m.group(1)) - 1)  # 0-based; -0 in hunks means start
+        old_count = _parse_count(m.group(2))
+        new_count = _parse_count(m.group(4))
 
         # copy unchanged prefix
         if old_start < old_i and not (old_i == 0 and len(old_lines) == 0):
             raise ValueError("Overlapping hunks")
+        if old_start > len(old_lines):
+            raise ValueError("Hunk start out of range")
         new_lines.extend(old_lines[old_i:old_start])
         old_i = old_start
 
+        consumed_old = 0
+        produced_new = 0
+        prev_tag: str | None = None
+
         # apply hunk lines
         for line in hunk[1:]:
+            if line == r"\ No newline at end of file":
+                if prev_tag in {" ", "+"}:
+                    new_has_trailing_newline = False
+                elif prev_tag is None:
+                    raise ValueError("Dangling no-newline marker in patch")
+                continue
+
             tag = line[:1]
             payload = line[1:]
             if tag == " ":
@@ -161,44 +183,36 @@ def apply_hunks_to_text(old_text: str, hunks: list[list[str]]) -> str:
                     raise ValueError("Context mismatch while applying patch")
                 new_lines.append(payload)
                 old_i += 1
+                consumed_old += 1
+                produced_new += 1
+                new_has_trailing_newline = True
+                prev_tag = " "
             elif tag == "-":
-                # Check if current line matches what we'd add (file already modified)
-                current_line_matches_target = False
-                if old_i < len(old_lines) and old_lines[old_i] != payload:
-                    # Look ahead to find what we're adding
-                    add_line = None
-                    for next_line in hunk[1:]:
-                        if next_line.startswith("+"):
-                            add_line = next_line[1:]  # Full add line with indentation
-                            break
-                    # If current line matches what we'd add (with/without stripping),
-                    # skip the delete operation
-                    if add_line is not None:
-                        current_matches_add = old_lines[old_i] == add_line
-                        current_matches_add_stripped = (
-                            old_lines[old_i].strip() == add_line.strip()
-                        )
-                        if current_matches_add or current_matches_add_stripped:
-                            current_line_matches_target = True
-
-                if not current_line_matches_target:
-                    # Use original payload for comparison, but also try stripped version
-                    if old_i < len(old_lines) and old_lines[old_i] != payload:
-                        # Try stripped versions for fuzzy matching
-                        old_stripped = old_lines[old_i].strip()
-                        payload_stripped = payload.strip()
-                        if old_stripped != payload_stripped:
-                            raise ValueError("Delete mismatch while applying patch")
+                if old_i >= len(old_lines) or old_lines[old_i] != payload:
+                    raise ValueError("Delete mismatch while applying patch")
                 old_i += 1
+                consumed_old += 1
+                prev_tag = "-"
             elif tag == "+":
                 new_lines.append(payload)
+                produced_new += 1
+                new_has_trailing_newline = True
+                prev_tag = "+"
             else:
                 raise ValueError(f"Unexpected diff tag: {tag}")
 
+        if consumed_old != old_count:
+            raise ValueError("Hunk old-line count mismatch")
+        if produced_new != new_count:
+            raise ValueError("Hunk new-line count mismatch")
+
     # copy remainder
     new_lines.extend(old_lines[old_i:])
+    if old_i < len(old_lines):
+        new_has_trailing_newline = old_has_trailing_newline
+
     out = "\n".join(new_lines)
-    if old_text.endswith("\n") or (not old_text and out):
+    if out and new_has_trailing_newline:
         out += "\n"
     return out
 
