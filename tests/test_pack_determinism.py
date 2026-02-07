@@ -92,3 +92,37 @@ def test_pack_output_is_deterministic_multi_repo(tmp_path: Path) -> None:
     )
 
     assert out1.read_bytes() == out2.read_bytes()
+
+
+def test_split_outputs_are_deterministic_across_runs(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(
+        repo,
+        {
+            "a.py": "def a():\n    return 1\n\n" + "# a\n" * 30,
+            "b.py": "def b():\n    return 2\n\n" + "# b\n" * 30,
+        },
+    )
+
+    out = tmp_path / "context.md"
+
+    def run_pack() -> dict[str, bytes]:
+        main(
+            [
+                "pack",
+                str(repo),
+                "-o",
+                str(out),
+                "--split-max-chars",
+                "500",
+                "--max-workers",
+                "8",
+            ]
+        )
+        part_files = sorted(tmp_path.glob("context.part*.md"))
+        return {p.name: p.read_bytes() for p in part_files}
+
+    first = run_pack()
+    second = run_pack()
+
+    assert first == second

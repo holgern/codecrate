@@ -30,6 +30,26 @@ def _break_first_marker(markdown: str) -> str:
     )
 
 
+def _rename_first_function_library_id(markdown: str, replacement: str) -> str:
+    return re.sub(
+        r"^###\s+[0-9A-F]{8}\b",
+        f"### {replacement}",
+        markdown,
+        count=1,
+        flags=re.MULTILINE,
+    )
+
+
+def _drop_function_library_section(markdown: str) -> str:
+    start = markdown.find("## Function Library")
+    if start < 0:
+        return markdown
+    end = markdown.find("\n## Files", start)
+    if end < 0:
+        return markdown[:start]
+    return markdown[:start] + markdown[end + 1 :]
+
+
 def test_unpack_strict_fails_on_unresolved_marker(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -70,3 +90,35 @@ def test_validate_strict_escalates_unresolved_marker_to_error(tmp_path: Path) ->
 
     assert any("Unresolved marker mapping" in w for w in non_strict.warnings)
     assert any("Unresolved marker mapping" in e for e in strict.errors)
+
+
+def test_unpack_strict_fails_when_manifest_references_missing_canonical_body(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    broken_md = _drop_function_library_section(_make_stub_pack(repo))
+    out_dir = tmp_path / "out"
+
+    with pytest.raises(ValueError) as excinfo:
+        unpack_to_dir(broken_md, out_dir, strict=True)
+
+    assert "missing canonical source" in str(excinfo.value)
+
+
+def test_unpack_strict_fails_when_marker_present_but_canonical_missing(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    broken_md = _rename_first_function_library_id(_make_stub_pack(repo), "DEADC0DE")
+    out_dir = tmp_path / "out"
+
+    with pytest.raises(ValueError) as excinfo:
+        unpack_to_dir(broken_md, out_dir, strict=True)
+
+    assert "missing canonical source" in str(excinfo.value)

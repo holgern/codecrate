@@ -264,6 +264,26 @@ def test_discover_files_explicit_rejects_outside_root_paths(tmp_path: Path) -> N
     assert disc.files == [repo / "inside.py"]
 
 
+def test_discover_files_explicit_rejects_parent_relative_escape(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "inside.py").write_text("pass\n", encoding="utf-8")
+    outside = tmp_path / "outside.py"
+    outside.write_text("pass\n", encoding="utf-8")
+
+    disc = discover_files(
+        root=repo,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=False,
+        explicit_files=[Path("inside.py"), Path("../outside.py")],
+    )
+
+    assert disc.files == [repo / "inside.py"]
+    skipped = {(item.path, item.reason) for item in disc.skipped}
+    assert ("../outside.py", "outside-root") in skipped
+
+
 def test_discover_files_explicit_reports_skipped_reasons(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()

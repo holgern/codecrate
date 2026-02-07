@@ -24,6 +24,10 @@ def _rebuild_combined(sections: list[tuple[str, str]]) -> str:
     return "".join(parts)
 
 
+def _count_fence_lines(text: str) -> int:
+    return sum(1 for ln in text.splitlines() if ln.startswith("```"))
+
+
 def test_unpack_combined_pack_writes_slug_subdirs(tmp_path: Path) -> None:
     repo1 = tmp_path / "repo1"
     repo2 = tmp_path / "repo2"
@@ -64,6 +68,33 @@ def test_unpack_combined_pack_crlf_markdown_is_stable(tmp_path: Path) -> None:
         repo1 / "a.py"
     ).read_text(encoding="utf-8")
     assert (out_dir / "repo2" / "b.py").read_text(encoding="utf-8") == (
+        repo2 / "b.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_unpack_combined_pack_duplicate_labels_use_unique_slug_dirs(
+    tmp_path: Path,
+) -> None:
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    _write_repo(repo1, "a.py", "def alpha():\n    return 1\n")
+    _write_repo(repo2, "b.py", "def beta():\n    return 2\n")
+
+    packed = tmp_path / "combined.md"
+    main(["pack", "--repo", str(repo1), "--repo", str(repo2), "-o", str(packed)])
+
+    text = packed.read_text(encoding="utf-8")
+    text = text.replace("# Repository: repo1", "# Repository: shared", 1)
+    text = text.replace("# Repository: repo2", "# Repository: shared", 1)
+    packed.write_text(text, encoding="utf-8")
+
+    out_dir = tmp_path / "out"
+    main(["unpack", str(packed), "-o", str(out_dir)])
+
+    assert (out_dir / "shared" / "a.py").read_text(encoding="utf-8") == (
+        repo1 / "a.py"
+    ).read_text(encoding="utf-8")
+    assert (out_dir / "shared-2" / "b.py").read_text(encoding="utf-8") == (
         repo2 / "b.py"
     ).read_text(encoding="utf-8")
 
@@ -265,3 +296,50 @@ def test_pack_multi_repo_manifest_json_contains_all_sections(tmp_path: Path) -> 
     assert isinstance(repos, list)
     assert len(repos) == 2
     assert {repo.get("slug") for repo in repos} == {"repo1", "repo2"}
+
+
+def test_pack_multi_repo_split_preserves_repo_boundaries_and_fences(
+    tmp_path: Path,
+) -> None:
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    _write_repo(
+        repo1,
+        "a.py",
+        "def alpha():\n    return 1\n\n" + "# comment\n" * 40,
+    )
+    _write_repo(
+        repo2,
+        "b.py",
+        "def beta():\n    return 2\n\n" + "# note\n" * 40,
+    )
+
+    packed = tmp_path / "combined.md"
+    main(
+        [
+            "pack",
+            "--repo",
+            str(repo1),
+            "--repo",
+            str(repo2),
+            "--split-max-chars",
+            "500",
+            "-o",
+            str(packed),
+        ]
+    )
+
+    repo1_parts = sorted(tmp_path.glob("combined.repo1.part*.md"))
+    repo2_parts = sorted(tmp_path.glob("combined.repo2.part*.md"))
+    assert repo1_parts
+    assert repo2_parts
+
+    repo1_text = "\n".join(p.read_text(encoding="utf-8") for p in repo1_parts)
+    repo2_text = "\n".join(p.read_text(encoding="utf-8") for p in repo2_parts)
+    assert "`a.py`" in repo1_text
+    assert "`b.py`" not in repo1_text
+    assert "`b.py`" in repo2_text
+    assert "`a.py`" not in repo2_text
+
+    for part in repo1_parts + repo2_parts:
+        assert _count_fence_lines(part.read_text(encoding="utf-8")) % 2 == 0

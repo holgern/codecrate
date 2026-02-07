@@ -121,6 +121,35 @@ def test_patch_apply_add_delete(tmp_path: Path) -> None:
     ).read_text(encoding="utf-8")
 
 
+def test_parse_unified_diff_classifies_add_and_delete_ops() -> None:
+    diff_text = (
+        "--- /dev/null\n"
+        "+++ b/new.py\n"
+        "@@ -0,0 +1 @@\n"
+        "+x\n"
+        "--- a/old.py\n"
+        "+++ /dev/null\n"
+        "@@ -1 +0,0 @@\n"
+        "-y\n"
+    )
+
+    diffs = parse_unified_diff(diff_text)
+    assert len(diffs) == 2
+    assert diffs[0].op == "add"
+    assert diffs[0].path == "new.py"
+    assert diffs[1].op == "delete"
+    assert diffs[1].path == "old.py"
+
+
+def test_parse_unified_diff_normalizes_crlf_input() -> None:
+    diff_text = "--- a/a.py\r\n+++ b/a.py\r\n@@ -1,1 +1,1 @@\r\n-a\r\n+A\r\n"
+
+    diffs = parse_unified_diff(diff_text)
+    assert len(diffs) == 1
+    assert diffs[0].path == "a.py"
+    assert diffs[0].hunks[0][0] == "@@ -1,1 +1,1 @@"
+
+
 def _single_add_diff(to_path: str) -> str:
     return f"--- /dev/null\n+++ {to_path}\n@@ -0,0 +1 @@\n+owned\n"
 
@@ -136,11 +165,40 @@ def test_parse_unified_diff_rejects_unsafe_paths(to_path: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "to_path",
+    [r"b/C:\\temp\\evil.txt", "b/C:/temp/evil.txt", r"b/\\server\\share\\x.py"],
+    ids=["windows-drive-backslash", "windows-drive-slash", "windows-unc"],
+)
+def test_parse_unified_diff_rejects_windows_like_paths(to_path: str) -> None:
+    with pytest.raises(ValueError):
+        parse_unified_diff(_single_add_diff(to_path))
+
+
+@pytest.mark.parametrize(
     "bad_path",
     ["../evil.txt", "/abs/path", "a/../../evil", ""],
     ids=["parent-traversal", "absolute", "nested-traversal", "empty"],
 )
 def test_apply_rejects_unsafe_filediff_paths(tmp_path: Path, bad_path: str) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+
+    diffs = [
+        FileDiff(path=bad_path, hunks=[["@@ -0,0 +1 @@", "+owned"]], op="add"),
+    ]
+
+    with pytest.raises(ValueError):
+        apply_file_diffs(diffs, root)
+
+
+@pytest.mark.parametrize(
+    "bad_path",
+    [r"C:\\temp\\evil.txt", "C:/temp/evil.txt", r"\\server\\share\\x.py"],
+    ids=["windows-drive-backslash", "windows-drive-slash", "windows-unc"],
+)
+def test_apply_rejects_windows_like_filediff_paths(
+    tmp_path: Path, bad_path: str
+) -> None:
     root = tmp_path / "repo"
     root.mkdir()
 
