@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import importlib
+import threading
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -12,6 +14,9 @@ else:  # pragma: no cover
     tiktoken = cast(Any, _tiktoken_module)
 
 _ENCODER_CACHE: dict[str, Any] = {}
+_ENCODER_CACHE_LOCK = threading.Lock()
+_TOKEN_COUNT_CACHE: dict[tuple[str, str], int] = {}
+_TOKEN_COUNT_CACHE_LOCK = threading.Lock()
 
 
 def _approx_tokens(text: str) -> int:
@@ -19,14 +24,27 @@ def _approx_tokens(text: str) -> int:
     return (len(text) + 3) // 4 if text else 0
 
 
+def approx_token_count(text: str) -> int:
+    return _approx_tokens(text)
+
+
+def approx_tokens_from_bytes(size_bytes: int) -> int:
+    return (max(0, size_bytes) + 3) // 4
+
+
 def _get_encoder(name: str) -> Any | None:
     if tiktoken is None:
         return None
-    enc = _ENCODER_CACHE.get(name)
-    if enc is None:
-        enc = tiktoken.get_encoding(name)
-        _ENCODER_CACHE[name] = enc
+    with _ENCODER_CACHE_LOCK:
+        enc = _ENCODER_CACHE.get(name)
+        if enc is None:
+            enc = tiktoken.get_encoding(name)
+            _ENCODER_CACHE[name] = enc
     return enc
+
+
+def _content_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -38,10 +56,21 @@ class TokenCounter:
         return "tiktoken" if tiktoken is not None else "approx"
 
     def count(self, text: str) -> int:
+        key = (self.encoding, _content_sha256(text))
+        with _TOKEN_COUNT_CACHE_LOCK:
+            cached = _TOKEN_COUNT_CACHE.get(key)
+        if cached is not None:
+            return cached
+
         enc = _get_encoder(self.encoding)
         if enc is None:
-            return _approx_tokens(text)
-        return len(enc.encode(text))
+            result = _approx_tokens(text)
+        else:
+            result = len(enc.encode(text))
+
+        with _TOKEN_COUNT_CACHE_LOCK:
+            _TOKEN_COUNT_CACHE[key] = result
+        return result
 
 
 class _Node:
@@ -108,4 +137,15 @@ def format_top_files(file_tokens: dict[str, int], top_n: int) -> str:
     lines = ["Top files by tokens:"]
     for i, (path, n) in enumerate(items, 1):
         lines.append(f"{i:>2}. {path} ({n} tokens)")
+    return "\n".join(lines)
+
+
+def format_top_files_by_size(file_sizes: dict[str, int], top_n: int) -> str:
+    if top_n <= 0:
+        return ""
+    items = sorted(file_sizes.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
+    lines = ["Top files by size (heuristic tokens):"]
+    for i, (path, n_bytes) in enumerate(items, 1):
+        approx = approx_tokens_from_bytes(n_bytes)
+        lines.append(f"{i:>2}. {path} ({n_bytes} bytes, ~{approx} tokens)")
     return "\n".join(lines)

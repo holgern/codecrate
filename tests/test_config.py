@@ -21,6 +21,11 @@ def test_config_defaults() -> None:
     assert cfg.token_count_tree is False
     assert cfg.token_count_tree_threshold == 0
     assert cfg.top_files_len == 5
+    assert cfg.max_file_bytes == 0
+    assert cfg.max_total_bytes == 0
+    assert cfg.max_file_tokens == 0
+    assert cfg.max_total_tokens == 0
+    assert cfg.max_workers == 0
     assert cfg.file_summary is True
     assert cfg.security_check is True
     assert cfg.security_content_sniff is False
@@ -97,6 +102,11 @@ token_count_encoding = "cl100k_base"
 token_count_tree = true
 token_count_tree_threshold = 42
 top_files_len = 12
+max_file_bytes = 1000
+max_total_bytes = 5000
+max_file_tokens = 300
+max_total_tokens = 1200
+max_workers = 6
 file_summary = false
 security_check = false
 security_content_sniff = true
@@ -111,6 +121,11 @@ symbol_backend = "tree-sitter"
     assert cfg.token_count_tree is True
     assert cfg.token_count_tree_threshold == 42
     assert cfg.top_files_len == 12
+    assert cfg.max_file_bytes == 1000
+    assert cfg.max_total_bytes == 5000
+    assert cfg.max_file_tokens == 300
+    assert cfg.max_total_tokens == 1200
+    assert cfg.max_workers == 6
     assert cfg.file_summary is False
     assert cfg.security_check is False
     assert cfg.security_content_sniff is True
@@ -139,6 +154,11 @@ def test_load_config_invalid_token_count_numeric_values(tmp_path: Path) -> None:
         """[codecrate]
 token_count_tree_threshold = "not a number"
 top_files_len = "also bad"
+max_file_bytes = "bad"
+max_total_bytes = "bad"
+max_file_tokens = "bad"
+max_total_tokens = "bad"
+max_workers = "bad"
 """,
         encoding="utf-8",
     )
@@ -146,6 +166,11 @@ top_files_len = "also bad"
     cfg = load_config(tmp_path)
     assert cfg.token_count_tree_threshold == 0
     assert cfg.top_files_len == 5
+    assert cfg.max_file_bytes == 0
+    assert cfg.max_total_bytes == 0
+    assert cfg.max_file_tokens == 0
+    assert cfg.max_total_tokens == 0
+    assert cfg.max_workers == 0
 
 
 def test_load_config_invalid_include_exclude(tmp_path: Path) -> None:

@@ -38,6 +38,11 @@ Supported keys include (non-exhaustive):
    token_count_tree = false
    token_count_tree_threshold = 0
    top_files_len = 5
+   max_file_bytes = 0
+   max_total_bytes = 0
+   max_file_tokens = 0
+   max_total_tokens = 0
+   max_workers = 0
    file_summary = true
 
 Overview
@@ -90,6 +95,11 @@ Useful flags:
 * ``--top-files-len N``: show N largest files by token count in stderr report
 * ``--token-count-encoding NAME``: tokenizer encoding (for tiktoken backend)
 * ``--file-summary / --no-file-summary``: enable or disable pack summary output
+* ``--max-file-bytes N``: skip files larger than N bytes
+* ``--max-total-bytes N``: fail if included files exceed N bytes
+* ``--max-file-tokens N``: skip files above N tokens
+* ``--max-total-tokens N``: fail if included files exceed N tokens
+* ``--max-workers N``: cap thread pool size for IO/parsing/token counting
 * ``-o/--output PATH``: output path (defaults to config ``output`` or ``context.md``)
 
 ``--stdin`` notes:
@@ -104,6 +114,8 @@ Token diagnostics notes:
 
 * Token diagnostics are CLI-only and do not modify generated markdown.
 * If ``tiktoken`` is not installed, counting falls back to an approximate method.
+* If tokenizer initialization fails, codecrate still reports top-N largest files
+  using heuristic counts.
 * A compact ``Pack Summary`` (files/tokens/chars/output path) is printed by
   default and can be disabled with ``--no-file-summary`` or
   ``file_summary = false`` in config.

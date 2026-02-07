@@ -50,6 +50,13 @@ class Config:
     token_count_tree: bool = False
     token_count_tree_threshold: int = 0
     top_files_len: int = 5
+    # Pack-size budgets; <=0 disables each limit.
+    max_file_bytes: int = 0
+    max_total_bytes: int = 0
+    max_file_tokens: int = 0
+    max_total_tokens: int = 0
+    # Worker pool size for file IO/parsing/token diagnostics. <=0 means auto.
+    max_workers: int = 0
     file_summary: bool = True
     # Safety filter for potentially sensitive files.
     security_check: bool = True
@@ -150,6 +157,36 @@ def load_config(root: Path) -> Config:
     top = section.get("top_files_len", cfg.top_files_len)
     try:
         cfg.top_files_len = int(top)
+    except Exception:
+        pass
+
+    max_file_bytes = section.get("max_file_bytes", cfg.max_file_bytes)
+    try:
+        cfg.max_file_bytes = int(max_file_bytes)
+    except Exception:
+        pass
+
+    max_total_bytes = section.get("max_total_bytes", cfg.max_total_bytes)
+    try:
+        cfg.max_total_bytes = int(max_total_bytes)
+    except Exception:
+        pass
+
+    max_file_tokens = section.get("max_file_tokens", cfg.max_file_tokens)
+    try:
+        cfg.max_file_tokens = int(max_file_tokens)
+    except Exception:
+        pass
+
+    max_total_tokens = section.get("max_total_tokens", cfg.max_total_tokens)
+    try:
+        cfg.max_total_tokens = int(max_total_tokens)
+    except Exception:
+        pass
+
+    max_workers = section.get("max_workers", cfg.max_workers)
+    try:
+        cfg.max_workers = int(max_workers)
     except Exception:
         pass
 

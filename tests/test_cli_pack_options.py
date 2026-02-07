@@ -83,6 +83,79 @@ def test_pack_invalid_token_encoding_does_not_crash(
     captured = capsys.readouterr()
     assert out_path.exists()
     assert "Warning: token counting disabled" in captured.err
+    assert "Top files by tokens:" in captured.err
+
+
+def test_pack_max_file_bytes_skips_large_files(tmp_path: Path, capsys) -> None:
+    (tmp_path / "small.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "big.py").write_text("x = 1\n" * 400, encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(out_path),
+            "--include",
+            "**/*.py",
+            "--max-file-bytes",
+            "300",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    text = out_path.read_text(encoding="utf-8")
+    assert "Warning: skipped" in captured.err
+    assert "big.py" in captured.err
+    assert "### `small.py`" in text
+    assert "### `big.py`" not in text
+
+
+def test_pack_max_total_bytes_fails_when_exceeded(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n" * 200, encoding="utf-8")
+    (tmp_path / "b.py").write_text("x = 2\n" * 200, encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "pack",
+                str(tmp_path),
+                "--include",
+                "**/*.py",
+                "--max-total-bytes",
+                "500",
+            ]
+        )
+
+    assert "max_total_bytes" in str(excinfo.value)
+
+
+def test_pack_max_file_tokens_skips_large_token_files(tmp_path: Path, capsys) -> None:
+    (tmp_path / "small.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "big.py").write_text("x = 1\n" * 600, encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(out_path),
+            "--include",
+            "**/*.py",
+            "--max-file-tokens",
+            "100",
+            "--token-count-tree",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    text = out_path.read_text(encoding="utf-8")
+    assert "Warning: skipped" in captured.err
+    assert "tokens>100" in captured.err
+    assert "### `small.py`" in text
+    assert "### `big.py`" not in text
 
 
 def test_pack_token_count_tree_writes_context(tmp_path: Path, capsys) -> None:

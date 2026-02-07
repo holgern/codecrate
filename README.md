@@ -26,6 +26,7 @@
 - **Tool ignore support**: Respect `.codecrateignore` (always)
 - **Targeted packing**: Optional `--stdin` mode to pack an explicit file list
 - **Token diagnostics**: Optional CLI token reports (encoding, tree, top files)
+- **Scale controls**: Per-file skip budgets and hard total budgets (bytes/tokens)
 
 ## Installation
 
@@ -141,6 +142,17 @@ token_count_encoding = "o200k_base"
 token_count_tree = false
 token_count_tree_threshold = 0
 top_files_len = 5
+
+# Scale / performance controls
+# - per-file limits skip files with a warning
+# - total limits fail the run when exceeded
+max_file_bytes = 0
+max_total_bytes = 0
+max_file_tokens = 0
+max_total_tokens = 0
+
+# Worker threads for IO/parsing/token counting (0 = auto)
+max_workers = 0
 file_summary = true
 ```
 
@@ -176,6 +188,11 @@ codecrate pack <root> [OPTIONS]
 - `--top-files-len N`: Show top N largest files by token count
 - `--token-count-encoding NAME`: Tokenizer encoding for token counting
 - `--file-summary` / `--no-file-summary`: Enable or disable pack summary output
+- `--max-file-bytes N`: Skip files above this byte limit
+- `--max-total-bytes N`: Fail if included files exceed this byte limit
+- `--max-file-tokens N`: Skip files above this token limit
+- `--max-total-tokens N`: Fail if included files exceed this token limit
+- `--max-workers N`: Max worker threads for IO/parsing/token counting
 
 When `--stdin` is used, only stdin-listed files are considered. Include globs are
 not applied, but exclude patterns and ignore files still apply.
@@ -183,6 +200,9 @@ not applied, but exclude patterns and ignore files still apply.
 By default, codecrate prints a compact pack summary (total files, total tokens,
 total chars, output path). Disable it with `--no-file-summary` or
 `file_summary = false` in config.
+
+If tokenization backend initialization fails, codecrate falls back to heuristic
+token counting and still prints top-N largest file summaries.
 
 Code fences are automatically widened when file content contains backticks, so
 generated markdown remains parsable.
@@ -342,6 +362,12 @@ codecrate pack . --include "**/*.py" --exclude "**/migrations/**"
 codecrate pack . --split-max-chars 50000
 
 # This creates context.md, context.part1.md, context.part2.md, etc.
+
+# Skip single huge files, but fail if remaining total is still too large
+codecrate pack . --max-file-bytes 200000 --max-total-bytes 4000000
+
+# Same idea for token budgets
+codecrate pack . --max-file-tokens 5000 --max-total-tokens 120000
 ```
 
 ### Deduplication

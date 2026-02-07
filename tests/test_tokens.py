@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from codecrate.tokens import format_token_count_tree, format_top_files
+from codecrate.tokens import (
+    TokenCounter,
+    format_token_count_tree,
+    format_top_files,
+    format_top_files_by_size,
+)
 
 
 def test_format_top_files_orders_descending() -> None:
@@ -39,3 +44,36 @@ def test_format_token_count_tree_applies_threshold() -> None:
     assert "a.py (100 tokens)" in out
     assert "b.py (5 tokens)" not in out
     assert "docs (20 tokens)" in out
+
+
+def test_format_top_files_by_size_orders_descending() -> None:
+    out = format_top_files_by_size(
+        {
+            "a.py": 120,
+            "b.py": 400,
+            "sub/c.py": 200,
+        },
+        top_n=2,
+    )
+
+    assert out.splitlines() == [
+        "Top files by size (heuristic tokens):",
+        " 1. b.py (400 bytes, ~100 tokens)",
+        " 2. sub/c.py (200 bytes, ~50 tokens)",
+    ]
+
+
+def test_token_counter_caches_by_content_hash(monkeypatch) -> None:
+    calls: dict[str, int] = {"encode": 0}
+
+    class _FakeEncoder:
+        def encode(self, text: str) -> list[int]:
+            calls["encode"] += 1
+            return [1] * len(text)
+
+    monkeypatch.setattr("codecrate.tokens._get_encoder", lambda _: _FakeEncoder())
+
+    c = TokenCounter("cache-test-encoding")
+    assert c.count("cache me") == len("cache me")
+    assert c.count("cache me") == len("cache me")
+    assert calls["encode"] == 1

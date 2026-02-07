@@ -25,6 +25,11 @@ Example:
    security_check = true
    security_content_sniff = false
    symbol_backend = "auto"
+   max_file_bytes = 0
+   max_total_bytes = 0
+   max_file_tokens = 0
+   max_total_tokens = 0
+   max_workers = 0
 
 Installation
 ------------
@@ -63,6 +68,8 @@ Common options:
 * ``--layout {auto,stubs,full}``: control output layout
 * ``--manifest/--no-manifest``: include or omit the Manifest section (omit only for LLM-only packs)
 * ``--split-max-chars N``: keep the main output unsplit, and additionally emit ``.partN.md`` files for LLMs
+* ``--max-file-bytes`` / ``--max-file-tokens``: skip oversized single files with a warning
+* ``--max-total-bytes`` / ``--max-total-tokens``: fail fast when total included size exceeds budget
 
 
 Unpack a context pack

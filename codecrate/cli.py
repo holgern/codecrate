@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -19,7 +22,13 @@ from .repositories import (
 )
 from .security import SkippedForSafety, filter_sensitive_files
 from .token_budget import split_by_max_chars
-from .tokens import TokenCounter, format_token_count_tree, format_top_files
+from .tokens import (
+    TokenCounter,
+    approx_token_count,
+    format_token_count_tree,
+    format_top_files,
+    format_top_files_by_size,
+)
 from .udiff import apply_file_diffs, parse_unified_diff
 from .unpacker import unpack_to_dir
 from .validate import validate_pack_markdown
@@ -172,6 +181,36 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Print pack summary (default: on via config).",
     )
+    pack.add_argument(
+        "--max-file-bytes",
+        type=int,
+        default=None,
+        help="Skip files larger than this byte limit (<=0 disables).",
+    )
+    pack.add_argument(
+        "--max-total-bytes",
+        type=int,
+        default=None,
+        help="Fail if included files exceed this total byte limit (<=0 disables).",
+    )
+    pack.add_argument(
+        "--max-file-tokens",
+        type=int,
+        default=None,
+        help="Skip files above this token limit (<=0 disables).",
+    )
+    pack.add_argument(
+        "--max-total-tokens",
+        type=int,
+        default=None,
+        help="Fail if included files exceed this total token limit (<=0 disables).",
+    )
+    pack.add_argument(
+        "--max-workers",
+        type=int,
+        default=None,
+        help="Max worker threads for IO/parsing/token counting (<=0 uses auto).",
+    )
 
     # unpack
     unpack = sub.add_parser(
@@ -259,6 +298,11 @@ class PackOptions:
     top_files_len: int
     token_count_encoding: str
     file_summary: bool
+    max_file_bytes: int
+    max_total_bytes: int
+    max_file_tokens: int
+    max_total_tokens: int
+    max_workers: int
 
 
 @dataclass(frozen=True)
@@ -277,7 +321,16 @@ class PackRun:
     output_tokens: int
     total_file_tokens: int
     file_tokens: dict[str, int]
+    file_bytes: dict[str, int]
     token_backend: str
+
+
+@dataclass(frozen=True)
+class _MeasuredFile:
+    path: Path
+    rel: str
+    text: str
+    size_bytes: int
 
 
 def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
@@ -363,6 +416,32 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         else bool(args.file_summary)
     )
 
+    max_file_bytes = (
+        int(getattr(cfg, "max_file_bytes", 0) or 0)
+        if args.max_file_bytes is None
+        else int(args.max_file_bytes or 0)
+    )
+    max_total_bytes = (
+        int(getattr(cfg, "max_total_bytes", 0) or 0)
+        if args.max_total_bytes is None
+        else int(args.max_total_bytes or 0)
+    )
+    max_file_tokens = (
+        int(getattr(cfg, "max_file_tokens", 0) or 0)
+        if args.max_file_tokens is None
+        else int(args.max_file_tokens or 0)
+    )
+    max_total_tokens = (
+        int(getattr(cfg, "max_total_tokens", 0) or 0)
+        if args.max_total_tokens is None
+        else int(args.max_total_tokens or 0)
+    )
+    max_workers = (
+        int(getattr(cfg, "max_workers", 0) or 0)
+        if args.max_workers is None
+        else int(args.max_workers or 0)
+    )
+
     return PackOptions(
         include=include,
         exclude=exclude,
@@ -382,6 +461,11 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         top_files_len=top_files_len,
         token_count_encoding=token_count_encoding,
         file_summary=file_summary,
+        max_file_bytes=max_file_bytes,
+        max_total_bytes=max_total_bytes,
+        max_file_tokens=max_file_tokens,
+        max_total_tokens=max_total_tokens,
+        max_workers=max_workers,
     )
 
 
@@ -534,6 +618,64 @@ def _emit_safety_warning(
     )
 
 
+def _resolve_worker_count(max_workers: int, item_count: int) -> int:
+    if item_count <= 1:
+        return 1
+    if max_workers > 0:
+        return max_workers
+    cpu = os.cpu_count() or 1
+    return max(2, min(32, cpu * 4, item_count))
+
+
+def _read_measured_file(path: Path, root: Path) -> _MeasuredFile:
+    data = path.read_bytes()
+    return _MeasuredFile(
+        path=path,
+        rel=path.relative_to(root).as_posix(),
+        text=data.decode("utf-8", errors="replace"),
+        size_bytes=len(data),
+    )
+
+
+def _measure_files(
+    *,
+    files: list[Path],
+    root: Path,
+    max_workers: int,
+) -> list[_MeasuredFile]:
+    worker_count = _resolve_worker_count(max_workers, len(files))
+    if worker_count == 1:
+        return [_read_measured_file(path, root) for path in files]
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        return list(pool.map(lambda p: _read_measured_file(p, root), files))
+
+
+def _count_tokens_parallel(
+    *,
+    files: list[_MeasuredFile],
+    count_fn: Callable[[str], int],
+    max_workers: int,
+) -> dict[str, int]:
+    worker_count = _resolve_worker_count(max_workers, len(files))
+    if worker_count == 1:
+        return {f.rel: int(count_fn(f.text)) for f in files}
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
+        pairs = list(pool.map(lambda f: (f.rel, int(count_fn(f.text))), files))
+    return {k: v for k, v in pairs}
+
+
+def _emit_budget_skip_warning(*, label: str, skipped: list[tuple[str, str]]) -> None:
+    if not skipped:
+        return
+    preview = ", ".join(f"{rel} ({reason})" for rel, reason in skipped[:5])
+    suffix = "" if len(skipped) <= 5 else ", ..."
+    print(
+        f"Warning: skipped {len(skipped)} file(s) due to per-file budgets in "
+        f"{label}: {preview}{suffix}",
+        file=sys.stderr,
+    )
+
+
 def main(argv: list[str] | None = None) -> None:  # noqa: C901
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -601,12 +743,98 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 )
                 _emit_safety_warning(label=label, root=disc.root, skipped=skipped)
 
+            needs_token_counts = bool(
+                options.token_report
+                or options.max_file_tokens > 0
+                or options.max_total_tokens > 0
+            )
+            token_backend = ""
+            count_tokens: Callable[[str], int] = approx_token_count
+            if needs_token_counts:
+                try:
+                    counter = TokenCounter(options.token_count_encoding)
+                    token_backend = getattr(counter, "backend", "")
+                    counter.count("")
+                    count_tokens = counter.count
+                except Exception as e:
+                    token_backend = "approx"
+                    count_tokens = approx_token_count
+                    print(
+                        f"Warning: token counting disabled ({e}); "
+                        "falling back to approximate counts.",
+                        file=sys.stderr,
+                    )
+
+            measured_files = _measure_files(
+                files=safe_files,
+                root=disc.root,
+                max_workers=options.max_workers,
+            )
+            raw_token_counts: dict[str, int] = {}
+            if options.max_file_tokens > 0 or options.max_total_tokens > 0:
+                raw_token_counts = _count_tokens_parallel(
+                    files=measured_files,
+                    count_fn=count_tokens,
+                    max_workers=options.max_workers,
+                )
+
+            kept_measured: list[_MeasuredFile] = []
+            skipped_for_budget: list[tuple[str, str]] = []
+            for measured in measured_files:
+                if (
+                    options.max_file_bytes > 0
+                    and measured.size_bytes > options.max_file_bytes
+                ):
+                    skipped_for_budget.append(
+                        (
+                            measured.rel,
+                            f"bytes>{options.max_file_bytes}",
+                        )
+                    )
+                    continue
+                if options.max_file_tokens > 0:
+                    t = raw_token_counts.get(measured.rel, 0)
+                    if t > options.max_file_tokens:
+                        skipped_for_budget.append(
+                            (
+                                measured.rel,
+                                f"tokens>{options.max_file_tokens}",
+                            )
+                        )
+                        continue
+                kept_measured.append(measured)
+
+            _emit_budget_skip_warning(label=label, skipped=skipped_for_budget)
+
+            total_bytes = sum(m.size_bytes for m in kept_measured)
+            if options.max_total_bytes > 0 and total_bytes > options.max_total_bytes:
+                raise SystemExit(
+                    f"pack: total bytes {total_bytes} exceed max_total_bytes "
+                    f"{options.max_total_bytes} for {label}"
+                )
+
+            if options.max_total_tokens > 0:
+                total_tokens_raw = sum(
+                    raw_token_counts.get(m.rel, 0) for m in kept_measured
+                )
+                if total_tokens_raw > options.max_total_tokens:
+                    raise SystemExit(
+                        f"pack: total tokens {total_tokens_raw} exceed "
+                        f"max_total_tokens {options.max_total_tokens} for {label}"
+                    )
+
+            files_for_pack = [m.path for m in kept_measured]
+            file_texts = {m.path: m.text for m in kept_measured}
+            file_bytes = {m.rel: m.size_bytes for m in kept_measured}
+
             pack, canonical = pack_repo(
                 disc.root,
-                safe_files,
+                files_for_pack,
                 keep_docstrings=options.keep_docstrings,
                 dedupe=options.dedupe,
                 symbol_backend=options.symbol_backend,
+                file_texts=file_texts,
+                max_workers=options.max_workers,
             )
             md = render_markdown(
                 pack,
@@ -627,29 +855,31 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             file_tokens: dict[str, int] = {}
             output_tokens = 0
             total_file_tokens = 0
-            token_backend = ""
 
             if options.token_report:
-                try:
-                    counter = TokenCounter(options.token_count_encoding)
-                    token_backend = getattr(counter, "backend", "")
-                    output_tokens = counter.count(md)
-                    for fp in pack.files:
-                        rel = fp.path.relative_to(pack.root).as_posix()
-                        txt = (
+                output_tokens = count_tokens(md)
+                diag_files = [
+                    _MeasuredFile(
+                        path=fp.path,
+                        rel=fp.path.relative_to(pack.root).as_posix(),
+                        text=(
                             fp.original_text
                             if effective_layout == "full"
                             else fp.stubbed_text
-                        )
-                        n = counter.count(txt)
-                        file_tokens[rel] = n
-                        total_file_tokens += n
-                except Exception as e:
-                    print(f"Warning: token counting disabled ({e}).", file=sys.stderr)
-                    file_tokens = {}
-                    output_tokens = 0
-                    total_file_tokens = 0
-                    token_backend = ""
+                        ),
+                        size_bytes=file_bytes.get(
+                            fp.path.relative_to(pack.root).as_posix(),
+                            len(fp.original_text.encode("utf-8")),
+                        ),
+                    )
+                    for fp in pack.files
+                ]
+                file_tokens = _count_tokens_parallel(
+                    files=diag_files,
+                    count_fn=count_tokens,
+                    max_workers=options.max_workers,
+                )
+                total_file_tokens = sum(file_tokens.values())
 
             default_output = _resolve_output_path(cfg, args, root)
             pack_runs.append(
@@ -660,12 +890,13 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     markdown=md,
                     options=options,
                     default_output=default_output,
-                    file_count=len(safe_files),
+                    file_count=len(files_for_pack),
                     skipped_for_safety_count=len(skipped),
                     effective_layout=effective_layout,
                     output_tokens=output_tokens,
                     total_file_tokens=total_file_tokens,
                     file_tokens=file_tokens,
+                    file_bytes=file_bytes,
                     token_backend=token_backend,
                 )
             )
@@ -725,11 +956,16 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 f"{run.total_file_tokens} tokens across {len(run.file_tokens)} file(s)",
                 file=sys.stderr,
             )
-            if run.options.top_files_len and run.file_tokens:
-                print(
-                    format_top_files(run.file_tokens, run.options.top_files_len),
-                    file=sys.stderr,
+            if run.options.top_files_len:
+                top_block = (
+                    format_top_files(run.file_tokens, run.options.top_files_len)
+                    if run.file_tokens
+                    else format_top_files_by_size(
+                        run.file_bytes, run.options.top_files_len
+                    )
                 )
+                if top_block:
+                    print(top_block, file=sys.stderr)
             if run.options.token_count_tree and run.file_tokens:
                 print(
                     format_token_count_tree(

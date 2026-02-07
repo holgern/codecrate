@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 
 from .ids import stable_body_hash
@@ -21,44 +23,84 @@ def _line_count(text: str) -> int:
     return text.count("\n") + 1 if text else 0
 
 
+def _resolve_worker_count(max_workers: int, item_count: int) -> int:
+    if item_count <= 1:
+        return 1
+    if max_workers > 0:
+        return max_workers
+    return min(32, item_count)
+
+
+def _pack_one_file(
+    *,
+    path: Path,
+    root: Path,
+    keep_docstrings: bool,
+    symbol_backend: str,
+    file_texts: dict[Path, str] | None,
+) -> tuple[Path, str, str, str, list[ClassRef], list[DefRef], dict[str, str]]:
+    text = (
+        file_texts[path]
+        if file_texts is not None and path in file_texts
+        else path.read_text(encoding="utf-8", errors="replace")
+    )
+    local_canon: dict[str, str] = {}
+
+    if path.suffix.lower() == ".py":
+        classes, defs = parse_symbols(path=path, root=root, text=text)
+        file_module = module_name_for(path, root)
+
+        for d in defs:
+            local_canon[d.local_id] = _extract_canonical_source(text, d)
+
+        stubbed = stub_file_text(text, defs, keep_docstrings=keep_docstrings)
+    else:
+        classes = []
+        sym = extract_non_python_symbols(
+            path=path,
+            root=root,
+            text=text,
+            backend=symbol_backend,
+        )
+        defs = sym.defs
+        file_module = ""
+        stubbed = text
+
+    return path, text, file_module, stubbed, classes, defs, local_canon
+
+
 def pack_repo(
     root: Path,
     files: list[Path],
     keep_docstrings: bool = True,
     dedupe: bool = False,
     symbol_backend: str = "auto",
+    *,
+    file_texts: dict[Path, str] | None = None,
+    max_workers: int = 0,
 ) -> tuple[PackResult, dict[str, str]]:
     filepacks: list[FilePack] = []
     all_defs: list[DefRef] = []
     all_classes: list[ClassRef] = []
 
     local_canon: dict[str, str] = {}
+    worker_count = _resolve_worker_count(max_workers, len(files))
+    worker = partial(
+        _pack_one_file,
+        root=root,
+        keep_docstrings=keep_docstrings,
+        symbol_backend=symbol_backend,
+        file_texts=file_texts,
+    )
 
-    for path in files:
-        text = path.read_text(encoding="utf-8", errors="replace")
+    if worker_count == 1:
+        packed_data = [worker(path=path) for path in files]
+    else:
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            packed_data = list(pool.map(lambda p: worker(path=p), files))
 
-        if path.suffix.lower() == ".py":
-            classes, defs = parse_symbols(path=path, root=root, text=text)
-            file_module = module_name_for(path, root)
-
-            for d in defs:
-                local_canon[d.local_id] = _extract_canonical_source(text, d)
-
-            stubbed = stub_file_text(text, defs, keep_docstrings=keep_docstrings)
-        else:
-            # Non-Python files are included verbatim.
-            # Optional symbol extraction is index-only.
-            classes = []
-            sym = extract_non_python_symbols(
-                path=path,
-                root=root,
-                text=text,
-                backend=symbol_backend,
-            )
-            defs = sym.defs
-            file_module = ""
-            stubbed = text
-
+    for path, text, file_module, stubbed, classes, defs, canon_for_file in packed_data:
+        local_canon.update(canon_for_file)
         fp = FilePack(
             path=path,
             module=file_module,
