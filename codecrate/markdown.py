@@ -5,8 +5,10 @@ from collections import defaultdict
 from typing import Any, Literal
 
 from .fences import choose_backtick_fence, is_fence_close, parse_fence_open
+from .formats import FENCE_MACHINE_HEADER, FENCE_MANIFEST
 from .manifest import machine_header, to_manifest
 from .model import ClassRef, FilePack, PackResult
+from .ordering import sort_paths
 from .parse import parse_symbols
 
 
@@ -490,17 +492,20 @@ def render_markdown(  # noqa: C901
         _append_fenced_block(
             lines,
             json.dumps(header_obj, sort_keys=True, separators=(",", ":")) + "\n",
-            "codecrate-machine-header",
+            FENCE_MACHINE_HEADER,
         )
 
         lines.append("## Manifest\n\n")
         _append_fenced_block(
             lines,
             json.dumps(manifest_obj, indent=2, sort_keys=False) + "\n",
-            "codecrate-manifest",
+            FENCE_MANIFEST,
         )
 
-    rel_paths = [f.path.relative_to(pack.root).as_posix() for f in pack.files]
+    rel_paths = [
+        path.relative_to(pack.root).as_posix()
+        for path in sort_paths([f.path for f in pack.files])
+    ]
     lines.append("## Directory Tree\n\n")
     _append_fenced_block(lines, _render_tree(rel_paths) + "\n", "text")
 

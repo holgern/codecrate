@@ -17,10 +17,22 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # pyright: ignore[reportMissingImports]
 
-from .config import CONFIG_FILENAMES, PYPROJECT_FILENAME, Config, load_config
+from .config import (
+    CONFIG_FILENAMES,
+    INCLUDE_PRESETS,
+    PYPROJECT_FILENAME,
+    Config,
+    include_patterns_for_preset,
+    load_config,
+)
 from .diffgen import generate_patch_markdown
 from .discover import discover_files
 from .fences import is_fence_close, parse_fence_open
+from .formats import (
+    FENCE_PATCH_META,
+    MANIFEST_JSON_FORMAT_VERSION,
+    MISSING_MANIFEST_ERROR,
+)
 from .manifest import manifest_sha256, to_manifest
 from .markdown import render_markdown
 from .packer import pack_repo
@@ -196,6 +208,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pack.add_argument(
         "--include", action="append", default=None, help="Include glob (repeatable)"
+    )
+    pack.add_argument(
+        "--include-preset",
+        choices=sorted(INCLUDE_PRESETS),
+        default=None,
+        help="Include preset: python-only | python+docs | everything",
     )
     pack.add_argument(
         "--exclude", action="append", default=None, help="Exclude glob (repeatable)"
@@ -479,7 +497,12 @@ def _resolve_encoding_errors(cfg: Config, cli_value: str | None) -> str:
 
 
 def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
-    include = args.include if args.include is not None else cfg.include
+    if args.include is not None:
+        include = args.include
+    elif args.include_preset is not None:
+        include = include_patterns_for_preset(str(args.include_preset))
+    else:
+        include = cfg.include
     exclude = args.exclude if args.exclude is not None else cfg.exclude
     keep_docstrings = (
         cfg.keep_docstrings
@@ -725,7 +748,7 @@ def _extract_patch_metadata(md_text: str) -> dict[str, object] | None:
     i = 0
     while i < len(lines):
         opened = parse_fence_open(lines[i])
-        if opened is not None and opened[1] == "codecrate-patch-meta":
+        if opened is not None and opened[1] == FENCE_PATCH_META:
             fence = opened[0]
             i += 1
             body: list[str] = []
@@ -1144,7 +1167,7 @@ _NO_MANIFEST_HELP = (
 
 
 def _is_no_manifest_error(error: Exception) -> bool:
-    return "No codecrate-manifest block found" in str(error)
+    return MISSING_MANIFEST_ERROR in str(error)
 
 
 def _raise_no_manifest_error(
@@ -1655,7 +1678,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         )
         if manifest_json_path is not None:
             payload: dict[str, object] = {
-                "format": "codecrate.manifest-json.v1",
+                "format": MANIFEST_JSON_FORMAT_VERSION,
                 "repositories": [
                     {
                         "label": run.label,

@@ -75,6 +75,7 @@ Common options:
 * ``--safety-report``: include a Safety Report section with reasons
 * ``--stdin`` / ``--stdin0``: pack an explicit file list from stdin
 * ``--print-files`` / ``--print-skipped``: debug selected and skipped files
+* ``--include-preset``: switch between ``python-only``, ``python+docs``, and ``everything``
 * ``--encoding-errors {replace,strict}``: UTF-8 decode policy while reading files
 
 

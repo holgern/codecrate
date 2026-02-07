@@ -30,6 +30,17 @@ DEFAULT_INCLUDES: list[str] = [
     "docs/**/*.md",
 ]
 
+INCLUDE_PRESETS: dict[str, list[str]] = {
+    "python-only": ["**/*.py"],
+    "python+docs": DEFAULT_INCLUDES,
+    "everything": ["**/*"],
+}
+DEFAULT_INCLUDE_PRESET = "python+docs"
+
+
+def include_patterns_for_preset(name: str) -> list[str]:
+    return list(INCLUDE_PRESETS.get(name, INCLUDE_PRESETS[DEFAULT_INCLUDE_PRESET]))
+
 
 @dataclass
 class Config:
@@ -39,6 +50,9 @@ class Config:
     dedupe: bool = False
     respect_gitignore: bool = True
     include: list[str] = field(default_factory=lambda: DEFAULT_INCLUDES.copy())
+    include_preset: Literal["python-only", "python+docs", "everything"] = (
+        DEFAULT_INCLUDE_PRESET
+    )
     exclude: list[str] = field(default_factory=list)
     split_max_chars: int = 0  # 0 means no splitting
     # Emit the `## Manifest` section (required for unpack/patch/validate-pack).
@@ -145,10 +159,18 @@ def load_config(root: Path) -> Config:  # noqa: C901
         if layout in {"auto", "stubs", "full"}:
             cfg.layout = layout  # type: ignore[assignment]
 
-    inc = section.get("include", cfg.include)
+    include_preset = section.get("include_preset", cfg.include_preset)
+    if isinstance(include_preset, str):
+        include_preset = include_preset.strip().lower()
+        if include_preset in INCLUDE_PRESETS:
+            cfg.include_preset = include_preset  # type: ignore[assignment]
+
+    inc = section.get("include")
     exc = section.get("exclude", cfg.exclude)
     if isinstance(inc, list):
         cfg.include = [str(x) for x in inc]
+    elif inc is None:
+        cfg.include = include_patterns_for_preset(cfg.include_preset)
     if isinstance(exc, list):
         cfg.exclude = [str(x) for x in exc]
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .config import DEFAULT_INCLUDES
 from .discover import discover_files
+from .formats import FENCE_PATCH_META, PATCH_FORMAT_VERSION
 from .manifest import manifest_sha256
 from .mdparse import parse_packed_markdown
 from .udiff import normalize_newlines
@@ -57,11 +58,11 @@ def generate_patch_markdown(
     blocks.append("# Codecrate Patch\n\n")
     # Do not leak absolute local paths; keep the header root stable + relative.
     blocks.append("Root: `.`\n\n")
-    blocks.append("```codecrate-patch-meta\n")
+    blocks.append(f"```{FENCE_PATCH_META}\n")
     blocks.append(
         json.dumps(
             {
-                "format": "codecrate.patch.v1",
+                "format": PATCH_FORMAT_VERSION,
                 "baseline_manifest_sha256": manifest_sha256(manifest),
                 "baseline_files_sha256": baseline_files_sha256,
             },

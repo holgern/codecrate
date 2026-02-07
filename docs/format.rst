@@ -39,6 +39,17 @@ Machine Header includes:
 * ``repo_label`` / ``repo_slug``
 * ``manifest_sha256``
 
+
+Protocol constants
+------------------
+
+* pack format: ``codecrate.v4``
+* patch metadata format: ``codecrate.patch.v1``
+* manifest-json format: ``codecrate.manifest-json.v1``
+* machine header fence: ``codecrate-machine-header``
+* manifest fence: ``codecrate-manifest``
+* patch metadata fence: ``codecrate-patch-meta``
+
 Layouts
 -------
 
@@ -93,6 +104,14 @@ Generated patch markdown includes a ``codecrate-patch-meta`` fence with:
 
 ``apply`` uses this metadata to verify that baseline files still match before
 applying hunks.
+
+
+Determinism
+-----------
+
+Pack ordering is deterministic by normalized relative path and stable id order.
+Split outputs preserve deterministic section/file/function ordering and avoid
+splitting inside fenced code blocks.
 
 When binary files are detected during packing, they are skipped and reported as
 ``Skipped as binary: N file(s)`` in the pack header and Safety Report (when enabled).

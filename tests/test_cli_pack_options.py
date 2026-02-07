@@ -185,6 +185,71 @@ def test_pack_stdin0_normalizes_dot_slash_paths(tmp_path: Path, monkeypatch) -> 
     assert "### `a.py`" in text
 
 
+def test_pack_include_preset_python_only(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("# docs\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include-preset",
+            "python-only",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `a.py`" in text
+    assert "### `README.md`" not in text
+
+
+def test_pack_include_preset_everything(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("hello\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include-preset",
+            "everything",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `a.py`" in text
+    assert "### `notes.txt`" in text
+
+
+def test_pack_include_overrides_include_preset(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("hello\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include-preset",
+            "everything",
+            "--include",
+            "*.py",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `a.py`" in text
+    assert "### `notes.txt`" not in text
+
+
 def test_pack_stdin_applies_excludes(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
     (tmp_path / "b.py").write_text("def b():\n    return 2\n", encoding="utf-8")
@@ -509,6 +574,24 @@ file_summary = false
     captured = capsys.readouterr()
     assert out_path.exists()
     assert "Pack Summary" not in captured.err
+
+
+def test_pack_include_preset_respects_config_default(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("# docs\n", encoding="utf-8")
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+include_preset = "python-only"
+""",
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `a.py`" in text
+    assert "### `README.md`" not in text
 
 
 def test_pack_cli_no_dedupe_overrides_config_true(tmp_path: Path) -> None:

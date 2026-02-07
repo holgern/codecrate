@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .ids import stable_body_hash
 from .model import ClassRef, DefRef, FilePack, PackResult
+from .ordering import sort_paths
 from .parse import module_name_for, parse_symbols
 from .stubber import stub_file_text
 from .symbol_backend import extract_non_python_symbols
@@ -86,6 +87,7 @@ def pack_repo(
     file_texts: dict[Path, str] | None = None,
     max_workers: int = 0,
 ) -> tuple[PackResult, dict[str, str]]:
+    files = sort_paths(files)
     filepacks: list[FilePack] = []
     all_defs: list[DefRef] = []
     all_classes: list[ClassRef] = []

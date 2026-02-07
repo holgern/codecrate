@@ -126,3 +126,59 @@ def test_split_outputs_are_deterministic_across_runs(tmp_path: Path) -> None:
     second = run_pack()
 
     assert first == second
+
+
+def test_pack_output_is_deterministic_with_safety_report(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(
+        repo,
+        {
+            "a.py": "def a():\n    return 1\n",
+            ".env": "SECRET=1\n",
+            "notes.txt": "ok\n",
+        },
+    )
+
+    out1 = tmp_path / "s1.md"
+    out2 = tmp_path / "s2.md"
+
+    args = [
+        "pack",
+        str(repo),
+        "--include",
+        "*",
+        "--safety-report",
+        "--max-workers",
+        "8",
+    ]
+    main([*args, "-o", str(out1)])
+    main([*args, "-o", str(out2)])
+
+    assert out1.read_bytes() == out2.read_bytes()
+
+
+def test_multi_repo_slug_collision_output_is_deterministic(tmp_path: Path) -> None:
+    repo1 = tmp_path / "repo one"
+    repo2 = tmp_path / "repo-one"
+    _write_repo(repo1, {"x.py": "def x():\n    return 1\n"})
+    _write_repo(repo2, {"y.py": "def y():\n    return 2\n"})
+
+    out1 = tmp_path / "c1.md"
+    out2 = tmp_path / "c2.md"
+
+    cmd = [
+        "pack",
+        "--repo",
+        str(repo1),
+        "--repo",
+        str(repo2),
+        "--max-workers",
+        "8",
+    ]
+    main([*cmd, "-o", str(out1)])
+    main([*cmd, "-o", str(out2)])
+
+    text = out1.read_text(encoding="utf-8")
+    assert "# Repository: repo one" in text
+    assert "# Repository: repo-one" in text
+    assert out1.read_bytes() == out2.read_bytes()

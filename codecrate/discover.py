@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pathspec
 
+from .ordering import sort_paths
+
 DEFAULT_EXCLUDES = [
     "**/__pycache__/**",
     "**/*.pyc",
@@ -102,7 +104,7 @@ def _resolve_explicit_files(
         seen.add(key)
         out.append(p)
 
-    out.sort()
+    out = sort_paths(out)
     return out, skipped
 
 
@@ -161,7 +163,7 @@ def discover_files(
 
         out.append(p)
 
-    out.sort()
+    out = sort_paths(out)
     return Discovery(files=out, root=root, skipped=skipped)
 
 
@@ -195,5 +197,5 @@ def discover_python_files(
 
         out.append(p)
 
-    out.sort()
+    out = sort_paths(out)
     return Discovery(files=out, root=root)

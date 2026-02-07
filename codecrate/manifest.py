@@ -5,8 +5,10 @@ import json
 from dataclasses import asdict
 from typing import Any
 
+from .formats import PACK_FORMAT_VERSION
 from .ids import ID_FORMAT_VERSION, MARKER_FORMAT_VERSION, marker_token
 from .model import PackResult
+from .ordering import sort_paths
 
 
 def manifest_sha256(manifest: dict[str, Any]) -> str:
@@ -26,7 +28,7 @@ def machine_header(
     repo_slug: str,
 ) -> dict[str, str]:
     return {
-        "format": str(manifest.get("format") or "codecrate.v4"),
+        "format": str(manifest.get("format") or PACK_FORMAT_VERSION),
         "repo_label": repo_label,
         "repo_slug": repo_slug,
         "manifest_sha256": manifest_sha256(manifest),
@@ -49,7 +51,9 @@ def to_manifest(pack: PackResult, *, minimal: bool = False) -> dict[str, Any]:
         return defn | {"has_marker": has_marker}
 
     files = []
-    for fp in pack.files:
+    files_by_path = {fp.path: fp for fp in pack.files}
+    for fp_path in sort_paths(list(files_by_path)):
+        fp = files_by_path[fp_path]
         rel = fp.path.relative_to(pack.root).as_posix()
         entry: dict[str, Any] = {
             "path": rel,
@@ -67,7 +71,7 @@ def to_manifest(pack: PackResult, *, minimal: bool = False) -> dict[str, Any]:
         files.append(entry)
     # Root is already shown at the top of the pack; keep manifest root stable + short.
     return {
-        "format": "codecrate.v4",
+        "format": PACK_FORMAT_VERSION,
         "id_format_version": ID_FORMAT_VERSION,
         "marker_format_version": MARKER_FORMAT_VERSION,
         "root": ".",

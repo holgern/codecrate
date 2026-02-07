@@ -24,6 +24,7 @@ Supported keys include (non-exhaustive):
 
    [codecrate]
    output = "context.md"
+   include_preset = "python+docs"
    include = ["**/*.py", "**/*.toml", "**/*.rst"]
    exclude = ["tests/**"]
    manifest = true
@@ -98,6 +99,7 @@ Useful flags:
   rule set (``name=regex`` or ``regex``)
 * ``.codecrateignore``: gitignore-style ignore file in repo root (always respected)
 * ``--include GLOB`` (repeatable): include patterns
+* ``--include-preset python-only|python+docs|everything``: include preset
 * ``--exclude GLOB`` (repeatable): exclude patterns
 * ``--stdin``: read file paths from stdin (one per line) instead of scanning
 * ``--stdin0``: read file paths from stdin as NUL-separated entries
@@ -130,6 +132,14 @@ Useful flags:
 * Exclude rules and ignore files still apply.
 * With ``--print-skipped``, explicit file filtering reports reasons like
   ``not-a-file``, ``outside-root``, ``duplicate``, ``ignored``, and ``excluded``.
+
+Include precedence:
+
+* explicit ``--include``
+* explicit ``--include-preset``
+* config ``include``
+* config ``include_preset``
+* built-in default preset (``python+docs``)
 
 Token diagnostics notes:
 

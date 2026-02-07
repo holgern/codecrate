@@ -38,6 +38,7 @@ def test_config_defaults() -> None:
     assert cfg.nav_mode == "auto"
     assert cfg.symbol_backend == "auto"
     assert cfg.encoding_errors == "replace"
+    assert cfg.include_preset == "python+docs"
 
 
 def test_load_config_missing_file(tmp_path: Path) -> None:
@@ -99,6 +100,35 @@ split_max_chars = 50000
     assert cfg.dedupe is False  # Should use default
     assert cfg.respect_gitignore is True  # Should use default
     assert cfg.split_max_chars == 50000
+
+
+def test_load_config_include_preset_applies_when_include_not_set(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+include_preset = "python-only"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path)
+    assert cfg.include_preset == "python-only"
+    assert cfg.include == ["**/*.py"]
+
+
+def test_load_config_include_overrides_include_preset(tmp_path: Path) -> None:
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+include_preset = "everything"
+include = ["custom/*.txt"]
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path)
+    assert cfg.include_preset == "everything"
+    assert cfg.include == ["custom/*.txt"]
 
 
 def test_load_config_token_count_values(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ import re
 import warnings
 from pathlib import Path
 
+from .formats import PACK_FORMAT_VERSION
 from .ids import MARKER_NAMESPACE
 from .mdparse import parse_packed_markdown
 from .repositories import split_repository_sections
@@ -138,7 +139,7 @@ def _apply_canonical_into_stub(
 def _unpack_single_markdown(markdown_text: str, out_dir: Path, *, strict: bool) -> None:
     packed = parse_packed_markdown(markdown_text)
     manifest = packed.manifest
-    if manifest.get("format") != "codecrate.v4":
+    if manifest.get("format") != PACK_FORMAT_VERSION:
         raise ValueError(f"Unsupported format: {manifest.get('format')}")
 
     out_dir = out_dir.resolve()

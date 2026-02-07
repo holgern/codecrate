@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .fences import is_fence_close, parse_fence_open
+from .formats import FENCE_MACHINE_HEADER, FENCE_MANIFEST, PACK_FORMAT_VERSION
 from .ids import ID_FORMAT_VERSION, MARKER_FORMAT_VERSION, MARKER_NAMESPACE
 from .manifest import manifest_sha256
 from .mdparse import parse_packed_markdown
@@ -107,7 +108,7 @@ def _validate_manifest_schema(manifest: dict) -> list[str]:
     errors: list[str] = []
 
     fmt = manifest.get("format")
-    if fmt != "codecrate.v4":
+    if fmt != PACK_FORMAT_VERSION:
         errors.append(f"Unsupported manifest format: {fmt!r}")
 
     id_fmt = manifest.get("id_format_version")
@@ -313,7 +314,7 @@ def validate_pack_markdown(
         manifest_count = _count_manifest_blocks(section.content)
         if manifest_count != 1:
             errors.append(
-                f"{scope}: expected exactly one codecrate-manifest block, "
+                f"{scope}: expected exactly one {FENCE_MANIFEST} block, "
                 f"found {manifest_count}"
             )
 
@@ -375,13 +376,13 @@ def _validate_single_pack_markdown(
     manifest_count = _count_manifest_blocks(markdown_text)
     if manifest_count != 1:
         errors.append(
-            f"expected exactly one codecrate-manifest block, found {manifest_count}"
+            f"expected exactly one {FENCE_MANIFEST} block, found {manifest_count}"
         )
 
     machine_header_count = _count_machine_header_blocks(markdown_text)
     if machine_header_count != 1:
         errors.append(
-            "expected exactly one codecrate-machine-header block, "
+            f"expected exactly one {FENCE_MACHINE_HEADER} block, "
             f"found {machine_header_count}"
         )
 
@@ -432,7 +433,7 @@ def _count_manifest_blocks(markdown_text: str) -> int:
             if opened is None:
                 continue
             fence = opened[0]
-            if opened[1] == "codecrate-manifest":
+            if opened[1] == FENCE_MANIFEST:
                 count += 1
             continue
         if is_fence_close(line, fence):
@@ -449,7 +450,7 @@ def _count_machine_header_blocks(markdown_text: str) -> int:
             if opened is None:
                 continue
             fence = opened[0]
-            if opened[1] == "codecrate-machine-header":
+            if opened[1] == FENCE_MACHINE_HEADER:
                 count += 1
             continue
         if is_fence_close(line, fence):

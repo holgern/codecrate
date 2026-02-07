@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 
 from .fences import is_fence_close, parse_fence_open
+from .formats import FENCE_MACHINE_HEADER, FENCE_MANIFEST, MISSING_MANIFEST_ERROR
 from .udiff import normalize_newlines
 
 
@@ -136,22 +137,18 @@ def parse_packed_markdown(text: str) -> PackedMarkdown:
     manifest = None
     machine_header: dict | None = None
     for lang, body in _iter_fenced_blocks(lines):
-        if lang == "codecrate-machine-header" and machine_header is None:
+        if lang == FENCE_MACHINE_HEADER and machine_header is None:
             try:
                 parsed = json.loads(body)
             except json.JSONDecodeError:
                 parsed = None
             if isinstance(parsed, dict):
                 machine_header = parsed
-        if lang == "codecrate-manifest":
+        if lang == FENCE_MANIFEST:
             manifest = json.loads(body)
             break
     if manifest is None:
-        raise ValueError(
-            "No codecrate-manifest block found. This pack cannot be used for "
-            "unpack/patch/validate-pack; re-run `codecrate pack` with --manifest "
-            "(or omit --no-manifest)."
-        )
+        raise ValueError(MISSING_MANIFEST_ERROR)
 
     text_lines = text_norm.splitlines(keepends=True)
     canonical_sources = _parse_function_library(text_lines)

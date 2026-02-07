@@ -26,6 +26,7 @@
 - **Gitignore support**: Respect `.gitignore` when scanning files
 - **Tool ignore support**: Respect `.codecrateignore` (always)
 - **Targeted packing**: Optional `--stdin` / `--stdin0` mode to pack an explicit file list
+- **Include presets**: `python-only`, `python+docs` (default), `everything`
 - **Debug visibility**: Optional `--print-files` and `--print-skipped` diagnostics
 - **Token diagnostics**: Optional CLI token reports (encoding, tree, top files)
 - **Scale controls**: Per-file skip budgets and hard total budgets (bytes/tokens)
@@ -106,6 +107,10 @@ Create a `.codecrate.toml` or `codecrate.toml` file in your repository root:
 [codecrate]
 # File patterns to include (default: ["**/*.py"])
 include = ["**/*.py"]
+
+# Include preset fallback when `include` is not set:
+# "python-only" | "python+docs" | "everything"
+include_preset = "python+docs"
 
 # File patterns to exclude
 exclude = ["**/test_*.py", "**/tests/**"]
@@ -201,6 +206,7 @@ codecrate pack <root> [OPTIONS]
 - `--security-content-pattern RULE`: Override content rule set (repeatable;
   `name=regex` or `regex`)
 - `--include GLOB`: Include glob pattern (repeatable)
+- `--include-preset {python-only,python+docs,everything}`: Select include preset
 - `--exclude GLOB`: Exclude glob pattern (repeatable)
 - `--stdin`: Read file paths from stdin (one per line)
 - `--stdin0`: Read file paths from stdin as NUL-separated entries
@@ -448,6 +454,14 @@ codecrate pack . --dedupe
 4. **Rendering**: Generates Markdown with directory tree, symbol index, and file contents
 5. **Validation**: Ensures round-trip consistency with SHA256 checksums
 
+## Format Invariants
+
+- Pack format version: `codecrate.v4`
+- Patch metadata format: `codecrate.patch.v1`
+- Manifest JSON format: `codecrate.manifest-json.v1`
+- Exactly one `codecrate-machine-header` and one `codecrate-manifest` fence per repository section
+- Ordering is deterministic by normalized relative path and stable ID ordering
+
 The Markdown format is designed to be:
 
 - **Self-contained**: All necessary information in one file
@@ -458,3 +472,10 @@ The Markdown format is designed to be:
 ## License
 
 MIT
+Include selection precedence:
+
+1. explicit `--include`
+2. explicit `--include-preset`
+3. config `include`
+4. config `include_preset`
+5. built-in default (`python+docs`)
