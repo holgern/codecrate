@@ -47,13 +47,20 @@ def _pack_one_file(
     local_canon: dict[str, str] = {}
 
     if path.suffix.lower() == ".py":
-        classes, defs = parse_symbols(path=path, root=root, text=text)
-        file_module = module_name_for(path, root)
+        try:
+            classes, defs = parse_symbols(path=path, root=root, text=text)
+        except SyntaxError:
+            classes = []
+            defs = []
+            file_module = ""
+            stubbed = text
+        else:
+            file_module = module_name_for(path, root)
 
-        for d in defs:
-            local_canon[d.local_id] = _extract_canonical_source(text, d)
+            for d in defs:
+                local_canon[d.local_id] = _extract_canonical_source(text, d)
 
-        stubbed = stub_file_text(text, defs, keep_docstrings=keep_docstrings)
+            stubbed = stub_file_text(text, defs, keep_docstrings=keep_docstrings)
     else:
         classes = []
         sym = extract_non_python_symbols(

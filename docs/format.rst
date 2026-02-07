@@ -17,6 +17,7 @@ A typical pack includes:
 * **How to Use This Pack**: reading guidance for LLMs
 * **Machine Header**: compact metadata in a ``codecrate-machine-header`` fence
 * **Manifest (optional)**: machine-readable metadata in a ``codecrate-manifest`` fence
+* **Safety Report (optional)**: skipped/redacted files and reasons
 * **Directory Tree**: a simple text tree of files
 * **Symbol Index**: per-file symbol list with line ranges
 * **Function Library** (stub layout only): canonical function bodies keyed by ID

@@ -29,6 +29,7 @@
 - **Scale controls**: Per-file skip budgets and hard total budgets (bytes/tokens)
 - **Machine header**: Compact checksum block for fast manifest validation
 - **Tooling manifests**: Optional JSON manifest sidecar output (`--manifest-json`)
+- **Safety controls**: Configurable path/content scanning rules, optional redaction, optional safety report
 
 ## Installation
 
@@ -135,6 +136,13 @@ symbol_backend = "auto"
 # Sensitive file filtering
 security_check = true
 security_content_sniff = false
+security_redaction = false
+safety_report = false
+security_path_patterns = [".env", "*.pem", "*secrets*"]
+security_content_patterns = [
+  "private-key=(?i)-----BEGIN\\s+[A-Z ]*PRIVATE KEY-----",
+  "aws-access-key-id=\\b(?:AKIA|ASIA)[0-9A-Z]{16}\\b",
+]
 
 # Split output into multiple files if char count exceeds this (0 = no split)
 split_max_chars = 0
@@ -180,6 +188,12 @@ codecrate pack <root> [OPTIONS]
   passwords)
 - `--security-content-sniff` / `--no-security-content-sniff`: Optional content
   sniffing for key/token patterns
+- `--security-redaction` / `--no-security-redaction`: Redact flagged files instead
+  of skipping them
+- `--safety-report` / `--no-safety-report`: Include Safety Report section in output
+- `--security-path-pattern PATTERN`: Override path rule set (repeatable)
+- `--security-content-pattern RULE`: Override content rule set (repeatable;
+  `name=regex` or `regex`)
 - `--include GLOB`: Include glob pattern (repeatable)
 - `--exclude GLOB`: Exclude glob pattern (repeatable)
 - `--stdin`: Read file paths from stdin (one per line)
@@ -209,6 +223,9 @@ token counting and still prints top-N largest file summaries.
 
 Code fences are automatically widened when file content contains backticks, so
 generated markdown remains parsable.
+
+When redaction is enabled, flagged files are kept in the pack with masked content.
+Use `--safety-report` to include file-level actions/reasons (`skipped`/`redacted`).
 
 ### `unpack` - Reconstruct Files from Markdown
 

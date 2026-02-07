@@ -4,6 +4,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from .security import (
+    DEFAULT_SENSITIVE_CONTENT_PATTERNS,
+    DEFAULT_SENSITIVE_PATH_PATTERNS,
+)
+
 try:
     import tomllib  # py311+
 except ModuleNotFoundError:  # pragma: no cover
@@ -61,6 +66,14 @@ class Config:
     # Safety filter for potentially sensitive files.
     security_check: bool = True
     security_content_sniff: bool = False
+    security_redaction: bool = False
+    safety_report: bool = False
+    security_path_patterns: list[str] = field(
+        default_factory=lambda: list(DEFAULT_SENSITIVE_PATH_PATTERNS)
+    )
+    security_content_patterns: list[str] = field(
+        default_factory=lambda: list(DEFAULT_SENSITIVE_CONTENT_PATTERNS)
+    )
     # Navigation density for markdown pack output.
     # - "compact": omit file-level jump anchors/back-links to save tokens
     # - "full": keep all navigation helpers
@@ -198,6 +211,23 @@ def load_config(root: Path) -> Config:
 
     sniff = section.get("security_content_sniff", cfg.security_content_sniff)
     cfg.security_content_sniff = bool(sniff)
+
+    redaction = section.get("security_redaction", cfg.security_redaction)
+    cfg.security_redaction = bool(redaction)
+
+    safety_report = section.get("safety_report", cfg.safety_report)
+    cfg.safety_report = bool(safety_report)
+
+    path_patterns = section.get("security_path_patterns", cfg.security_path_patterns)
+    if isinstance(path_patterns, list):
+        cfg.security_path_patterns = [str(p) for p in path_patterns]
+
+    content_patterns = section.get(
+        "security_content_patterns",
+        cfg.security_content_patterns,
+    )
+    if isinstance(content_patterns, list):
+        cfg.security_content_patterns = [str(p) for p in content_patterns]
 
     nav_mode = section.get("nav_mode", cfg.nav_mode)
     if isinstance(nav_mode, str):

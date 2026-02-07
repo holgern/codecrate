@@ -319,7 +319,8 @@ def test_pack_security_check_skips_sensitive_files(tmp_path: Path, capsys) -> No
     assert "### `a.py`" in text
     assert "### `.env`" not in text
     assert "Skipped for safety: 1 file(s)" in text
-    assert "skipped 1 file(s) for safety" in captured.err
+    assert "safety findings" in captured.err
+    assert "skipped=1" in captured.err
 
 
 def test_pack_no_security_check_keeps_sensitive_files(tmp_path: Path) -> None:
@@ -366,6 +367,93 @@ def test_pack_security_content_sniff_skips_private_key(tmp_path: Path) -> None:
 
     text = out_path.read_text(encoding="utf-8")
     assert "### `token.txt`" not in text
+
+
+def test_pack_security_redaction_masks_sensitive_file(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=123\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include",
+            "*",
+            "--security-redaction",
+            "--safety-report",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `.env`" in text
+    assert "SECRET=123" not in text
+    assert "Redacted for safety: 1 file(s)" in text
+    assert "## Safety Report" in text
+    assert "**redacted**" in text
+
+
+def test_pack_custom_security_path_pattern_overrides_defaults(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=123\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include",
+            "*",
+            "--security-path-pattern",
+            "*.nothing",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `.env`" in text
+
+
+def test_pack_custom_security_content_pattern(tmp_path: Path) -> None:
+    (tmp_path / "token.txt").write_text("token=ABC123456789\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include",
+            "*.txt",
+            "--security-content-sniff",
+            "--security-content-pattern",
+            r"token-rule=token=[A-Za-z0-9]{8,}",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `token.txt`" not in text
+
+
+def test_pack_invalid_security_content_pattern_fails(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "pack",
+                str(tmp_path),
+                "--security-content-sniff",
+                "--security-content-pattern",
+                "bad=[",
+            ]
+        )
+
+    assert excinfo.value.code == 2
 
 
 def test_pack_manifest_json_default_path(tmp_path: Path) -> None:

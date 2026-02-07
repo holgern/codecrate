@@ -71,6 +71,8 @@ Common options:
 * ``--split-max-chars N``: keep the main output unsplit, and additionally emit ``.partN.md`` files for LLMs
 * ``--max-file-bytes`` / ``--max-file-tokens``: skip oversized single files with a warning
 * ``--max-total-bytes`` / ``--max-total-tokens``: fail fast when total included size exceeds budget
+* ``--security-redaction``: mask flagged files instead of skipping
+* ``--safety-report``: include a Safety Report section with reasons
 
 
 Unpack a context pack

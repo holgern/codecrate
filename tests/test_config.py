@@ -29,6 +29,12 @@ def test_config_defaults() -> None:
     assert cfg.file_summary is True
     assert cfg.security_check is True
     assert cfg.security_content_sniff is False
+    assert cfg.security_redaction is False
+    assert cfg.safety_report is False
+    assert isinstance(cfg.security_path_patterns, list)
+    assert cfg.security_path_patterns
+    assert isinstance(cfg.security_content_patterns, list)
+    assert cfg.security_content_patterns
     assert cfg.nav_mode == "auto"
     assert cfg.symbol_backend == "auto"
 
@@ -110,6 +116,10 @@ max_workers = 6
 file_summary = false
 security_check = false
 security_content_sniff = true
+security_redaction = true
+safety_report = true
+security_path_patterns = ["*.secret", "*.pem"]
+security_content_patterns = ["api-key=(?i)api[_-]?key[:=][A-Za-z0-9]{8,}"]
 nav_mode = "compact"
 symbol_backend = "tree-sitter"
 """,
@@ -129,6 +139,12 @@ symbol_backend = "tree-sitter"
     assert cfg.file_summary is False
     assert cfg.security_check is False
     assert cfg.security_content_sniff is True
+    assert cfg.security_redaction is True
+    assert cfg.safety_report is True
+    assert cfg.security_path_patterns == ["*.secret", "*.pem"]
+    assert cfg.security_content_patterns == [
+        "api-key=(?i)api[_-]?key[:=][A-Za-z0-9]{8,}"
+    ]
     assert cfg.nav_mode == "compact"
     assert cfg.symbol_backend == "tree-sitter"
 

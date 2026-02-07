@@ -22,7 +22,7 @@ from .repositories import (
     slugify_repo_label,
     split_repository_sections,
 )
-from .security import SkippedForSafety, filter_sensitive_files
+from .security import SafetyFinding, apply_safety_filters, build_ruleset
 from .token_budget import split_by_max_chars
 from .tokens import (
     TokenCounter,
@@ -127,6 +127,33 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Enable content sniffing for sensitive patterns (default: off via config)."
+        ),
+    )
+    pack.add_argument(
+        "--security-redaction",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Redact sensitive content instead of skipping flagged files.",
+    )
+    pack.add_argument(
+        "--safety-report",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include an in-pack Safety Report section with file-level reasons.",
+    )
+    pack.add_argument(
+        "--security-path-pattern",
+        action="append",
+        default=None,
+        help="Override sensitive path rule set (repeatable glob patterns).",
+    )
+    pack.add_argument(
+        "--security-content-pattern",
+        action="append",
+        default=None,
+        help=(
+            "Override sensitive content rule set (repeatable regex; "
+            "optional name=regex form)."
         ),
     )
     pack.add_argument(
@@ -307,6 +334,10 @@ class PackOptions:
     respect_gitignore: bool
     security_check: bool
     security_content_sniff: bool
+    security_redaction: bool
+    safety_report: bool
+    security_path_patterns: list[str]
+    security_content_patterns: list[str]
     dedupe: bool
     split_max_chars: int
     layout: str
@@ -337,6 +368,8 @@ class PackRun:
     default_output: Path
     file_count: int
     skipped_for_safety_count: int
+    redacted_for_safety_count: int
+    safety_findings: list[SafetyFinding]
 
     # Token diagnostics (optional)
     effective_layout: str
@@ -380,6 +413,26 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         bool(getattr(cfg, "security_content_sniff", False))
         if args.security_content_sniff is None
         else bool(args.security_content_sniff)
+    )
+    security_redaction = (
+        bool(getattr(cfg, "security_redaction", False))
+        if args.security_redaction is None
+        else bool(args.security_redaction)
+    )
+    safety_report = (
+        bool(getattr(cfg, "safety_report", False))
+        if args.safety_report is None
+        else bool(args.safety_report)
+    )
+    security_path_patterns = (
+        list(getattr(cfg, "security_path_patterns", []))
+        if args.security_path_pattern is None
+        else [str(p) for p in args.security_path_pattern]
+    )
+    security_content_patterns = (
+        list(getattr(cfg, "security_content_patterns", []))
+        if args.security_content_pattern is None
+        else [str(p) for p in args.security_content_pattern]
     )
     dedupe = bool(args.dedupe) or bool(cfg.dedupe)
     split_max_chars = (
@@ -474,6 +527,10 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         respect_gitignore=respect_gitignore,
         security_check=security_check,
         security_content_sniff=security_content_sniff,
+        security_redaction=security_redaction,
+        safety_report=safety_report,
+        security_path_patterns=security_path_patterns,
+        security_content_patterns=security_content_patterns,
         dedupe=dedupe,
         split_max_chars=split_max_chars,
         layout=layout,
@@ -626,18 +683,20 @@ def _emit_safety_warning(
     *,
     label: str,
     root: Path,
-    skipped: list[SkippedForSafety],
+    findings: list[SafetyFinding],
 ) -> None:
-    if not skipped:
+    if not findings:
         return
+    skipped = [f for f in findings if f.action == "skipped"]
+    redacted = [f for f in findings if f.action == "redacted"]
     preview = ", ".join(
         f"{item.path.relative_to(root).as_posix()} ({item.reason})"
-        for item in skipped[:5]
+        for item in findings[:5]
     )
-    suffix = "" if len(skipped) <= 5 else ", ..."
+    suffix = "" if len(findings) <= 5 else ", ..."
     print(
-        f"Warning: skipped {len(skipped)} file(s) for safety in {label}: "
-        f"{preview}{suffix}",
+        f"Warning: safety findings in {label}: "
+        f"skipped={len(skipped)}, redacted={len(redacted)}; {preview}{suffix}",
         file=sys.stderr,
     )
 
@@ -651,7 +710,21 @@ def _resolve_worker_count(max_workers: int, item_count: int) -> int:
     return max(2, min(32, cpu * 4, item_count))
 
 
-def _read_measured_file(path: Path, root: Path) -> _MeasuredFile:
+def _read_measured_file(
+    path: Path,
+    root: Path,
+    override_texts: dict[Path, str] | None,
+) -> _MeasuredFile:
+    if override_texts is not None and path in override_texts:
+        text = override_texts[path]
+        data = text.encode("utf-8")
+        return _MeasuredFile(
+            path=path,
+            rel=path.relative_to(root).as_posix(),
+            text=text,
+            size_bytes=len(data),
+        )
+
     data = path.read_bytes()
     return _MeasuredFile(
         path=path,
@@ -666,12 +739,15 @@ def _measure_files(
     files: list[Path],
     root: Path,
     max_workers: int,
+    override_texts: dict[Path, str] | None = None,
 ) -> list[_MeasuredFile]:
     worker_count = _resolve_worker_count(max_workers, len(files))
     if worker_count == 1:
-        return [_read_measured_file(path, root) for path in files]
+        return [_read_measured_file(path, root, override_texts) for path in files]
     with ThreadPoolExecutor(max_workers=worker_count) as pool:
-        return list(pool.map(lambda p: _read_measured_file(p, root), files))
+        return list(
+            pool.map(lambda p: _read_measured_file(p, root, override_texts), files)
+        )
 
 
 def _count_tokens_parallel(
@@ -852,14 +928,32 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 explicit_files=stdin_files,
             )
             safe_files = disc.files
-            skipped: list[SkippedForSafety] = []
+            safety_findings: list[SafetyFinding] = []
+            skipped: list[SafetyFinding] = []
+            redacted_files: dict[Path, str] = {}
             if options.security_check:
-                safe_files, skipped = filter_sensitive_files(
+                try:
+                    ruleset = build_ruleset(
+                        path_patterns=options.security_path_patterns,
+                        content_patterns=options.security_content_patterns,
+                    )
+                except ValueError as e:
+                    parser.error(f"pack: invalid security rule pattern: {e}")
+
+                safety_result = apply_safety_filters(
                     disc.root,
                     disc.files,
+                    ruleset=ruleset,
                     content_sniff=options.security_content_sniff,
+                    redaction=options.security_redaction,
                 )
-                _emit_safety_warning(label=label, root=disc.root, skipped=skipped)
+                safe_files = safety_result.safe_files
+                skipped = safety_result.skipped
+                redacted_files = safety_result.redacted_files
+                safety_findings = safety_result.findings
+                _emit_safety_warning(
+                    label=label, root=disc.root, findings=safety_findings
+                )
 
             needs_token_counts = bool(
                 options.token_report
@@ -887,6 +981,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 files=safe_files,
                 root=disc.root,
                 max_workers=options.max_workers,
+                override_texts=redacted_files,
             )
             raw_token_counts: dict[str, int] = {}
             if options.max_file_tokens > 0 or options.max_total_tokens > 0:
@@ -960,6 +1055,22 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             effective_layout = "stubs" if use_stubs else "full"
             manifest_obj = to_manifest(pack, minimal=not use_stubs)
             manifest_checksum = manifest_sha256(manifest_obj)
+            redacted_count = sum(1 for f in safety_findings if f.action == "redacted")
+            safety_entries = [
+                {
+                    "path": f.path.relative_to(disc.root).as_posix(),
+                    "reason": f.reason,
+                    "action": f.action,
+                }
+                for f in sorted(
+                    safety_findings,
+                    key=lambda item: (
+                        item.path.relative_to(disc.root).as_posix(),
+                        item.action,
+                        item.reason,
+                    ),
+                )
+            ]
             md = render_markdown(
                 pack,
                 canonical,
@@ -968,6 +1079,9 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     options.nav_mode, options.split_max_chars
                 ),
                 skipped_for_safety_count=len(skipped),
+                redacted_for_safety_count=redacted_count,
+                include_safety_report=options.safety_report,
+                safety_report_entries=safety_entries,
                 include_manifest=options.include_manifest,
                 manifest_data=manifest_obj,
                 repo_label=label,
@@ -1014,6 +1128,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     default_output=default_output,
                     file_count=len(files_for_pack),
                     skipped_for_safety_count=len(skipped),
+                    redacted_for_safety_count=redacted_count,
+                    safety_findings=safety_findings,
                     effective_layout=effective_layout,
                     output_tokens=output_tokens,
                     total_file_tokens=total_file_tokens,

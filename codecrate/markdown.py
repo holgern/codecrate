@@ -385,7 +385,10 @@ def render_markdown(  # noqa: C901
     layout: str = "auto",
     nav_mode: Literal["compact", "full"] = "full",
     skipped_for_safety_count: int = 0,
+    redacted_for_safety_count: int = 0,
     *,
+    include_safety_report: bool = False,
+    safety_report_entries: list[dict[str, str]] | None = None,
     include_manifest: bool = True,
     manifest_data: dict[str, Any] | None = None,
     repo_label: str = "repo",
@@ -409,6 +412,25 @@ def render_markdown(  # noqa: C901
     lines.append(f"Layout: `{resolved_layout}`\n\n")
     if skipped_for_safety_count > 0:
         lines.append(f"Skipped for safety: {skipped_for_safety_count} file(s)\n\n")
+    if redacted_for_safety_count > 0:
+        lines.append(f"Redacted for safety: {redacted_for_safety_count} file(s)\n\n")
+
+    if include_safety_report:
+        lines.append("## Safety Report\n\n")
+        entries = safety_report_entries or []
+        if not entries:
+            lines.append("_No safety findings._\n\n")
+        else:
+            skipped_entries = [e for e in entries if e.get("action") == "skipped"]
+            redacted_entries = [e for e in entries if e.get("action") == "redacted"]
+            lines.append(f"- Skipped: {len(skipped_entries)}\n")
+            lines.append(f"- Redacted: {len(redacted_entries)}\n\n")
+            for item in entries:
+                path = item.get("path", "")
+                action = item.get("action", "")
+                reason = item.get("reason", "")
+                lines.append(f"- `{path}` - **{action}** ({reason})\n")
+            lines.append("\n")
 
     def_line_map: dict[str, tuple[int, int]] = {}
     class_line_map: dict[str, tuple[int, int]] = {}

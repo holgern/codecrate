@@ -32,6 +32,10 @@ Supported keys include (non-exhaustive):
    symbol_backend = "auto"
    security_check = true
    security_content_sniff = false
+   security_redaction = false
+   safety_report = false
+   security_path_patterns = [".env", "*.pem", "*secrets*"]
+   security_content_patterns = ["private-key=(?i)-----BEGIN\\s+[A-Z ]*PRIVATE KEY-----"]
 
    # Token diagnostics (printed to stderr, not added to output markdown)
    token_count_encoding = "o200k_base"
@@ -84,6 +88,12 @@ Useful flags:
   safety filtering
 * ``--security-content-sniff / --no-security-content-sniff``: optionally scan
   file content for key/token patterns
+* ``--security-redaction / --no-security-redaction``: redact flagged files instead
+  of skipping them
+* ``--safety-report / --no-safety-report``: include Safety Report section in output
+* ``--security-path-pattern GLOB`` (repeatable): override sensitive path rule set
+* ``--security-content-pattern RULE`` (repeatable): override sensitive content
+  rule set (``name=regex`` or ``regex``)
 * ``.codecrateignore``: gitignore-style ignore file in repo root (always respected)
 * ``--include GLOB`` (repeatable): include patterns
 * ``--exclude GLOB`` (repeatable): exclude patterns
@@ -118,6 +128,9 @@ Token diagnostics notes:
 * If ``tiktoken`` is not installed, counting falls back to an approximate method.
 * If tokenizer initialization fails, codecrate still reports top-N largest files
   using heuristic counts.
+* Safety scanning uses conservative defaults; you can override both path and
+  content rule sets.
+* With redaction enabled, flagged files remain in output with masked content.
 * A compact ``Pack Summary`` (files/tokens/chars/output path) is printed by
   default and can be disabled with ``--no-file-summary`` or
   ``file_summary = false`` in config.
