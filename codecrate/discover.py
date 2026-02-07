@@ -77,7 +77,7 @@ def _resolve_explicit_files(
 
     for raw in files:
         p = Path(raw)
-        raw_display = str(raw)
+        raw_display = p.as_posix()
         if not p.is_absolute():
             p = root / p
             raw_display = Path(raw).as_posix()
