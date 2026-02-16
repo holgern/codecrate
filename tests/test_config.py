@@ -33,6 +33,8 @@ def test_config_defaults() -> None:
     assert cfg.safety_report is False
     assert isinstance(cfg.security_path_patterns, list)
     assert cfg.security_path_patterns
+    assert cfg.security_path_patterns_add == []
+    assert cfg.security_path_patterns_remove == []
     assert isinstance(cfg.security_content_patterns, list)
     assert cfg.security_content_patterns
     assert cfg.nav_mode == "auto"
@@ -162,6 +164,8 @@ security_content_sniff = true
 security_redaction = true
 safety_report = true
 security_path_patterns = ["*.secret", "*.pem"]
+security_path_patterns_add = ["*.vault"]
+security_path_patterns_remove = ["*.pem"]
 security_content_patterns = ["api-key=(?i)api[_-]?key[:=][A-Za-z0-9]{8,}"]
 nav_mode = "compact"
 symbol_backend = "tree-sitter"
@@ -186,6 +190,8 @@ encoding_errors = "strict"
     assert cfg.security_redaction is True
     assert cfg.safety_report is True
     assert cfg.security_path_patterns == ["*.secret", "*.pem"]
+    assert cfg.security_path_patterns_add == ["*.vault"]
+    assert cfg.security_path_patterns_remove == ["*.pem"]
     assert cfg.security_content_patterns == [
         "api-key=(?i)api[_-]?key[:=][A-Za-z0-9]{8,}"
     ]

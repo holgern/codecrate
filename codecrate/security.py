@@ -109,21 +109,48 @@ def default_ruleset() -> SafetyRuleSet:
 def build_ruleset(
     *,
     path_patterns: list[str] | None = None,
+    path_patterns_add: list[str] | None = None,
+    path_patterns_remove: list[str] | None = None,
     content_patterns: list[str] | None = None,
     sniff_bytes_limit: int = DEFAULT_SNIFF_BYTES_LIMIT,
 ) -> SafetyRuleSet:
     raw_paths = (
-        list(DEFAULT_SENSITIVE_PATH_PATTERNS)
+        [str(p).strip() for p in DEFAULT_SENSITIVE_PATH_PATTERNS if str(p).strip()]
         if path_patterns is None
-        else [p for p in path_patterns if str(p).strip()]
+        else [str(p).strip() for p in path_patterns if str(p).strip()]
     )
+    remove_paths = (
+        []
+        if path_patterns_remove is None
+        else [str(p).strip().lower() for p in path_patterns_remove if str(p).strip()]
+    )
+    if remove_paths:
+        remove_set = set(remove_paths)
+        raw_paths = [p for p in raw_paths if p.lower() not in remove_set]
+
+    add_paths = (
+        []
+        if path_patterns_add is None
+        else [str(p).strip() for p in path_patterns_add if str(p).strip()]
+    )
+    raw_paths.extend(add_paths)
+
+    deduped_paths: list[str] = []
+    seen_paths: set[str] = set()
+    for pattern in raw_paths:
+        key = pattern.lower()
+        if key in seen_paths:
+            continue
+        seen_paths.add(key)
+        deduped_paths.append(pattern)
+
     raw_content = (
         list(DEFAULT_SENSITIVE_CONTENT_PATTERNS)
         if content_patterns is None
         else [p for p in content_patterns if str(p).strip()]
     )
     return SafetyRuleSet(
-        path_patterns=tuple(raw_paths),
+        path_patterns=tuple(deduped_paths),
         content_patterns=compile_content_patterns(raw_content),
         sniff_bytes_limit=max(0, int(sniff_bytes_limit)),
     )

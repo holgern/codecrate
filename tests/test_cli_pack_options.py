@@ -908,6 +908,104 @@ def test_pack_custom_security_path_pattern_overrides_defaults(tmp_path: Path) ->
     assert "### `.env`" in text
 
 
+def test_pack_security_path_pattern_remove_drops_default_rule(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=123\n", encoding="utf-8")
+    (tmp_path / "my_secrets.txt").write_text("hello\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include",
+            "*",
+            "--security-path-pattern-remove",
+            "*secrets*",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `.env`" not in text
+    assert "### `my_secrets.txt`" in text
+
+
+def test_pack_security_path_pattern_add_appends_to_defaults(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=123\n", encoding="utf-8")
+    (tmp_path / "custom.secret").write_text("hello\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include",
+            "*",
+            "--security-path-pattern-add",
+            "*.secret",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `.env`" not in text
+    assert "### `custom.secret`" not in text
+
+
+def test_pack_security_path_pattern_add_remove_from_config(tmp_path: Path) -> None:
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+security_path_patterns_add = ["*.secret"]
+security_path_patterns_remove = ["*secrets*"]
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("SECRET=123\n", encoding="utf-8")
+    (tmp_path / "my_secrets.txt").write_text("hello\n", encoding="utf-8")
+    (tmp_path / "custom.secret").write_text("hello\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "--include", "*", "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `.env`" not in text
+    assert "### `my_secrets.txt`" in text
+    assert "### `custom.secret`" not in text
+
+
+def test_pack_security_path_pattern_remove_then_add_reapplies_rule(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "token.secret").write_text("hello\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--include",
+            "*",
+            "--security-path-pattern",
+            "*.secret",
+            "--security-path-pattern-remove",
+            "*.secret",
+            "--security-path-pattern-add",
+            "*.secret",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `token.secret`" not in text
+
+
 def test_pack_custom_security_content_pattern(tmp_path: Path) -> None:
     (tmp_path / "token.txt").write_text("token=ABC123456789\n", encoding="utf-8")
     out_path = tmp_path / "context.md"

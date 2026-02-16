@@ -89,6 +89,8 @@ class Config:
     security_path_patterns: list[str] = field(
         default_factory=lambda: list(DEFAULT_SENSITIVE_PATH_PATTERNS)
     )
+    security_path_patterns_add: list[str] = field(default_factory=list)
+    security_path_patterns_remove: list[str] = field(default_factory=list)
     security_content_patterns: list[str] = field(
         default_factory=lambda: list(DEFAULT_SENSITIVE_CONTENT_PATTERNS)
     )
@@ -267,6 +269,20 @@ def load_config(root: Path) -> Config:  # noqa: C901
     path_patterns = section.get("security_path_patterns", cfg.security_path_patterns)
     if isinstance(path_patterns, list):
         cfg.security_path_patterns = [str(p) for p in path_patterns]
+
+    path_patterns_add = section.get(
+        "security_path_patterns_add",
+        cfg.security_path_patterns_add,
+    )
+    if isinstance(path_patterns_add, list):
+        cfg.security_path_patterns_add = [str(p) for p in path_patterns_add]
+
+    path_patterns_remove = section.get(
+        "security_path_patterns_remove",
+        cfg.security_path_patterns_remove,
+    )
+    if isinstance(path_patterns_remove, list):
+        cfg.security_path_patterns_remove = [str(p) for p in path_patterns_remove]
 
     content_patterns = section.get(
         "security_content_patterns",

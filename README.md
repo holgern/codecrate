@@ -151,6 +151,8 @@ security_content_sniff = false
 security_redaction = false
 safety_report = false
 security_path_patterns = [".env", "*.pem", "*secrets*"]
+security_path_patterns_add = ["*.vault"]
+security_path_patterns_remove = ["*secrets*"]
 security_content_patterns = [
   "private-key=(?i)-----BEGIN\\s+[A-Z ]*PRIVATE KEY-----",
   "aws-access-key-id=\\b(?:AKIA|ASIA)[0-9A-Z]{16}\\b",
@@ -204,6 +206,8 @@ codecrate pack <root> [OPTIONS]
   of skipping them
 - `--safety-report` / `--no-safety-report`: Include Safety Report section in output
 - `--security-path-pattern PATTERN`: Override path rule set (repeatable)
+- `--security-path-pattern-add PATTERN`: Append path rule(s) without replacing base set
+- `--security-path-pattern-remove PATTERN`: Remove path rule(s) from base set
 - `--security-content-pattern RULE`: Override content rule set (repeatable;
   `name=regex` or `regex`)
 - `--include GLOB`: Include glob pattern (repeatable)
@@ -335,7 +339,8 @@ Reports:
 
 - selected config source (or defaults-only)
 - effective values after precedence resolution
-- full configured lists like `security_path_patterns` and `security_content_patterns`
+- full resolved lists like `security_path_patterns` (after add/remove)
+- configured lists like `security_content_patterns`
 
 Optional machine-readable output:
 

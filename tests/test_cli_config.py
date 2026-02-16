@@ -54,6 +54,24 @@ def test_config_show_effective_json_output(tmp_path: Path, capsys) -> None:
     assert "*secrets*" in payload["values"]["security_path_patterns"]
 
 
+def test_config_show_effective_applies_path_add_remove(tmp_path: Path, capsys) -> None:
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+security_path_patterns_add = ["*.vault"]
+security_path_patterns_remove = ["*secrets*"]
+""",
+        encoding="utf-8",
+    )
+
+    main(["config", "show", str(tmp_path), "--effective", "--json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    patterns = payload["values"]["security_path_patterns"]
+    assert "*.vault" in patterns
+    assert "*secrets*" not in patterns
+
+
 def test_config_show_rejects_non_directory_root(tmp_path: Path) -> None:
     not_dir = tmp_path / "file.txt"
     not_dir.write_text("x\n", encoding="utf-8")

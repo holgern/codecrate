@@ -222,6 +222,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override sensitive path rule set (repeatable glob patterns).",
     )
     pack.add_argument(
+        "--security-path-pattern-add",
+        action="append",
+        default=None,
+        help="Add sensitive path rules without replacing the base set.",
+    )
+    pack.add_argument(
+        "--security-path-pattern-remove",
+        action="append",
+        default=None,
+        help="Remove sensitive path rules from the base set.",
+    )
+    pack.add_argument(
         "--security-content-pattern",
         action="append",
         default=None,
@@ -522,6 +534,8 @@ class PackOptions:
     security_redaction: bool
     safety_report: bool
     security_path_patterns: list[str]
+    security_path_patterns_add: list[str]
+    security_path_patterns_remove: list[str]
     security_content_patterns: list[str]
     dedupe: bool
     split_max_chars: int
@@ -633,6 +647,16 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         list(getattr(cfg, "security_path_patterns", []))
         if args.security_path_pattern is None
         else [str(p) for p in args.security_path_pattern]
+    )
+    security_path_patterns_add = (
+        list(getattr(cfg, "security_path_patterns_add", []))
+        if args.security_path_pattern_add is None
+        else [str(p) for p in args.security_path_pattern_add]
+    )
+    security_path_patterns_remove = (
+        list(getattr(cfg, "security_path_patterns_remove", []))
+        if args.security_path_pattern_remove is None
+        else [str(p) for p in args.security_path_pattern_remove]
     )
     security_content_patterns = (
         list(getattr(cfg, "security_content_patterns", []))
@@ -747,6 +771,8 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         security_redaction=security_redaction,
         safety_report=safety_report,
         security_path_patterns=security_path_patterns,
+        security_path_patterns_add=security_path_patterns_add,
+        security_path_patterns_remove=security_path_patterns_remove,
         security_content_patterns=security_content_patterns,
         dedupe=dedupe,
         split_max_chars=split_max_chars,
@@ -1399,7 +1425,9 @@ def _print_effective_rules(*, label: str, root: Path, options: PackOptions) -> N
         f"content_sniff={'on' if options.security_content_sniff else 'off'}, "
         f"redaction={'on' if options.security_redaction else 'off'}, "
         f"report={'on' if options.safety_report else 'off'}, "
-        f"path_rules={len(options.security_path_patterns)}, "
+        f"path_rules(base={len(options.security_path_patterns)}, "
+        f"add={len(options.security_path_patterns_add)}, "
+        f"remove={len(options.security_path_patterns_remove)}), "
         f"content_rules={len(options.security_content_patterns)}",
         file=sys.stderr,
     )
@@ -1465,10 +1493,19 @@ def _doctor_tree_sitter_status() -> str:
     return "available"
 
 
-def _config_values(cfg: Config) -> dict[str, object]:
+def _config_values(cfg: Config, *, effective: bool) -> dict[str, object]:
     values: dict[str, object] = {}
     for field in fields(cfg):
         values[field.name] = getattr(cfg, field.name)
+    if effective:
+        values["security_path_patterns"] = list(
+            build_ruleset(
+                path_patterns=cfg.security_path_patterns,
+                path_patterns_add=getattr(cfg, "security_path_patterns_add", []),
+                path_patterns_remove=getattr(cfg, "security_path_patterns_remove", []),
+                content_patterns=[],
+            ).path_patterns
+        )
     return values
 
 
@@ -1480,7 +1517,7 @@ def _run_config_show(root: Path, *, effective: bool, as_json: bool) -> None:
         # The command currently supports only effective configuration rendering.
         mode = "effective"
 
-    values = _config_values(load_config(root))
+    values = _config_values(load_config(root), effective=True)
     selected_text = (
         "none (defaults only)"
         if selected is None
@@ -1649,6 +1686,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 try:
                     ruleset = build_ruleset(
                         path_patterns=options.security_path_patterns,
+                        path_patterns_add=options.security_path_patterns_add,
+                        path_patterns_remove=options.security_path_patterns_remove,
                         content_patterns=options.security_content_patterns,
                     )
                 except ValueError as e:

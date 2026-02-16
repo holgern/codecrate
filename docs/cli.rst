@@ -37,6 +37,8 @@ Supported keys include (non-exhaustive):
    security_redaction = false
    safety_report = false
    security_path_patterns = [".env", "*.pem", "*secrets*"]
+   security_path_patterns_add = ["*.vault"]
+   security_path_patterns_remove = ["*secrets*"]
    security_content_patterns = ["private-key=(?i)-----BEGIN\\s+[A-Z ]*PRIVATE KEY-----"]
 
    # Token diagnostics (printed to stderr, not added to output markdown)
@@ -98,6 +100,8 @@ Useful flags:
   of skipping them
 * ``--safety-report / --no-safety-report``: include Safety Report section in output
 * ``--security-path-pattern GLOB`` (repeatable): override sensitive path rule set
+* ``--security-path-pattern-add GLOB`` (repeatable): append sensitive path rules
+* ``--security-path-pattern-remove GLOB`` (repeatable): remove sensitive path rules
 * ``--security-content-pattern RULE`` (repeatable): override sensitive content
   rule set (``name=regex`` or ``regex``)
 * ``.codecrateignore``: gitignore-style ignore file in repo root (always respected)
@@ -261,5 +265,5 @@ The command reports:
 
 * selected config source (or defaults-only)
 * effective values after precedence resolution
-* full configured lists such as ``security_path_patterns`` and
-  ``security_content_patterns``
+* full resolved ``security_path_patterns`` list (after add/remove)
+* configured ``security_content_patterns`` list
