@@ -64,6 +64,7 @@ Overview
    codecrate apply PATCH.md ROOT [--check-baseline|--ignore-baseline]
    codecrate validate-pack PACK.md [--root ROOT] [--strict]
    codecrate doctor [ROOT]
+   codecrate config show [ROOT] [--effective] [--json]
 
 
 pack
@@ -244,3 +245,21 @@ Doctor reports:
 * ignore file detection (``.gitignore``, ``.codecrateignore``)
 * token backend availability
 * optional parsing backend availability (tree-sitter)
+
+
+config show
+-----------
+
+Inspect the resolved configuration for a repository root:
+
+.. code-block:: console
+
+   codecrate config show . --effective
+   codecrate config show . --effective --json
+
+The command reports:
+
+* selected config source (or defaults-only)
+* effective values after precedence resolution
+* full configured lists such as ``security_path_patterns`` and
+  ``security_content_patterns``

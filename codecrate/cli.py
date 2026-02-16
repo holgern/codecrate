@@ -10,7 +10,7 @@ import re
 import sys
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Literal
 
@@ -480,6 +480,30 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         default=Path("."),
         help="Repository root to inspect (default: .)",
+    )
+
+    # config
+    config = sub.add_parser("config", help="Inspect resolved configuration values.")
+    config_sub = config.add_subparsers(dest="config_cmd", required=True)
+    config_show = config_sub.add_parser(
+        "show", help="Show effective configuration for a repository root."
+    )
+    config_show.add_argument(
+        "root",
+        type=Path,
+        nargs="?",
+        default=Path("."),
+        help="Repository root to inspect (default: .)",
+    )
+    config_show.add_argument(
+        "--effective",
+        action="store_true",
+        help="Show effective values after config precedence resolution (default).",
+    )
+    config_show.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON config output.",
     )
 
     return p
@@ -1306,6 +1330,7 @@ def _print_top_level_help(parser: argparse.ArgumentParser) -> None:
     print("  codecrate apply changes.md .")
     print("  codecrate validate-pack context.md --strict")
     print("  codecrate doctor .")
+    print("  codecrate config show . --effective")
     print()
     print("Explicit-file mode notes:")
     print("  --stdin/--stdin0 treat stdin paths as the candidate set.")
@@ -1438,6 +1463,57 @@ def _doctor_tree_sitter_status() -> str:
     except Exception as e:
         return f"installed (unusable: {type(e).__name__})"
     return "available"
+
+
+def _config_values(cfg: Config) -> dict[str, object]:
+    values: dict[str, object] = {}
+    for field in fields(cfg):
+        values[field.name] = getattr(cfg, field.name)
+    return values
+
+
+def _run_config_show(root: Path, *, effective: bool, as_json: bool) -> None:
+    root = root.resolve()
+    selected = _doctor_find_selected_config(root)
+    mode = "effective"
+    if not effective:
+        # The command currently supports only effective configuration rendering.
+        mode = "effective"
+
+    values = _config_values(load_config(root))
+    selected_text = (
+        "none (defaults only)"
+        if selected is None
+        else selected.relative_to(root).as_posix()
+    )
+    precedence = [
+        ".codecrate.toml",
+        "codecrate.toml",
+        "pyproject.toml[tool.codecrate]",
+    ]
+
+    if as_json:
+        payload = {
+            "root": root.as_posix(),
+            "mode": mode,
+            "precedence": precedence,
+            "selected": selected_text,
+            "values": values,
+        }
+        print(json.dumps(payload, indent=2, sort_keys=False))
+        return
+
+    print("Codecrate Config")
+    print(f"Root: {root.as_posix()}")
+    print(f"Mode: {mode}")
+    print(
+        "Precedence: .codecrate.toml > codecrate.toml > pyproject.toml[tool.codecrate]"
+    )
+    print(f"Selected: {selected_text}")
+    print()
+    print("Effective values:")
+    for key, value in values.items():
+        print(f"{key} = {json.dumps(value, ensure_ascii=True)}")
 
 
 def _run_doctor(root: Path) -> None:
@@ -2068,6 +2144,16 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         if not args.root.exists() or not args.root.is_dir():
             parser.error(f"doctor: root is not a directory: {args.root}")
         _run_doctor(args.root)
+
+    elif args.cmd == "config":
+        if args.config_cmd == "show":
+            if not args.root.exists() or not args.root.is_dir():
+                parser.error(f"config show: root is not a directory: {args.root}")
+            _run_config_show(
+                args.root,
+                effective=bool(args.effective),
+                as_json=bool(args.json),
+            )
 
     elif args.cmd == "apply":
         cfg = load_config(args.root)

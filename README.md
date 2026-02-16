@@ -34,7 +34,7 @@
 - **Tooling manifests**: Optional JSON manifest sidecar output (`--manifest-json`)
 - **Safety controls**: Configurable path/content scanning rules, optional redaction, optional safety report
 - **Environment diagnostics**: `codecrate doctor` reports config precedence, ignore files, and backend availability
-- **CLI ergonomics**: `--version`, `pack --print-rules`, and baseline policy flags for `apply`
+- **CLI ergonomics**: `--version`, `pack --print-rules`, `config show --effective`, and baseline policy flags for `apply`
 
 ## Installation
 
@@ -324,6 +324,24 @@ Reports:
 - detected ignore files (`.gitignore`, `.codecrateignore`)
 - token backend availability and encoding probe
 - optional parsing backend availability (tree-sitter)
+
+### `config show` - Effective Config Inspection
+
+```bash
+codecrate config show [root] --effective
+```
+
+Reports:
+
+- selected config source (or defaults-only)
+- effective values after precedence resolution
+- full configured lists like `security_path_patterns` and `security_content_patterns`
+
+Optional machine-readable output:
+
+```bash
+codecrate config show . --effective --json
+```
 
 ## Layout Modes
 
