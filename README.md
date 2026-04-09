@@ -5,7 +5,7 @@
 
 # codecrate
 
-`codecrate` turns a Python repository into a Markdown "context pack" optimized for LLM consumption, with full round-trip support:
+`codecrate` turns a repository into a Markdown "context pack" optimized for LLM and coding-agent workflows, with round-trip and patch/apply support:
 
 - `pack`: repo → context.md
 - `unpack`: context.md → reconstructed files
@@ -16,13 +16,16 @@
 
 - **Markdown-native output**: Generates self-contained Markdown files with syntax highlighting
 - **Symbol index**: Quick navigation to functions and classes
+- **Agent-grade sidecar**: Optional retrieval-oriented JSON index output (`--index-json`)
 - **Deduplication**: Optionally deduplicate identical function bodies to save tokens
 - **Two layout modes**:
   - `stubs`: Compact file stubs with function bodies in a separate "Function Library"
   - `full`: Complete file contents (no stubbing)
+- **Output profiles**: `human`, `agent`, and `hybrid`
 - **Round-trip support**: Reconstruct original files exactly from Markdown packs
 - **Diff generation**: Create minimal patch Markdown files showing only changed code
 - **Baseline-aware patches**: Patch metadata binds diffs to baseline file hashes; `apply` refuses mismatched baselines
+- **Strict validation policies**: Optional fail-on-warning, fail-on-root-drift, fail-on-redaction, and fail-on-safety-skip checks
 - **Gitignore support**: Respect `.gitignore` when scanning files
 - **Tool ignore support**: Respect `.codecrateignore` (always)
 - **Targeted packing**: Optional `--stdin` / `--stdin0` mode to pack an explicit file list
@@ -32,7 +35,10 @@
 - **Scale controls**: Per-file skip budgets and hard total budgets (bytes/tokens)
 - **Machine header**: Compact checksum block for fast manifest validation
 - **Tooling manifests**: Optional JSON manifest sidecar output (`--manifest-json`)
+- **Split retrieval metadata**: Split parts carry direct file/symbol membership in `index-json`
 - **Safety controls**: Configurable path/content scanning rules, optional redaction, optional safety report
+- **Mixed-language reporting**: Per-file language detection plus requested/used backend and extraction status
+- **Dual ID strategy**: Markdown keeps short display IDs while `index-json` exposes stronger machine IDs for tooling
 - **Environment diagnostics**: `codecrate doctor` reports config precedence, ignore files, and backend availability
 - **CLI ergonomics**: `--version`, `pack --print-rules`, `config show --effective`, and baseline policy flags for `apply`
 
@@ -58,10 +64,22 @@ Pack your current directory into `context.md`:
 codecrate pack . -o context.md
 ```
 
-Pack with specific output file:
+Pack for agent-oriented retrieval workflows:
 
 ```bash
-codecrate pack . -o my_project.md
+codecrate pack . -o context.md --profile agent
+```
+
+Pack with rich markdown plus an agent sidecar:
+
+```bash
+codecrate pack . -o context.md --profile hybrid
+```
+
+Pack with specific output file and write the sidecars explicitly:
+
+```bash
+codecrate pack . -o my_project.md --manifest-json --index-json
 ```
 
 ### Unpack to Reconstruct Files
@@ -70,6 +88,12 @@ Reconstruct files from a packed Markdown:
 
 ```bash
 codecrate unpack context.md -o reconstructed/
+```
+
+Validate before acting in CI or autonomous loops:
+
+```bash
+codecrate validate-pack context.md --root . --strict --fail-on-warning --fail-on-root-drift
 ```
 
 ### Generate and Apply Patches
@@ -116,6 +140,9 @@ include_preset = "python+docs"
 # File patterns to exclude
 exclude = ["**/test_*.py", "**/tests/**"]
 
+# Output profile: "human", "agent", or "hybrid"
+profile = "human"
+
 # Deduplicate identical function bodies (default: false)
 dedupe = true
 
@@ -161,6 +188,10 @@ security_content_patterns = [
 # Split output into multiple files if char count exceeds this (0 = no split)
 split_max_chars = 0
 
+# Split policy for oversize logical blocks
+split_strict = false
+split_allow_cut_files = false
+
 # Token diagnostics (CLI stderr output only; not written into context.md)
 token_count_encoding = "o200k_base"
 token_count_tree = false
@@ -192,6 +223,7 @@ codecrate pack <root> [OPTIONS]
 
 - `-o, --output PATH`: Output markdown path (default: `context.md`)
 - `--dedupe` / `--no-dedupe`: Enable or disable deduplication
+- `--profile {human,agent,hybrid}`: Output defaults profile
 - `--layout {auto,stubs,full}`: Output layout mode
 - `--nav-mode {auto,compact,full}`: Navigation density mode
 - `--symbol-backend {auto,python,tree-sitter,none}`: Non-Python symbol backend
@@ -218,7 +250,9 @@ codecrate pack <root> [OPTIONS]
 - `--print-files`: Debug-print selected files after filtering
 - `--print-skipped`: Debug-print skipped files and reasons
 - `--print-rules`: Debug-print effective include/exclude/ignore/safety rules
-- `--split-max-chars N`: Split output into `.partN.md` files
+- `--split-max-chars N`: Split output into `.index.md` and `.partN.md` files
+- `--split-strict` / `--no-split-strict`: Fail instead of writing oversize logical blocks
+- `--split-allow-cut-files` / `--no-split-allow-cut-files`: Explicitly cut oversize file blocks across parts
 - `--token-count-tree [threshold]`: Show file tree with token counts; optional
   threshold shows only files with >=N tokens (for example,
   `--token-count-tree 100`)
@@ -231,6 +265,8 @@ codecrate pack <root> [OPTIONS]
 - `--max-total-tokens N`: Fail if included files exceed this token limit
 - `--max-workers N`: Max worker threads for IO/parsing/token counting
 - `--manifest-json [PATH]`: Write manifest JSON for tooling
+- `--index-json [PATH]`: Write retrieval-oriented index JSON for agents and tools
+- `--no-index-json`: Disable index JSON output, including profile-implied defaults
 - `--encoding-errors {replace,strict}`: UTF-8 decode policy for input files
 
 When `--stdin`/`--stdin0` is used, only explicitly listed files are considered.
@@ -299,7 +335,7 @@ Default behavior verifies baseline hashes when metadata exists.
 ### `validate-pack` - Validate Pack
 
 ```bash
-codecrate validate-pack <markdown> [--root PATH] [--strict] [--json]
+codecrate validate-pack <markdown> [--root PATH] [--strict] [policy flags] [--json]
 ```
 
 **Options:**
@@ -307,6 +343,10 @@ codecrate validate-pack <markdown> [--root PATH] [--strict] [--json]
 - `--root PATH`: Optional repo root to compare reconstructed files against
 - `--strict`: Treat unresolved marker mapping as validation errors
 - `--json`: Emit machine-readable report (`ok`, counts, errors, warnings)
+- `--fail-on-warning`: Exit non-zero when any warnings are present
+- `--fail-on-root-drift`: Exit non-zero when disk content differs from the pack
+- `--fail-on-redaction`: Exit non-zero when the pack reports redacted files
+- `--fail-on-safety-skip`: Exit non-zero when the pack reports safety-skipped files
 - `--encoding-errors {replace,strict}`: UTF-8 decode policy for pack/root file reads
 
 For combined packs, validation runs per repository section and reports scope-aware
@@ -409,17 +449,16 @@ This is ideal for:
 - When you need complete context in one place
 - When token limits are not a concern
 
-## Workflow Example
+## Agent Workflow Example
 
 ### Initial Pack
 
 ```bash
-# Create a baseline pack of your repository
-codecrate pack . -o baseline.md
+# Create a baseline pack with retrieval sidecars
+codecrate pack . -o baseline.md --profile hybrid
 
-# Send baseline.md to an LLM for analysis
-# LLM can navigate using the Symbol Index
-# and read full code in the Files section
+# Validate against disk before using it in an automated loop
+codecrate validate-pack baseline.md --root . --strict --fail-on-warning --fail-on-root-drift
 ```
 
 ### Iterate with LLM
@@ -428,12 +467,14 @@ codecrate pack . -o baseline.md
 # After the LLM suggests changes, generate a patch
 codecrate patch baseline.md . -o iteration1.md
 
-# Send iteration1.md to the LLM (much smaller than full pack)
-# Apply the LLM's changes
-codecrate apply iteration1.md .
+# Validate the patch application path before writing
+codecrate apply iteration1.md . --dry-run
+
+# Apply the LLM's changes with baseline verification
+codecrate apply iteration1.md . --check-baseline
 
 # Create new baseline for next iteration
-codecrate pack . -o baseline.md
+codecrate pack . -o baseline.md --profile hybrid
 ```
 
 ## Advanced Usage
@@ -461,7 +502,13 @@ codecrate pack . --include "**/*.py" --exclude "**/migrations/**"
 # Configure a soft cap per part file
 codecrate pack . --split-max-chars 50000
 
-# This creates context.md, context.part1.md, context.part2.md, etc.
+# This creates context.md, context.index.md, context.part1.md, context.part2.md, etc.
+
+# Force strict failure instead of writing oversize logical blocks
+codecrate pack . --split-max-chars 50000 --split-strict
+
+# Or explicitly cut oversize file blocks across parts
+codecrate pack . --split-max-chars 50000 --split-allow-cut-files --index-json
 
 # Skip single huge files, but fail if remaining total is still too large
 codecrate pack . --max-file-bytes 200000 --max-total-bytes 4000000
@@ -485,9 +532,9 @@ codecrate pack . --dedupe
 ## How It Works
 
 1. **Discovery**: Scans files according to include/exclude patterns
-2. **Parsing**: Extracts symbol information (functions, classes) using Python's AST
+2. **Parsing**: Extracts symbol information using Python AST and optional non-Python backends
 3. **Packing**: Creates a structured manifest and canonical function definitions
-4. **Rendering**: Generates Markdown with directory tree, symbol index, and file contents
+4. **Rendering**: Generates Markdown plus optional manifest/index sidecars
 5. **Validation**: Ensures round-trip consistency with SHA256 checksums
 
 ## Format Invariants
@@ -495,6 +542,7 @@ codecrate pack . --dedupe
 - Pack format version: `codecrate.v4`
 - Patch metadata format: `codecrate.patch.v1`
 - Manifest JSON format: `codecrate.manifest-json.v1`
+- Index JSON format: `codecrate.index-json.v1`
 - Exactly one `codecrate-machine-header` and one `codecrate-manifest` fence per repository section
 - Ordering is deterministic by normalized relative path and stable ID ordering
 
@@ -508,10 +556,3 @@ The Markdown format is designed to be:
 ## License
 
 MIT
-Include selection precedence:
-
-1. explicit `--include`
-2. explicit `--include-preset`
-3. config `include`
-4. config `include_preset`
-5. built-in default (`python+docs`)
