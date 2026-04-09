@@ -35,8 +35,10 @@ from .formats import (
     MANIFEST_JSON_FORMAT_VERSION,
     MISSING_MANIFEST_ERROR,
 )
+from .index_json import build_index_payload, write_index_json
 from .manifest import manifest_sha256, to_manifest
 from .markdown import render_markdown
+from .model import PackResult
 from .packer import pack_repo
 from .repositories import (
     select_repository_section,
@@ -136,6 +138,15 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Output markdown path (default: config 'output' or context.md)",
+    )
+    pack.add_argument(
+        "--profile",
+        choices=["human", "agent", "hybrid"],
+        default=None,
+        help=(
+            "Output defaults profile: human keeps current behavior, "
+            "agent implies compact nav + index-json, hybrid implies index-json."
+        ),
     )
     pack.add_argument(
         "--dedupe",
@@ -265,7 +276,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help=(
-            "Max chars per part file. Oversize single-file parts remain intact by "
+            "Max chars per split part. Oversized logical blocks remain intact by "
             "default unless --split-strict is set."
         ),
     )
@@ -273,13 +284,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--split-strict",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Fail when a single file part exceeds --split-max-chars.",
+        help="Fail when a logical split block exceeds --split-max-chars.",
     )
     pack.add_argument(
         "--split-allow-cut-files",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Explicitly allow cutting oversized files into multiple part files.",
+        help="Explicitly allow cutting oversized file blocks into multiple parts.",
     )
 
     pack.add_argument(
@@ -356,6 +367,21 @@ def build_parser() -> argparse.ArgumentParser:
             "Write manifest JSON for tooling. Optionally pass output path; "
             "without a path writes <output>.manifest.json"
         ),
+    )
+    pack.add_argument(
+        "--index-json",
+        nargs="?",
+        const="",
+        default=None,
+        help=(
+            "Write index JSON for agent/tooling lookup. Optionally pass output "
+            "path; without a path writes <output>.index.json"
+        ),
+    )
+    pack.add_argument(
+        "--no-index-json",
+        action="store_true",
+        help="Disable index JSON output, including profile-implied defaults.",
     )
 
     # unpack
@@ -476,6 +502,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Emit machine-readable JSON validation report.",
     )
     vpack.add_argument(
+        "--fail-on-warning",
+        action="store_true",
+        help="Exit non-zero when validation emits any warnings.",
+    )
+    vpack.add_argument(
+        "--fail-on-root-drift",
+        action="store_true",
+        help="Exit non-zero when on-disk files differ from the pack; requires --root.",
+    )
+    vpack.add_argument(
+        "--fail-on-redaction",
+        action="store_true",
+        help="Exit non-zero when the pack reports any redacted files.",
+    )
+    vpack.add_argument(
+        "--fail-on-safety-skip",
+        action="store_true",
+        help="Exit non-zero when the pack reports any safety-skipped files.",
+    )
+    vpack.add_argument(
         "--encoding-errors",
         choices=["replace", "strict"],
         default=None,
@@ -527,7 +573,9 @@ class PackOptions:
     include_source: str
     exclude: list[str] | None
     keep_docstrings: bool
+    profile: str
     include_manifest: bool
+    index_json_enabled: bool
     respect_gitignore: bool
     security_check: bool
     security_content_sniff: bool
@@ -566,6 +614,8 @@ class PackRun:
     label: str
     slug: str
     markdown: str
+    pack_result: PackResult
+    canonical_sources: dict[str, str]
     options: PackOptions
     default_output: Path
     file_count: int
@@ -601,7 +651,19 @@ def _resolve_encoding_errors(cfg: Config, cli_value: str | None) -> str:
     return value if value in {"replace", "strict"} else "replace"
 
 
+def _resolve_profile(cfg: Config, cli_value: str | None) -> str:
+    value = (
+        cli_value if cli_value is not None else str(getattr(cfg, "profile", "human"))
+    )
+    norm = str(value).strip().lower()
+    return norm if norm in {"human", "agent", "hybrid"} else "human"
+
+
 def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
+    if args.index_json is not None and bool(getattr(args, "no_index_json", False)):
+        raise ValueError("cannot combine --index-json with --no-index-json")
+
+    profile = _resolve_profile(cfg, args.profile)
     if args.include is not None:
         include = args.include
         include_source = "cli --include"
@@ -617,7 +679,16 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         if args.keep_docstrings is None
         else bool(args.keep_docstrings)
     )
-    include_manifest = cfg.manifest if args.manifest is None else bool(args.manifest)
+    if args.manifest is None:
+        include_manifest = cfg.manifest if profile == "human" else True
+    else:
+        include_manifest = bool(args.manifest)
+    if args.index_json is not None:
+        index_json_enabled = True
+    elif bool(getattr(args, "no_index_json", False)):
+        index_json_enabled = False
+    else:
+        index_json_enabled = profile in {"agent", "hybrid"}
     respect_gitignore = (
         cfg.respect_gitignore
         if args.respect_gitignore is None
@@ -687,7 +758,11 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
     nav_mode = (
         str(args.nav_mode).strip().lower()
         if args.nav_mode is not None
-        else str(getattr(cfg, "nav_mode", "auto")).strip().lower()
+        else (
+            "compact"
+            if profile == "agent"
+            else str(getattr(cfg, "nav_mode", "auto")).strip().lower()
+        )
     )
     symbol_backend = (
         str(args.symbol_backend).strip().lower()
@@ -764,7 +839,9 @@ def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         include_source=include_source,
         exclude=exclude,
         keep_docstrings=keep_docstrings,
+        profile=profile,
         include_manifest=include_manifest,
+        index_json_enabled=index_json_enabled,
         respect_gitignore=respect_gitignore,
         security_check=security_check,
         security_content_sniff=security_content_sniff,
@@ -879,33 +956,65 @@ def _index_and_part_paths(base_path: Path, count: int) -> list[Path]:
     return paths
 
 
-def _rename_split_parts(
-    parts: Sequence[Part], base_path: Path
-) -> list[tuple[Path, str]]:
+def _rename_split_parts(parts: Sequence[Part], base_path: Path) -> list[Part]:
     if len(parts) <= 1:
-        return [(base_path, parts[0].content)]
+        part = parts[0]
+        return [
+            Part(
+                path=base_path,
+                content=part.content,
+                kind=part.kind,
+                files=part.files,
+                canonical_ids=part.canonical_ids,
+                section_types=part.section_types,
+            )
+        ]
 
     new_paths = _index_and_part_paths(base_path, len(parts))
     old_names = [Path(p.path).name for p in parts]
     new_names = [p.name for p in new_paths]
     filename_map = {old: new for old, new in zip(old_names, new_names, strict=True)}
 
-    out: list[tuple[Path, str]] = []
+    out: list[Part] = []
     for old, new_path in zip(parts, new_paths, strict=True):
         content = old.content
-        out.append((new_path, _rewrite_split_part_links(content, filename_map)))
+        out.append(
+            Part(
+                path=new_path,
+                content=_rewrite_split_part_links(content, filename_map),
+                kind=old.kind,
+                files=old.files,
+                canonical_ids=old.canonical_ids,
+                section_types=old.section_types,
+            )
+        )
     return out
 
 
-def _split_parts_fit_limit(outputs: Sequence[tuple[Path, str]], max_chars: int) -> bool:
+def _oversized_split_parts(outputs: Sequence[Part], max_chars: int) -> list[Path]:
     if max_chars <= 0:
-        return True
-    for idx, (_, content) in enumerate(outputs):
+        return []
+    oversized: list[Path] = []
+    for idx, part in enumerate(outputs):
         if idx == 0:
             continue
-        if len(content) > max_chars:
-            return False
-    return True
+        if len(part.content) > max_chars:
+            oversized.append(part.path)
+    return oversized
+
+
+def _warn_oversized_split_outputs(
+    *, label: str, paths: Sequence[Path], max_chars: int
+) -> None:
+    if not paths:
+        return
+    preview = ", ".join(path.name for path in paths[:3])
+    suffix = "" if len(paths) <= 3 else ", ..."
+    print(
+        f"Warning: wrote {len(paths)} oversize split part(s) for {label} "
+        f"that exceed split_max_chars {max_chars}: {preview}{suffix}",
+        file=sys.stderr,
+    )
 
 
 def _extract_diff_blocks(md_text: str) -> str:
@@ -1249,6 +1358,18 @@ def _manifest_json_output_path(
     return markdown_output.with_name(f"{markdown_output.stem}.manifest.json")
 
 
+def _index_json_output_path(
+    *,
+    index_json_arg: str | None,
+    markdown_output: Path,
+) -> Path | None:
+    if index_json_arg is None:
+        return None
+    if index_json_arg.strip():
+        return Path(index_json_arg)
+    return markdown_output.with_name(f"{markdown_output.stem}.index.json")
+
+
 def _validation_hint(message: str) -> str | None:
     if "expected exactly one codecrate-manifest block" in message:
         return (
@@ -1336,12 +1457,65 @@ def _print_grouped_validation_report(report: object) -> None:
 def _validation_report_json(report: object) -> str:
     warnings = list(getattr(report, "warnings", []))
     errors = list(getattr(report, "errors", []))
+    root_drift_paths = list(getattr(report, "root_drift_paths", []))
     payload = {
         "ok": not errors,
         "error_count": len(errors),
         "warning_count": len(warnings),
+        "root_drift_count": len(root_drift_paths),
+        "root_drift_paths": root_drift_paths,
+        "redacted_count": int(getattr(report, "redacted_count", 0)),
+        "safety_skip_count": int(getattr(report, "safety_skip_count", 0)),
         "errors": errors,
         "warnings": warnings,
+    }
+    return json.dumps(payload, indent=2, sort_keys=False)
+
+
+def _validation_policy_errors(report: object, args: argparse.Namespace) -> list[str]:
+    warnings = list(getattr(report, "warnings", []))
+    root_drift_paths = list(getattr(report, "root_drift_paths", []))
+    redacted_count = int(getattr(report, "redacted_count", 0))
+    safety_skip_count = int(getattr(report, "safety_skip_count", 0))
+
+    errors: list[str] = []
+    if bool(getattr(args, "fail_on_warning", False)) and warnings:
+        errors.append(
+            "Policy failure: warnings present "
+            f"({len(warnings)}); use without --fail-on-warning to allow warnings"
+        )
+    if bool(getattr(args, "fail_on_root_drift", False)) and root_drift_paths:
+        errors.append(
+            "Policy failure: root drift detected for "
+            f"{len(root_drift_paths)} file(s): {', '.join(root_drift_paths[:5])}"
+        )
+    if bool(getattr(args, "fail_on_redaction", False)) and redacted_count > 0:
+        errors.append(f"Policy failure: pack reports {redacted_count} redacted file(s)")
+    if bool(getattr(args, "fail_on_safety_skip", False)) and safety_skip_count > 0:
+        errors.append(
+            f"Policy failure: pack reports {safety_skip_count} safety-skipped file(s)"
+        )
+    return errors
+
+
+def _validation_report_json_with_policy(
+    report: object, policy_errors: list[str]
+) -> str:
+    warnings = list(getattr(report, "warnings", []))
+    errors = list(getattr(report, "errors", []))
+    root_drift_paths = list(getattr(report, "root_drift_paths", []))
+    payload = {
+        "ok": not errors and not policy_errors,
+        "error_count": len(errors),
+        "warning_count": len(warnings),
+        "policy_error_count": len(policy_errors),
+        "root_drift_count": len(root_drift_paths),
+        "root_drift_paths": root_drift_paths,
+        "redacted_count": int(getattr(report, "redacted_count", 0)),
+        "safety_skip_count": int(getattr(report, "safety_skip_count", 0)),
+        "errors": errors,
+        "warnings": warnings,
+        "policy_errors": policy_errors,
     }
     return json.dumps(payload, indent=2, sort_keys=False)
 
@@ -1664,7 +1838,10 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
 
         for root in roots:
             cfg = load_config(root)
-            options = _resolve_pack_options(cfg, args)
+            try:
+                options = _resolve_pack_options(cfg, args)
+            except ValueError as e:
+                parser.error(f"pack: {e}")
             label = _unique_label(root, used_labels)
             slug = _unique_slug(label, used_slugs)
 
@@ -1919,6 +2096,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     label=label,
                     slug=slug,
                     markdown=md,
+                    pack_result=pack,
+                    canonical_sources=canonical,
                     options=options,
                     default_output=default_output,
                     file_count=len(files_for_pack),
@@ -1946,23 +2125,44 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
 
         wrote_split_outputs = False
         split_files_written: list[Path] = []
+        repo_output_parts: dict[str, list[Part]] = {}
         if len(pack_runs) == 1:
             split_max_chars = pack_runs[0].options.split_max_chars
-            parts = split_by_max_chars(md, out_path, split_max_chars)
+            try:
+                parts = split_by_max_chars(
+                    md,
+                    out_path,
+                    split_max_chars,
+                    strict=pack_runs[0].options.split_strict,
+                    allow_cut_files=pack_runs[0].options.split_allow_cut_files,
+                )
+            except ValueError as e:
+                raise SystemExit(f"pack: {e}") from e
             if len(parts) == 1 and parts[0].path == out_path:
                 out_path.write_text(md, encoding="utf-8")
+                repo_output_parts[pack_runs[0].slug] = [Part(path=out_path, content=md)]
             else:
                 renamed = _rename_split_parts(parts, out_path)
-                if _split_parts_fit_limit(renamed, split_max_chars):
-                    for part_path, content in renamed:
-                        part_path.write_text(content, encoding="utf-8")
-                        split_files_written.append(part_path)
-                    wrote_split_outputs = True
-                else:
-                    out_path.write_text(md, encoding="utf-8")
+                oversized_parts = _oversized_split_parts(renamed, split_max_chars)
+                if pack_runs[0].options.split_strict and oversized_parts:
+                    raise SystemExit(
+                        "pack: split_strict requires all non-index parts to fit "
+                        f"within split_max_chars {split_max_chars}; oversize: "
+                        f"{', '.join(path.name for path in oversized_parts)}"
+                    )
+                for part in renamed:
+                    part.path.write_text(part.content, encoding="utf-8")
+                    split_files_written.append(part.path)
+                wrote_split_outputs = True
+                repo_output_parts[pack_runs[0].slug] = list(renamed)
+                _warn_oversized_split_outputs(
+                    label=pack_runs[0].label,
+                    paths=oversized_parts,
+                    max_chars=split_max_chars,
+                )
         else:
             all_repo_split = True
-            split_candidates: list[tuple[PackRun, list[tuple[Path, str]]]] = []
+            split_candidates: list[tuple[PackRun, list[Part], list[Path]]] = []
             for run_pack in pack_runs:
                 split_max_chars = run_pack.options.split_max_chars
                 if split_max_chars <= 0:
@@ -1971,29 +2171,59 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 repo_base = out_path.with_name(
                     f"{out_path.stem}.{run_pack.slug}{out_path.suffix}"
                 )
-                parts = split_by_max_chars(
-                    run_pack.markdown, repo_base, run_pack.options.split_max_chars
-                )
+                try:
+                    parts = split_by_max_chars(
+                        run_pack.markdown,
+                        repo_base,
+                        run_pack.options.split_max_chars,
+                        strict=run_pack.options.split_strict,
+                        allow_cut_files=run_pack.options.split_allow_cut_files,
+                    )
+                except ValueError as e:
+                    raise SystemExit(f"pack: {e}") from e
                 if len(parts) == 1 and parts[0].path == repo_base:
                     all_repo_split = False
                     break
                 renamed = _rename_split_parts(parts, repo_base)
-                if not _split_parts_fit_limit(renamed, split_max_chars):
-                    all_repo_split = False
-                    break
-                split_candidates.append((run_pack, renamed))
+                oversized_parts = _oversized_split_parts(renamed, split_max_chars)
+                if run_pack.options.split_strict and oversized_parts:
+                    raise SystemExit(
+                        "pack: split_strict requires all non-index parts to fit "
+                        f"within split_max_chars {split_max_chars} "
+                        f"for {run_pack.label}; "
+                        f"oversize: {', '.join(path.name for path in oversized_parts)}"
+                    )
+                split_candidates.append((run_pack, renamed, oversized_parts))
 
             if all_repo_split:
                 wrote_split_outputs = True
-                for run_pack, renamed in split_candidates:
-                    for part_path, content in renamed:
+                for run_pack, renamed, oversized_parts in split_candidates:
+                    written_parts: list[Part] = []
+                    for part in renamed:
                         content_with_header = _prefix_repo_header(
-                            content, run_pack.label
+                            part.content, run_pack.label
                         )
-                        part_path.write_text(content_with_header, encoding="utf-8")
-                        split_files_written.append(part_path)
+                        final_part = Part(
+                            path=part.path,
+                            content=content_with_header,
+                            kind=part.kind,
+                            files=part.files,
+                            canonical_ids=part.canonical_ids,
+                            section_types=part.section_types,
+                        )
+                        final_part.path.write_text(final_part.content, encoding="utf-8")
+                        split_files_written.append(final_part.path)
+                        written_parts.append(final_part)
+                    repo_output_parts[run_pack.slug] = written_parts
+                    _warn_oversized_split_outputs(
+                        label=run_pack.label,
+                        paths=oversized_parts,
+                        max_chars=run_pack.options.split_max_chars,
+                    )
             else:
                 out_path.write_text(md, encoding="utf-8")
+                for run_pack in pack_runs:
+                    repo_output_parts[run_pack.slug] = [Part(path=out_path, content=md)]
 
         manifest_json_path = _manifest_json_output_path(
             manifest_json_arg=args.manifest_json,
@@ -2016,6 +2246,23 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 json.dumps(payload, indent=2, sort_keys=False) + "\n",
                 encoding="utf-8",
             )
+
+        index_json_path = None
+        if any(run.options.index_json_enabled for run in pack_runs):
+            index_json_arg = args.index_json if args.index_json is not None else ""
+            index_json_path = _index_json_output_path(
+                index_json_arg=index_json_arg,
+                markdown_output=out_path,
+            )
+        if index_json_path is not None:
+            payload = build_index_payload(
+                codecrate_version=_codecrate_version(),
+                index_output_path=index_json_path,
+                pack_runs=pack_runs,
+                repo_output_parts=repo_output_parts,
+                is_split=wrote_split_outputs,
+            )
+            write_index_json(index_json_path, payload)
 
         for run in pack_runs:
             if not run.options.token_report:
@@ -2083,6 +2330,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     print(f"Wrote {out_path} for {len(pack_runs)} repos.")
             if manifest_json_path is not None:
                 print(f"Wrote {manifest_json_path}.")
+            if index_json_path is not None:
+                print(f"Wrote {index_json_path}.")
 
     elif args.cmd == "unpack":
         unpack_encoding_errors = args.encoding_errors or "replace"
@@ -2149,6 +2398,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         print(f"Wrote {args.output}")
 
     elif args.cmd == "validate-pack":
+        if args.fail_on_root_drift and args.root is None:
+            parser.error("validate-pack: --fail-on-root-drift requires --root")
         cfg_root = args.root if args.root is not None else Path.cwd()
         cfg = load_config(cfg_root)
         validate_encoding_errors = _resolve_encoding_errors(cfg, args.encoding_errors)
@@ -2170,11 +2421,16 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             if _is_no_manifest_error(e):
                 _raise_no_manifest_error(parser, command_name="validate-pack")
             raise
+        policy_errors = _validation_policy_errors(report, args)
         if args.json:
-            print(_validation_report_json(report))
+            print(_validation_report_json_with_policy(report, policy_errors))
         else:
             _print_grouped_validation_report(report)
-        if report.errors:
+            if policy_errors:
+                print("Policy Errors:")
+                for msg in policy_errors:
+                    print(f"- {msg}")
+        if report.errors or policy_errors:
             raise SystemExit(1)
         if not args.json:
             print("OK: pack is internally consistent.")

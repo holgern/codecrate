@@ -15,6 +15,20 @@ _LANG_BY_SUFFIX: dict[str, str] = {
     ".tsx": "tsx",
     ".go": "go",
     ".rs": "rust",
+    ".java": "java",
+    ".cs": "c_sharp",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".cxx": "cpp",
+    ".hpp": "cpp",
+    ".hh": "cpp",
+    ".hxx": "cpp",
+    ".rb": "ruby",
+    ".php": "php",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
 }
 
 _SUPPORTED_NODE_TYPES: dict[str, dict[str, str]] = {
@@ -44,13 +58,74 @@ _SUPPORTED_NODE_TYPES: dict[str, dict[str, str]] = {
         "enum_item": "type",
         "trait_item": "type",
     },
+    "java": {
+        "class_declaration": "class",
+        "interface_declaration": "type",
+        "enum_declaration": "type",
+        "record_declaration": "type",
+        "method_declaration": "method",
+        "constructor_declaration": "method",
+    },
+    "c_sharp": {
+        "class_declaration": "class",
+        "struct_declaration": "type",
+        "interface_declaration": "type",
+        "enum_declaration": "type",
+        "record_declaration": "type",
+        "method_declaration": "method",
+        "constructor_declaration": "method",
+    },
+    "c": {
+        "function_definition": "function",
+        "struct_specifier": "type",
+        "enum_specifier": "type",
+        "union_specifier": "type",
+    },
+    "cpp": {
+        "function_definition": "function",
+        "class_specifier": "class",
+        "struct_specifier": "type",
+        "enum_specifier": "type",
+        "namespace_definition": "type",
+    },
+    "ruby": {
+        "method": "method",
+        "singleton_method": "method",
+        "class": "class",
+        "module": "type",
+    },
+    "php": {
+        "function_definition": "function",
+        "method_declaration": "method",
+        "class_declaration": "class",
+        "interface_declaration": "type",
+        "trait_declaration": "type",
+        "enum_declaration": "type",
+    },
+    "kotlin": {
+        "function_declaration": "function",
+        "class_declaration": "class",
+        "object_declaration": "type",
+        "interface_declaration": "type",
+        "secondary_constructor": "method",
+    },
 }
 
 
 @dataclass(frozen=True)
 class SymbolExtractionResult:
     defs: list[DefRef]
+    backend_requested: str
     backend_used: str
+    language_detected: str
+    extraction_status: str
+
+
+def detect_language(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".py":
+        return "python"
+    return _LANG_BY_SUFFIX.get(suffix, "unknown")
 
 
 def _module_name_for_non_python(path: Path, root: Path) -> str:
@@ -69,6 +144,14 @@ def _node_name(source: bytes, node: Any) -> str | None:
         if name:
             return name
 
+    for field_name in {"declarator", "declaration", "body"}:
+        child = node.child_by_field_name(field_name)
+        if child is None:
+            continue
+        name = _node_name(source, child)
+        if name:
+            return name
+
     for child in getattr(node, "children", []):
         ctype = getattr(child, "type", "")
         if ctype in {
@@ -76,6 +159,8 @@ def _node_name(source: bytes, node: Any) -> str | None:
             "property_identifier",
             "type_identifier",
             "field_identifier",
+            "namespace_identifier",
+            "name",
         }:
             name = _decode_node_text(source, child).strip()
             if name:
@@ -89,17 +174,21 @@ def _collect_defs_with_tree_sitter(
     root: Path,
     text: str,
     language: str,
-) -> list[DefRef]:
+) -> tuple[list[DefRef], str]:
     try:
         tsl = importlib.import_module("tree_sitter_languages")
     except ModuleNotFoundError:
-        return []
+        return [], "backend-unavailable"
 
     get_parser = getattr(tsl, "get_parser", None)
     if not callable(get_parser):
-        return []
+        return [], "backend-unavailable"
 
-    parser = cast(Any, get_parser(language))
+    try:
+        parser = cast(Any, get_parser(language))
+    except Exception:
+        return [], "backend-unavailable"
+
     source = text.encode("utf-8")
     tree = parser.parse(source)
     node_kinds = _SUPPORTED_NODE_TYPES.get(language, {})
@@ -142,7 +231,7 @@ def _collect_defs_with_tree_sitter(
         )
 
     defs.sort(key=lambda d: (d.def_line, d.qualname))
-    return defs
+    return defs, "ok" if defs else "no-symbols"
 
 
 def extract_non_python_symbols(
@@ -152,23 +241,45 @@ def extract_non_python_symbols(
     text: str,
     backend: str,
 ) -> SymbolExtractionResult:
-    language = _LANG_BY_SUFFIX.get(path.suffix.lower())
-    if language is None:
-        return SymbolExtractionResult(defs=[], backend_used="none")
+    requested = backend.strip().lower()
+    language = detect_language(path)
+    if language == "unknown":
+        return SymbolExtractionResult(
+            defs=[],
+            backend_requested=requested,
+            backend_used="none",
+            language_detected=language,
+            extraction_status="unsupported-language",
+        )
 
-    mode = backend.strip().lower()
-    if mode in {"none", "python"}:
-        return SymbolExtractionResult(defs=[], backend_used="none")
+    if requested in {"none", "python"}:
+        return SymbolExtractionResult(
+            defs=[],
+            backend_requested=requested,
+            backend_used="none",
+            language_detected=language,
+            extraction_status="disabled",
+        )
 
-    if mode in {"auto", "tree-sitter"}:
-        defs = _collect_defs_with_tree_sitter(
+    if requested in {"auto", "tree-sitter"}:
+        defs, status = _collect_defs_with_tree_sitter(
             path=path,
             root=root,
             text=text,
             language=language,
         )
-        if defs:
-            return SymbolExtractionResult(defs=defs, backend_used="tree-sitter")
-        return SymbolExtractionResult(defs=[], backend_used="none")
+        return SymbolExtractionResult(
+            defs=defs,
+            backend_requested=requested,
+            backend_used="tree-sitter" if status != "backend-unavailable" else "none",
+            language_detected=language,
+            extraction_status=status,
+        )
 
-    return SymbolExtractionResult(defs=[], backend_used="none")
+    return SymbolExtractionResult(
+        defs=[],
+        backend_requested=requested,
+        backend_used="none",
+        language_detected=language,
+        extraction_status="disabled",
+    )

@@ -2,8 +2,8 @@ Pack Format
 ===========
 
 Codecrate outputs a single Markdown file. When ``--split-max-chars`` is used,
-it also emits additional ``.partN.md`` files intended for LLM consumption
-containing enough information to:
+it can also emit ``.index.md`` and ``.partN.md`` files intended for LLM
+consumption containing enough information to:
 
 * browse code quickly (directory tree + symbol index)
 * reconstruct original files (full layout) or via stubs + canonical sources (stub layout)
@@ -30,6 +30,40 @@ Manifest metadata also records explicit ID/marker schemes for forward compatibil
 * ``marker_format_version`` (currently ``v1``)
 * per-definition ``has_marker`` hints in stub layouts (for validation accuracy)
 
+Codecrate can also emit JSON sidecars:
+
+* ``codecrate.manifest-json.v1``: manifest-focused tooling export
+* ``codecrate.index-json.v1``: retrieval-oriented file/symbol/part index for agents and tools
+
+Profiles can change output defaults without changing the underlying pack format:
+
+* ``human`` keeps current markdown-first behavior
+* ``agent`` implies compact navigation and index JSON output
+* ``hybrid`` keeps current markdown behavior and also emits index JSON output
+
+The index sidecar includes deterministic per-repository metadata for:
+
+* emitted markdown part files
+* file-to-part lookup
+* symbol-to-file and symbol-to-canonical-body lookup
+* part character and token estimates
+* part oversize status and effective split policy
+* safety findings
+* per-file language detection and symbol extraction backend/status reporting
+
+Split part membership is captured directly during split generation rather than
+recovered later by reparsing emitted markdown.
+
+For non-Python files, the index sidecar reports:
+
+* ``language_detected``
+* ``symbol_backend_requested``
+* ``symbol_backend_used``
+* ``symbol_extraction_status``
+
+This makes it explicit whether symbol extraction was unavailable, disabled,
+unsupported for the file type, or completed successfully.
+
 Machine Header includes:
 
 * ``format``
@@ -43,6 +77,7 @@ Protocol constants
 * pack format: ``codecrate.v4``
 * patch metadata format: ``codecrate.patch.v1``
 * manifest-json format: ``codecrate.manifest-json.v1``
+* index-json format: ``codecrate.index-json.v1``
 * machine header fence: ``codecrate-machine-header``
 * manifest fence: ``codecrate-manifest``
 * patch metadata fence: ``codecrate-patch-meta``
@@ -109,6 +144,11 @@ Determinism
 Pack ordering is deterministic by normalized relative path and stable id order.
 Split outputs preserve deterministic section/file/function ordering and avoid
 splitting inside fenced code blocks.
+
+When a single logical block exceeds ``--split-max-chars``, Codecrate keeps it
+intact in an oversize part by default. Use ``--split-strict`` to fail instead,
+or ``--split-allow-cut-files`` to explicitly cut oversized file blocks across
+multiple parts.
 
 When binary files are detected during packing, they are skipped and reported as
 ``Skipped as binary: N file(s)`` in the pack header and Safety Report (when enabled).

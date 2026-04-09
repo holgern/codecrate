@@ -39,7 +39,19 @@ def _pack_one_file(
     keep_docstrings: bool,
     symbol_backend: str,
     file_texts: dict[Path, str] | None,
-) -> tuple[Path, str, str, str, list[ClassRef], list[DefRef], dict[str, str]]:
+) -> tuple[
+    Path,
+    str,
+    str,
+    str,
+    list[ClassRef],
+    list[DefRef],
+    dict[str, str],
+    str,
+    str,
+    str,
+    str,
+]:
     text = (
         file_texts[path]
         if file_texts is not None and path in file_texts
@@ -55,6 +67,10 @@ def _pack_one_file(
             defs = []
             file_module = ""
             stubbed = text
+            language_detected = "python"
+            symbol_backend_requested = "python-ast"
+            symbol_backend_used = "python-ast"
+            symbol_extraction_status = "syntax-error"
         else:
             file_module = module_name_for(path, root)
 
@@ -62,6 +78,10 @@ def _pack_one_file(
                 local_canon[d.local_id] = _extract_canonical_source(text, d)
 
             stubbed = stub_file_text(text, defs, keep_docstrings=keep_docstrings)
+            language_detected = "python"
+            symbol_backend_requested = "python-ast"
+            symbol_backend_used = "python-ast"
+            symbol_extraction_status = "ok"
     else:
         classes = []
         sym = extract_non_python_symbols(
@@ -71,10 +91,26 @@ def _pack_one_file(
             backend=symbol_backend,
         )
         defs = sym.defs
-        file_module = ""
+        file_module = defs[0].module if defs else ""
         stubbed = text
+        language_detected = sym.language_detected
+        symbol_backend_requested = sym.backend_requested
+        symbol_backend_used = sym.backend_used
+        symbol_extraction_status = sym.extraction_status
 
-    return path, text, file_module, stubbed, classes, defs, local_canon
+    return (
+        path,
+        text,
+        file_module,
+        stubbed,
+        classes,
+        defs,
+        local_canon,
+        language_detected,
+        symbol_backend_requested,
+        symbol_backend_used,
+        symbol_extraction_status,
+    )
 
 
 def pack_repo(
@@ -108,7 +144,19 @@ def pack_repo(
         with ThreadPoolExecutor(max_workers=worker_count) as pool:
             packed_data = list(pool.map(lambda p: worker(path=p), files))
 
-    for path, text, file_module, stubbed, classes, defs, canon_for_file in packed_data:
+    for (
+        path,
+        text,
+        file_module,
+        stubbed,
+        classes,
+        defs,
+        canon_for_file,
+        language_detected,
+        symbol_backend_requested,
+        symbol_backend_used,
+        symbol_extraction_status,
+    ) in packed_data:
         local_canon.update(canon_for_file)
         fp = FilePack(
             path=path,
@@ -118,6 +166,10 @@ def pack_repo(
             line_count=_line_count(text),
             classes=classes,
             defs=defs,
+            language_detected=language_detected,
+            symbol_backend_requested=symbol_backend_requested,
+            symbol_backend_used=symbol_backend_used,
+            symbol_extraction_status=symbol_extraction_status,
         )
         filepacks.append(fp)
         all_defs.extend(defs)
@@ -173,6 +225,10 @@ def pack_repo(
                     line_count=fp.line_count,
                     classes=fp.classes,
                     defs=defs2,
+                    language_detected=fp.language_detected,
+                    symbol_backend_requested=fp.symbol_backend_requested,
+                    symbol_backend_used=fp.symbol_backend_used,
+                    symbol_extraction_status=fp.symbol_extraction_status,
                 )
             )
         filepacks = filepacks2

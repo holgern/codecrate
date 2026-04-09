@@ -32,6 +32,9 @@ def test_split_codecrate_pack_rewrites_symbol_index_links(tmp_path: Path) -> Non
 
     assert len(parts) >= 2
     index = parts[0].content
+    assert parts[0].kind == "index"
+    assert parts[0].files == ()
+    assert "Symbol Index" in parts[0].section_types
 
     assert "(L" not in index
     assert ".part" in index and "#src-" in index
@@ -39,6 +42,7 @@ def test_split_codecrate_pack_rewrites_symbol_index_links(tmp_path: Path) -> Non
     content = "\n".join(p.content for p in parts[1:])
     assert "jump to index](" in content
     assert parts[0].path.name in content
+    assert {rel for p in parts[1:] for rel in p.files} == {"a.py", "b.py"}
 
     for p in parts:
         assert _count_fence_lines(p.content) % 2 == 0
@@ -63,6 +67,7 @@ def test_split_codecrate_pack_rewrites_func_links_in_stub_layout(
 
     assert len(parts) >= 2
     index = parts[0].content
+    assert parts[0].kind == "index"
 
     assert "(#func-" not in index
     assert ".part" in index and "#func-" in index
@@ -70,6 +75,7 @@ def test_split_codecrate_pack_rewrites_func_links_in_stub_layout(
     content = "\n".join(p.content for p in parts[1:])
     assert "(#func-" not in content
     assert ".part" in content and "#func-" in content
+    assert sorted({cid for p in parts[1:] for cid in p.canonical_ids})
 
     for p in parts:
         assert _count_fence_lines(p.content) % 2 == 0

@@ -691,9 +691,76 @@ def test_pack_nav_mode_auto_with_split_is_full(tmp_path: Path) -> None:
 
     main(["pack", str(tmp_path), "-o", str(out_path), "--split-max-chars", "80"])
 
-    text = out_path.read_text(encoding="utf-8")
-    assert '<a id="src-' in text
-    assert "[jump to index](#file-" in text
+    index_text = (tmp_path / "context.index.md").read_text(encoding="utf-8")
+    part_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(tmp_path.glob("context.part*.md"))
+    )
+    assert ".part" in index_text
+    assert "#src-" in index_text
+    assert "[jump to index](context.index.md#file-" in part_text
+
+
+def test_pack_split_writes_oversized_file_parts_by_default(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text(
+        "def a():\n" + "".join(f"    value_{i} = {i}\n" for i in range(80)),
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path), "--split-max-chars", "250"])
+
+    index_path = tmp_path / "context.index.md"
+    part_paths = sorted(tmp_path.glob("context.part*.md"))
+    assert index_path.exists()
+    assert part_paths
+    assert any(len(path.read_text(encoding="utf-8")) > 250 for path in part_paths)
+
+
+def test_pack_split_strict_fails_on_oversized_file_block(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text(
+        "def a():\n" + "".join(f"    value_{i} = {i}\n" for i in range(80)),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        main(
+            [
+                "pack",
+                str(tmp_path),
+                "--split-max-chars",
+                "250",
+                "--split-strict",
+            ]
+        )
+
+    assert "split_strict" in str(excinfo.value)
+
+
+def test_pack_split_allow_cut_files_cuts_oversized_file_block(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text(
+        "def a():\n" + "".join(f"    value_{i} = {i}\n" for i in range(80)),
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(out_path),
+            "--split-max-chars",
+            "250",
+            "--split-allow-cut-files",
+        ]
+    )
+
+    part_paths = sorted(tmp_path.glob("context.part*.md"))
+    assert len(part_paths) >= 2
+    assert all(len(path.read_text(encoding="utf-8")) <= 250 for path in part_paths)
+    index_text = (tmp_path / "context.index.md").read_text(encoding="utf-8")
+    assert "context.part1.md#src-a-py" in index_text
 
 
 def test_pack_token_count_tree_before_root_recovers_root(

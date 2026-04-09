@@ -55,6 +55,9 @@ def _validate_machine_header(
 class ValidationReport:
     errors: list[str]
     warnings: list[str]
+    root_drift_paths: list[str]
+    redacted_count: int
+    safety_skip_count: int
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,7 @@ class _FileValidationResult:
     errors: list[str]
     warnings: list[str]
     marker_ids: list[str]
+    root_drift_paths: list[str]
 
 
 def _validate_manifest_structure(markdown_text: str, manifest: dict) -> list[str]:
@@ -176,6 +180,7 @@ def _validate_file_entry(
 ) -> _FileValidationResult:
     errors: list[str] = []
     warnings: list[str] = []
+    root_drift_paths: list[str] = []
 
     rel = file_entry.get("path")
     if not rel:
@@ -183,6 +188,7 @@ def _validate_file_entry(
             errors=["Manifest entry missing 'path'"],
             warnings=[],
             marker_ids=[],
+            root_drift_paths=[],
         )
 
     stub = getattr(packed, "stubbed_files", {}).get(rel)
@@ -191,6 +197,7 @@ def _validate_file_entry(
             errors=[f"Missing stubbed file block for {rel}"],
             warnings=[],
             marker_ids=[],
+            root_drift_paths=[],
         )
 
     stub_norm = normalize_newlines(stub)
@@ -244,7 +251,10 @@ def _validate_file_entry(
     except Exception as e:  # pragma: no cover
         errors.append(f"Failed to reconstruct {rel}: {e}")
         return _FileValidationResult(
-            errors=errors, warnings=warnings, marker_ids=marker_ids
+            errors=errors,
+            warnings=warnings,
+            marker_ids=marker_ids,
+            root_drift_paths=root_drift_paths,
         )
 
     for issue in marker_issues:
@@ -265,6 +275,7 @@ def _validate_file_entry(
         disk_path = root_resolved / str(rel)
         if not disk_path.exists():
             warnings.append(f"On-disk file missing under root: {rel}")
+            root_drift_paths.append(str(rel))
         else:
             try:
                 disk_text = normalize_newlines(
@@ -279,12 +290,17 @@ def _validate_file_entry(
                     errors=errors,
                     warnings=warnings,
                     marker_ids=marker_ids,
+                    root_drift_paths=root_drift_paths,
                 )
             if _sha256_text(disk_text) != got_orig:
                 warnings.append(f"On-disk file differs from pack for {rel}")
+                root_drift_paths.append(str(rel))
 
     return _FileValidationResult(
-        errors=errors, warnings=warnings, marker_ids=marker_ids
+        errors=errors,
+        warnings=warnings,
+        marker_ids=marker_ids,
+        root_drift_paths=root_drift_paths,
     )
 
 
@@ -301,7 +317,10 @@ def validate_pack_markdown(
 
     errors: list[str] = []
     warnings: list[str] = []
+    root_drift_paths: list[str] = []
     anchor_owner: dict[str, str] = {}
+    redacted_count = 0
+    safety_skip_count = 0
 
     root_resolved = root.resolve() if root is not None else None
 
@@ -343,8 +362,17 @@ def validate_pack_markdown(
             continue
         errors.extend(f"{scope}: {err}" for err in report.errors)
         warnings.extend(f"{scope}: {w}" for w in report.warnings)
+        root_drift_paths.extend(f"{scope}: {path}" for path in report.root_drift_paths)
+        redacted_count += report.redacted_count
+        safety_skip_count += report.safety_skip_count
 
-    return ValidationReport(errors=errors, warnings=warnings)
+    return ValidationReport(
+        errors=errors,
+        warnings=warnings,
+        root_drift_paths=root_drift_paths,
+        redacted_count=redacted_count,
+        safety_skip_count=safety_skip_count,
+    )
 
 
 def _validate_single_pack_markdown(
@@ -368,10 +396,12 @@ def _validate_single_pack_markdown(
     """
     errors: list[str] = []
     warnings: list[str] = []
+    root_drift_paths: list[str] = []
 
     packed = parse_packed_markdown(markdown_text)
     manifest = packed.manifest
     root_resolved = root.resolve() if root is not None else None
+    redacted_count, safety_skip_count = _scan_safety_header_counts(markdown_text)
 
     manifest_count = _count_manifest_blocks(markdown_text)
     if manifest_count != 1:
@@ -409,6 +439,7 @@ def _validate_single_pack_markdown(
         )
         errors.extend(result.errors)
         warnings.extend(result.warnings)
+        root_drift_paths.extend(result.root_drift_paths)
         rel = str(f.get("path") or "")
         for marker_id in result.marker_ids:
             marker_owners.setdefault(marker_id, set()).add(rel)
@@ -421,7 +452,13 @@ def _validate_single_pack_markdown(
             f"Repo-scope marker collision for {marker_id}: {', '.join(owners)}"
         )
 
-    return ValidationReport(errors=errors, warnings=warnings)
+    return ValidationReport(
+        errors=errors,
+        warnings=warnings,
+        root_drift_paths=sorted(set(root_drift_paths)),
+        redacted_count=redacted_count,
+        safety_skip_count=safety_skip_count,
+    )
 
 
 def _count_manifest_blocks(markdown_text: str) -> int:
@@ -456,6 +493,26 @@ def _count_machine_header_blocks(markdown_text: str) -> int:
         if is_fence_close(line, fence):
             fence = None
     return count
+
+
+def _scan_safety_header_counts(markdown_text: str) -> tuple[int, int]:
+    redacted = 0
+    skipped = 0
+    redacted_match = re.search(
+        r"^Redacted for safety:\s+(\d+) file\(s\)$",
+        markdown_text,
+        flags=re.MULTILINE,
+    )
+    if redacted_match is not None:
+        redacted = int(redacted_match.group(1))
+    skipped_match = re.search(
+        r"^Skipped for safety:\s+(\d+) file\(s\)$",
+        markdown_text,
+        flags=re.MULTILINE,
+    )
+    if skipped_match is not None:
+        skipped = int(skipped_match.group(1))
+    return redacted, skipped
 
 
 def _iter_anchor_ids(markdown_text: str) -> list[str]:

@@ -55,7 +55,10 @@ Pack a repository into ``context.md``:
 .. code-block:: console
 
    codecrate pack /path/to/repo -o context.md
+   codecrate pack /path/to/repo -o context.md --profile agent
    codecrate pack /path/to/repo -o context.md --manifest-json
+   codecrate pack /path/to/repo -o context.md --index-json
+   codecrate pack /path/to/repo -o context.md --include "*.java" --symbol-backend tree-sitter --index-json
 
 Pack multiple repositories into one output root:
 
@@ -66,13 +69,21 @@ Pack multiple repositories into one output root:
 Common options:
 
 * ``--dedupe``: deduplicate identical function bodies (enables stub layout when effective)
+* ``--profile {human,agent,hybrid}``: choose output defaults for human reading or agent tooling
 * ``--layout {auto,stubs,full}``: control output layout
 * ``--manifest/--no-manifest``: include or omit the Manifest section (omit only for LLM-only packs)
-* ``--split-max-chars N``: keep the main output unsplit, and additionally emit ``.partN.md`` files for LLMs
+* ``--split-max-chars N``: emit ``.index.md`` and ``.partN.md`` split outputs for LLMs
+* ``--split-strict``: fail if a logical split block exceeds the requested limit
+* ``--split-allow-cut-files``: explicitly cut oversized file blocks across multiple parts
+  and record part membership in ``index-json`` metadata
 * ``--max-file-bytes`` / ``--max-file-tokens``: skip oversized single files with a warning
 * ``--max-total-bytes`` / ``--max-total-tokens``: fail fast when total included size exceeds budget
 * ``--security-redaction``: mask flagged files instead of skipping
 * ``--safety-report``: include a Safety Report section with reasons
+* ``--index-json [PATH]``: emit a versioned retrieval sidecar for tooling and agents
+  with file, symbol, part, and safety metadata
+* ``--symbol-backend auto|tree-sitter|none``: control non-Python symbol extraction
+  and record requested/used backend metadata in ``index-json`` output
 * ``--stdin`` / ``--stdin0``: pack an explicit file list from stdin
 * ``--print-files`` / ``--print-skipped``: debug selected and skipped files
 * ``--print-rules``: debug-print effective include/exclude/ignore/safety rules
@@ -135,6 +146,8 @@ Validate internal consistency (and optionally compare against a repo on disk):
    codecrate validate-pack context.md
    codecrate validate-pack context.md --root /path/to/repo
    codecrate validate-pack context.md --strict
+   codecrate validate-pack context.md --root /path/to/repo --fail-on-root-drift
+   codecrate validate-pack context.md --fail-on-warning
    codecrate validate-pack context.md --json
 
 

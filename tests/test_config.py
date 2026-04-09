@@ -15,7 +15,10 @@ def test_config_defaults() -> None:
     assert cfg.include == DEFAULT_INCLUDES
     assert cfg.exclude == []
     assert cfg.split_max_chars == 0
+    assert cfg.split_strict is False
+    assert cfg.split_allow_cut_files is False
     assert cfg.manifest is True
+    assert cfg.profile == "human"
     assert cfg.layout == "auto"
     assert cfg.token_count_encoding == "o200k_base"
     assert cfg.token_count_tree is False
@@ -68,10 +71,13 @@ output = "my_context.md"
 keep_docstrings = false
 dedupe = true
 manifest = false
+profile = "agent"
 respect_gitignore = false
 include = ["src/**/*.py"]
 exclude = ["tests/**"]
 split_max_chars = 100000
+split_strict = true
+split_allow_cut_files = true
 """,
         encoding="utf-8",
     )
@@ -81,10 +87,13 @@ split_max_chars = 100000
     assert cfg.keep_docstrings is False
     assert cfg.dedupe is True
     assert cfg.manifest is False
+    assert cfg.profile == "agent"
     assert cfg.respect_gitignore is False
     assert cfg.include == ["src/**/*.py"]
     assert cfg.exclude == ["tests/**"]
     assert cfg.split_max_chars == 100000
+    assert cfg.split_strict is True
+    assert cfg.split_allow_cut_files is True
 
 
 def test_load_config_output_without_suffix_adds_md(tmp_path: Path) -> None:

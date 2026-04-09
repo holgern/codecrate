@@ -41,6 +41,10 @@ class FilePack:
     line_count: int
     classes: list[ClassRef]
     defs: list[DefRef]
+    language_detected: str = "python"
+    symbol_backend_requested: str = "python-ast"
+    symbol_backend_used: str = "python-ast"
+    symbol_extraction_status: str = "ok"
 
 
 @dataclass(frozen=True)

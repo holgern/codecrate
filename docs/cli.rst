@@ -28,8 +28,12 @@ Supported keys include (non-exhaustive):
    include = ["**/*.py", "**/*.toml", "**/*.rst"]
    exclude = ["tests/**"]
    manifest = true
+   profile = "human"
    layout = "auto"
    nav_mode = "auto"
+   split_max_chars = 0
+   split_strict = false
+   split_allow_cut_files = false
    symbol_backend = "auto"
    encoding_errors = "replace"
    security_check = true
@@ -61,7 +65,6 @@ Overview
    codecrate --version
    codecrate pack [ROOT] [--repo REPO ...] [options]
    codecrate unpack PACK.md -o OUT_DIR [--strict]
-   codecrate unpack PACK.md -o OUT_DIR [--strict]
    codecrate patch OLD_PACK.md ROOT [-o patch.md]
    codecrate apply PATCH.md ROOT [--check-baseline|--ignore-baseline]
    codecrate validate-pack PACK.md [--root ROOT] [--strict]
@@ -84,6 +87,7 @@ When using ``--repo``, omit the positional ``ROOT``. Specifying both is an error
 Useful flags:
 
 * ``--dedupe / --no-dedupe``: enable or disable deduplication
+* ``--profile human|agent|hybrid``: choose output defaults profile
 * ``--layout auto|stubs|full``: choose layout (auto selects best token efficiency)
 * ``--nav-mode auto|compact|full``: navigation density; auto uses compact for
   unsplit output and full when split outputs are requested
@@ -113,7 +117,10 @@ Useful flags:
 * ``--print-files``: debug-print selected files after filtering
 * ``--print-skipped``: debug-print skipped files and reasons
 * ``--print-rules``: debug-print effective include/exclude/ignore/safety rules
-* ``--split-max-chars N``: additionally emit ``.partN.md`` files for LLMs
+* ``--split-max-chars N``: additionally emit ``.index.md`` and ``.partN.md`` files for LLMs
+* ``--split-strict / --no-split-strict``: fail instead of writing oversize logical blocks
+* ``--split-allow-cut-files / --no-split-allow-cut-files``: explicitly cut oversized
+  file blocks across multiple part files
 * ``--token-count-tree [threshold]``: show file tree with token counts; optional
   threshold shows only files with >=N tokens (for example,
   ``--token-count-tree 100``)
@@ -127,8 +134,11 @@ Useful flags:
 * ``--max-workers N``: cap thread pool size for IO/parsing/token counting
 * ``--manifest-json [PATH]``: write manifest JSON for tooling (default:
   ``<output>.manifest.json``)
+* ``--index-json [PATH]``: write index JSON for agent/tooling lookup (default:
+  ``<output>.index.json``)
+* ``--no-index-json``: disable index JSON output, including profile-implied defaults
 * ``--encoding-errors replace|strict``: UTF-8 decode policy when reading files
-* ``-o/--output PATH``: output directory (defaults to config ``output`` or ``context``)
+* ``-o/--output PATH``: output markdown path (defaults to config ``output`` or ``context.md``)
 
 ``--stdin`` / ``--stdin0`` notes:
 
@@ -228,6 +238,9 @@ files on disk:
    codecrate validate-pack context.md --root .
 
 Use ``--strict`` to treat unresolved marker mapping as validation errors.
+Use ``--fail-on-warning`` to turn any warning into a non-zero exit.
+Use ``--fail-on-root-drift`` with ``--root`` to fail when disk content differs from the pack.
+Use ``--fail-on-redaction`` or ``--fail-on-safety-skip`` for stricter safety policy enforcement.
 Validation output groups issues by repository section and includes short hints.
 Packs created with ``--no-manifest`` are rejected with a consistent error message.
 Use ``--json`` for machine-readable report output.

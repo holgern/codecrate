@@ -55,13 +55,18 @@ class Config:
     )
     exclude: list[str] = field(default_factory=list)
     split_max_chars: int = 0  # 0 means no splitting
-    # Export layout.
-    export_layout: Literal["monolith", "file"] = "monolith"
+    # Split policy for oversized logical blocks.
+    # By default, oversized file/function blocks stay intact in an oversize part.
     split_strict: bool = False
     split_allow_cut_files: bool = False
     # Emit the `## Manifest` section (required for unpack/patch/validate-pack).
     # Disable only for LLM-only packs to save tokens.
     manifest: bool = True
+    # Output defaults profile.
+    # - "human": preserve current markdown-first behavior
+    # - "agent": emit agent-sidecar defaults and compact navigation
+    # - "hybrid": preserve current markdown behavior but emit index-json by default
+    profile: Literal["human", "agent", "hybrid"] = "human"
     # Output layout:
     # - "stubs": always emit stubbed files + Function Library (current format)
     # - "full":  emit full file contents (no Function Library)
@@ -164,6 +169,11 @@ def load_config(root: Path) -> Config:  # noqa: C901
     )
     man = section.get("manifest", section.get("include_manifest", cfg.manifest))
     cfg.manifest = bool(man)
+    profile = section.get("profile", cfg.profile)
+    if isinstance(profile, str):
+        profile = profile.strip().lower()
+        if profile in {"human", "agent", "hybrid"}:
+            cfg.profile = profile  # type: ignore[assignment]
     layout = section.get("layout", cfg.layout)
     if isinstance(layout, str):
         layout = layout.strip().lower()
@@ -190,12 +200,6 @@ def load_config(root: Path) -> Config:  # noqa: C901
         cfg.split_max_chars = int(split)
     except Exception:
         pass
-
-    export_layout = section.get("export_layout", cfg.export_layout)
-    if isinstance(export_layout, str):
-        export_layout = export_layout.strip().lower()
-        if export_layout in {"monolith", "file"}:
-            cfg.export_layout = export_layout  # type: ignore[assignment]
 
     cfg.split_strict = bool(section.get("split_strict", cfg.split_strict))
     cfg.split_allow_cut_files = bool(

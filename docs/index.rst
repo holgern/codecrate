@@ -21,7 +21,6 @@ It is designed for LLM workflows:
    cli
    format
    api
-   changelog
 
 Indices
 -------
