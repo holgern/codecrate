@@ -34,6 +34,8 @@ Example:
 Installation
 ------------
 
+For agent-oriented usage patterns, see :doc:`agent_workflows`.
+
 From source (recommended while iterating):
 
 .. code-block:: console

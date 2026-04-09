@@ -67,7 +67,7 @@ Overview
    codecrate unpack PACK.md -o OUT_DIR [--strict]
    codecrate patch OLD_PACK.md ROOT [-o patch.md]
    codecrate apply PATCH.md ROOT [--check-baseline|--ignore-baseline]
-   codecrate validate-pack PACK.md [--root ROOT] [--strict]
+   codecrate validate-pack PACK.md [--root ROOT] [--strict] [policy flags]
    codecrate doctor [ROOT]
    codecrate config show [ROOT] [--effective] [--json]
 
@@ -244,6 +244,7 @@ Use ``--fail-on-redaction`` or ``--fail-on-safety-skip`` for stricter safety pol
 Validation output groups issues by repository section and includes short hints.
 Packs created with ``--no-manifest`` are rejected with a consistent error message.
 Use ``--json`` for machine-readable report output.
+For an end-to-end agent-oriented usage guide, see :doc:`agent_workflows`.
 
 
 doctor
