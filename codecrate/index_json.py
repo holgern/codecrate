@@ -7,6 +7,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .formats import INDEX_JSON_FORMAT_VERSION, PACK_FORMAT_VERSION
+from .ids import (
+    ID_FORMAT_VERSION,
+    MACHINE_ID_FORMAT_VERSION,
+    stable_machine_location_id,
+)
 from .markdown import _anchor_for, _fence_lang_for, _file_anchor, _file_src_anchor
 from .token_budget import Part
 from .tokens import approx_token_count
@@ -79,6 +84,39 @@ def _manifest_defs_by_local_id(run: PackRun) -> dict[str, dict[str, Any]]:
     return defs_by_local_id
 
 
+def _strong_id_maps(run: PackRun) -> tuple[dict[str, str], dict[str, str]]:
+    local_machine_ids: dict[str, str] = {}
+    canonical_machine_ids: dict[str, str] = {}
+
+    for defn in sorted(
+        run.pack_result.defs,
+        key=lambda item: (
+            item.path.relative_to(run.pack_result.root).as_posix(),
+            item.def_line,
+            item.qualname,
+            item.local_id,
+        ),
+    ):
+        rel = defn.path.relative_to(run.pack_result.root)
+        machine_id = stable_machine_location_id(rel, defn.qualname, defn.def_line)
+        local_machine_ids[defn.local_id] = machine_id
+        if defn.local_id == defn.id:
+            canonical_machine_ids.setdefault(defn.id, machine_id)
+
+    for defn in run.pack_result.defs:
+        canonical_machine_ids.setdefault(
+            defn.id,
+            local_machine_ids.get(defn.local_id)
+            or stable_machine_location_id(
+                defn.path.relative_to(run.pack_result.root),
+                defn.qualname,
+                defn.def_line,
+            ),
+        )
+
+    return local_machine_ids, canonical_machine_ids
+
+
 def _safety_payload(run: PackRun) -> dict[str, Any]:
     findings = sorted(
         run.safety_findings,
@@ -130,6 +168,13 @@ def _all_repo_file_paths(run: PackRun) -> list[str]:
 def _all_repo_canonical_ids(run: PackRun) -> list[str]:
     if run.effective_layout != "stubs":
         return []
+    _, canonical_machine_ids = _strong_id_maps(run)
+    return sorted(canonical_machine_ids[cid] for cid in sorted(run.canonical_sources))
+
+
+def _all_repo_display_canonical_ids(run: PackRun) -> list[str]:
+    if run.effective_layout != "stubs":
+        return []
     return sorted(run.canonical_sources)
 
 
@@ -140,6 +185,7 @@ def _part_metadata(
     base_dir: Path,
 ) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, str]]:
     parts_in = _sorted_unique_parts(repo_output_parts)
+    _, canonical_machine_ids = _strong_id_maps(run)
     if len(parts_in) == 1 and parts_in[0].kind == "pack":
         part = parts_in[0]
         rel_path = _relative_output_path(part.path, base_dir=base_dir)
@@ -155,6 +201,7 @@ def _part_metadata(
                 "files": list(part.files) or _all_repo_file_paths(run),
                 "canonical_ids": list(part.canonical_ids)
                 or _all_repo_canonical_ids(run),
+                "display_canonical_ids": _all_repo_display_canonical_ids(run),
                 "section_types": list(part.section_types) or ["Pack"],
             },
         }
@@ -183,8 +230,12 @@ def _part_metadata(
             current_part_number = None
         rel_path = _relative_output_path(part.path, base_dir=base_dir)
         files = list(part.files)
-        canonical_ids = list(part.canonical_ids)
+        canonical_ids = [
+            canonical_machine_ids.get(display_id, display_id)
+            for display_id in part.canonical_ids
+        ]
         section_types = list(part.section_types)
+        display_canonical_ids = list(part.canonical_ids)
         parts.append(
             {
                 "part_id": _part_id(
@@ -205,6 +256,7 @@ def _part_metadata(
                 "contains": {
                     "files": files,
                     "canonical_ids": canonical_ids,
+                    "display_canonical_ids": display_canonical_ids,
                     "section_types": section_types,
                 },
             }
@@ -246,6 +298,7 @@ def _file_payload(
 ) -> list[dict[str, Any]]:
     manifest_by_path = _manifest_files_by_path(run)
     safety_by_path = _safety_flags_by_path(run)
+    local_machine_ids, canonical_machine_ids = _strong_id_maps(run)
 
     payload: list[dict[str, Any]] = []
     for file_pack in sorted(
@@ -282,7 +335,21 @@ def _file_payload(
                 "source": _file_src_anchor(rel),
             },
             "symbol_ids": [
+                local_machine_ids[defn.local_id]
+                for defn in sorted(
+                    file_pack.defs,
+                    key=lambda item: (item.def_line, item.qualname, item.local_id),
+                )
+            ],
+            "display_symbol_ids": [
                 defn.local_id
+                for defn in sorted(
+                    file_pack.defs,
+                    key=lambda item: (item.def_line, item.qualname, item.local_id),
+                )
+            ],
+            "symbol_canonical_ids": [
+                canonical_machine_ids[defn.id]
                 for defn in sorted(
                     file_pack.defs,
                     key=lambda item: (item.def_line, item.qualname, item.local_id),
@@ -303,6 +370,7 @@ def _symbol_payload(
     func_to_part: dict[str, str],
 ) -> list[dict[str, Any]]:
     manifest_defs_by_local_id = _manifest_defs_by_local_id(run)
+    local_machine_ids, canonical_machine_ids = _strong_id_maps(run)
 
     symbols: list[dict[str, Any]] = []
     for defn in sorted(
@@ -317,8 +385,10 @@ def _symbol_payload(
         rel = defn.path.relative_to(run.pack_result.root).as_posix()
         manifest_def = manifest_defs_by_local_id.get(defn.local_id, {})
         symbol_entry: dict[str, Any] = {
-            "canonical_id": defn.id,
-            "local_id": defn.local_id,
+            "display_id": defn.id,
+            "canonical_id": canonical_machine_ids[defn.id],
+            "display_local_id": defn.local_id,
+            "local_id": local_machine_ids[defn.local_id],
             "qualname": defn.qualname,
             "kind": defn.kind,
             "path": rel,
@@ -332,7 +402,9 @@ def _symbol_payload(
             "file_anchor": _file_src_anchor(rel),
         }
         if run.effective_layout == "stubs" and defn.id in run.canonical_sources:
-            symbol_entry["canonical_part"] = func_to_part.get(defn.id)
+            symbol_entry["canonical_part"] = func_to_part.get(
+                canonical_machine_ids[defn.id]
+            )
             symbol_entry["canonical_anchor"] = _anchor_for(
                 defn.id,
                 defn.module,
@@ -398,6 +470,8 @@ def build_index_payload(
             "root": ".",
             "is_split": is_split,
             "repository_count": len(pack_runs),
+            "display_id_format_version": ID_FORMAT_VERSION,
+            "canonical_id_format_version": MACHINE_ID_FORMAT_VERSION,
             "profiles": sorted({run.options.profile for run in pack_runs}),
             "output_files": _sort_rel_paths(all_output_files),
         },

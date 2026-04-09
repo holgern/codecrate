@@ -20,6 +20,8 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     assert payload["format"] == "codecrate.index-json.v1"
     assert payload["pack"]["format"] == "codecrate.v4"
     assert payload["pack"]["is_split"] is False
+    assert payload["pack"]["display_id_format_version"] == "sha1-8-upper:v1"
+    assert payload["pack"]["canonical_id_format_version"] == "sha256-64-lower:v1"
     assert payload["pack"]["output_files"] == ["context.md"]
 
     repos = payload["repositories"]
@@ -40,6 +42,7 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
             "contains": {
                 "files": ["a.py"],
                 "canonical_ids": [],
+                "display_canonical_ids": [],
                 "section_types": ["Pack"],
             },
         }
@@ -61,10 +64,19 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     assert files[0]["symbol_extraction_status"] == "ok"
     assert files[0]["anchors"] == {"index": "file-a-py", "source": "src-a-py"}
     assert len(files[0]["symbol_ids"]) == 1
+    assert len(files[0]["display_symbol_ids"]) == 1
+    assert len(files[0]["symbol_canonical_ids"]) == 1
+    assert len(files[0]["symbol_ids"][0]) == 64
+    assert len(files[0]["symbol_canonical_ids"][0]) == 64
+    assert len(files[0]["display_symbol_ids"][0]) == 8
     assert files[0]["part_path"] == "context.md"
 
     symbols = repo["symbols"]
     assert len(symbols) == 1
+    assert symbols[0]["display_id"] == files[0]["display_symbol_ids"][0]
+    assert symbols[0]["canonical_id"] == files[0]["symbol_canonical_ids"][0]
+    assert symbols[0]["display_local_id"] == files[0]["display_symbol_ids"][0]
+    assert symbols[0]["local_id"] == files[0]["symbol_ids"][0]
     assert symbols[0]["qualname"] == "alpha"
     assert symbols[0]["path"] == "a.py"
     assert symbols[0]["has_marker"] is False
@@ -187,6 +199,7 @@ def test_pack_index_json_split_stubs_tracks_canonical_parts(tmp_path: Path) -> N
     assert repo["split_policy"] == "preserve"
     assert repo["layout"] == "stubs"
     assert any(part["contains"]["canonical_ids"] for part in repo["parts"])
+    assert any(part["contains"]["display_canonical_ids"] for part in repo["parts"])
     assert repo["files"][0]["is_stubbed"] is True
     assert repo["files"][0]["sha256_stubbed"]
 
@@ -198,6 +211,8 @@ def test_pack_index_json_split_stubs_tracks_canonical_parts(tmp_path: Path) -> N
         symbol["canonical_part"].startswith("context.part") for symbol in symbols
     )
     assert all(symbol["file_part"].startswith("context.part") for symbol in symbols)
+    assert all(len(symbol["canonical_id"]) == 64 for symbol in symbols)
+    assert all(len(symbol["display_id"]) == 8 for symbol in symbols)
     assert any(part["is_oversized"] for part in repo["parts"] if part["kind"] == "part")
 
 

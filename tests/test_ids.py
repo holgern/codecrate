@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codecrate.ids import stable_body_hash, stable_location_id
+from codecrate.ids import (
+    MACHINE_ID_FORMAT_VERSION,
+    stable_body_hash,
+    stable_location_id,
+    stable_machine_location_id,
+)
 
 
 def test_stable_location_id_basic() -> None:
@@ -60,6 +65,38 @@ def test_stable_location_id_path_normalization() -> None:
     # should help. Let's just verify they're deterministic.
     assert len(id1) == 8
     assert len(id2) == 8
+
+
+def test_stable_machine_location_id_basic() -> None:
+    path = Path("src/module.py")
+
+    id_val = stable_machine_location_id(path, "function_name", 42)
+
+    assert isinstance(id_val, str)
+    assert len(id_val) == 64
+    assert id_val == id_val.lower()
+
+
+def test_stable_machine_location_id_same_input() -> None:
+    path = Path("src/module.py")
+
+    id1 = stable_machine_location_id(path, "function_name", 42)
+    id2 = stable_machine_location_id(path, "function_name", 42)
+
+    assert id1 == id2
+
+
+def test_stable_machine_location_id_uniqueness_smoke() -> None:
+    ids = {
+        stable_machine_location_id(Path(f"src/module_{i % 7}.py"), f"func_{i}", i + 1)
+        for i in range(1000)
+    }
+
+    assert len(ids) == 1000
+
+
+def test_machine_id_format_version_constant() -> None:
+    assert MACHINE_ID_FORMAT_VERSION == "sha256-64-lower:v1"
 
 
 def test_stable_body_hash_basic() -> None:

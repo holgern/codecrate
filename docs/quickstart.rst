@@ -84,6 +84,8 @@ Common options:
   with file, symbol, part, and safety metadata
 * ``--symbol-backend auto|tree-sitter|none``: control non-Python symbol extraction
   and record requested/used backend metadata in ``index-json`` output
+  The sidecar includes short display IDs for markdown references and stronger
+  machine IDs for tool-side caching and lookup.
 * ``--stdin`` / ``--stdin0``: pack an explicit file list from stdin
 * ``--print-files`` / ``--print-skipped``: debug selected and skipped files
 * ``--print-rules``: debug-print effective include/exclude/ignore/safety rules

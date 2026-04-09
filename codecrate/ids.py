@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 
 ID_FORMAT_VERSION = "sha1-8-upper:v1"
+MACHINE_ID_FORMAT_VERSION = "sha256-64-lower:v1"
 MARKER_NAMESPACE = "FUNC"
 MARKER_FORMAT_VERSION = "v1"
 
@@ -12,9 +13,18 @@ def marker_token(def_local_id: str) -> str:
     return f"{MARKER_NAMESPACE}:{MARKER_FORMAT_VERSION}:{def_local_id}"
 
 
+def _stable_location_payload(path: Path, qualname: str, lineno: int) -> bytes:
+    return f"{path.as_posix()}::{qualname}::{lineno}".encode()
+
+
 def stable_location_id(path: Path, qualname: str, lineno: int) -> str:
-    payload = f"{path.as_posix()}::{qualname}::{lineno}".encode()
+    payload = _stable_location_payload(path, qualname, lineno)
     return hashlib.sha1(payload).hexdigest()[:8].upper()
+
+
+def stable_machine_location_id(path: Path, qualname: str, lineno: int) -> str:
+    payload = _stable_location_payload(path, qualname, lineno)
+    return hashlib.sha256(payload).hexdigest()
 
 
 def stable_body_hash(code: str) -> str:

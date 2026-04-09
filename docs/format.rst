@@ -64,6 +64,12 @@ For non-Python files, the index sidecar reports:
 This makes it explicit whether symbol extraction was unavailable, disabled,
 unsupported for the file type, or completed successfully.
 
+The index sidecar also separates human-facing and machine-facing identifiers:
+
+* ``display_id`` / ``display_local_id`` keep the current short pack IDs used by markdown anchors
+* ``canonical_id`` / ``local_id`` use stronger SHA-256 based machine IDs for tooling
+* ``display_id_format_version`` and ``canonical_id_format_version`` record both schemes explicitly
+
 Machine Header includes:
 
 * ``format``
