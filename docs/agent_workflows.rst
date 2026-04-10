@@ -81,6 +81,9 @@ The sidecar includes:
 * file-to-part lookup
 * symbol-to-file lookup
 * symbol-to-canonical-body lookup in stub layout
+* direct href-style navigation fields
+* reverse lookup indexes
+* unsplit markdown line ranges for review-oriented jumps
 * safety findings
 * language and backend reporting
 * short display IDs and stronger machine IDs
@@ -109,8 +112,10 @@ Then inspect ``repositories[].files[]`` for:
 
 * ``path``
 * ``part_path``
+* ``hrefs.index`` / ``hrefs.source``
 * ``anchors.index``
 * ``anchors.source``
+* ``markdown_lines`` on unsplit packs
 
 Locate a symbol and its canonical body in stub layout:
 
@@ -123,9 +128,21 @@ Then inspect ``repositories[].symbols[]`` for:
 * ``display_id`` / ``display_local_id``
 * ``canonical_id`` / ``local_id``
 * ``file_part``
+* ``file_href``
 * ``file_anchor``
 * ``canonical_part``
+* ``canonical_href``
 * ``canonical_anchor``
+* ``index_markdown_lines`` on unsplit packs
+* ``canonical_markdown_lines`` on unsplit stub packs
+
+If you need explicit reverse indexes instead of scanning arrays, inspect
+``repositories[].lookup`` for:
+
+* ``symbols_by_file``
+* ``display_symbols_by_file``
+* ``file_by_symbol``
+* ``file_by_display_symbol``
 
 
 Understand Split Output
@@ -162,6 +179,11 @@ Then inspect ``repositories[].parts[]`` for:
 * ``is_oversized``
 * ``contains.files``
 * ``contains.canonical_ids``
+
+For review-oriented tooling, per-file entries also include packed size metadata:
+
+* ``sizes.original``
+* ``sizes.effective``
 
 
 Check Safety And Trust Signals

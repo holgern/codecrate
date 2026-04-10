@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -20,12 +21,30 @@ if TYPE_CHECKING:
     from .cli import PackRun
 
 
+_FILE_HEADING_RE = re.compile(r"^### `([^`]+)`")
+_FUNCTION_LIBRARY_HEADING_RE = re.compile(r"^### ([0-9A-F]{8})\s*$")
+_FUNC_ANCHOR_RE = re.compile(r'^<a id="func-([0-9a-f]{8})"></a>\s*$')
+
+
 def _relative_output_path(path: Path, *, base_dir: Path) -> str:
     return Path(os.path.relpath(path.resolve(), base_dir.resolve())).as_posix()
 
 
 def _sort_rel_paths(paths: Iterable[str]) -> list[str]:
     return sorted(set(paths), key=lambda item: (item.lower(), item))
+
+
+def _href(path: str | None, anchor: str | None) -> str | None:
+    if not path or not anchor:
+        return None
+    return f"{path}#{anchor}"
+
+
+def _line_range(start_line: int, end_line: int) -> dict[str, int]:
+    return {
+        "start_line": start_line,
+        "end_line": end_line,
+    }
 
 
 def _sorted_unique_parts(parts: list[Part]) -> list[Part]:
@@ -115,6 +134,205 @@ def _strong_id_maps(run: PackRun) -> tuple[dict[str, str], dict[str, str]]:
         )
 
     return local_machine_ids, canonical_machine_ids
+
+
+def _repo_scope(markdown_text: str, label: str) -> tuple[list[str], int, int]:
+    lines = markdown_text.splitlines()
+    header = f"# Repository: {label}"
+    start_idx: int | None = None
+    next_start_idx: int | None = None
+
+    for idx, line in enumerate(lines):
+        if line == header:
+            start_idx = idx + 1
+            continue
+        if start_idx is not None and line.startswith("# Repository:"):
+            next_start_idx = idx
+            break
+
+    if start_idx is None:
+        return lines, 0, len(lines)
+
+    while start_idx < len(lines) and not lines[start_idx].strip():
+        start_idx += 1
+    return (
+        lines,
+        start_idx,
+        next_start_idx if next_start_idx is not None else len(lines),
+    )
+
+
+def _section_bounds(
+    lines: list[str],
+    *,
+    scope_start: int,
+    scope_end: int,
+    heading: str,
+) -> tuple[int, int] | None:
+    section_start: int | None = None
+    for idx in range(scope_start, scope_end):
+        if lines[idx] == heading:
+            section_start = idx
+            break
+    if section_start is None:
+        return None
+
+    section_end = scope_end
+    for idx in range(section_start + 1, scope_end):
+        if lines[idx].startswith("## "):
+            section_end = idx
+            break
+    return section_start, section_end
+
+
+def _file_markdown_ranges(
+    lines: list[str], *, scope_start: int, scope_end: int
+) -> dict[str, dict[str, int]]:
+    bounds = _section_bounds(
+        lines,
+        scope_start=scope_start,
+        scope_end=scope_end,
+        heading="## Files",
+    )
+    if bounds is None:
+        return {}
+
+    start, end = bounds
+    ranges: dict[str, dict[str, int]] = {}
+    current_file: str | None = None
+    current_start: int | None = None
+    for idx in range(start + 1, end):
+        match = _FILE_HEADING_RE.match(lines[idx])
+        if not match:
+            continue
+        if current_file is not None and current_start is not None:
+            ranges[current_file] = _line_range(current_start, idx)
+        current_file = match.group(1)
+        current_start = idx + 1
+
+    if current_file is not None and current_start is not None:
+        ranges[current_file] = _line_range(current_start, end)
+    return ranges
+
+
+def _canonical_markdown_ranges(
+    lines: list[str], *, scope_start: int, scope_end: int
+) -> dict[str, dict[str, int]]:
+    bounds = _section_bounds(
+        lines,
+        scope_start=scope_start,
+        scope_end=scope_end,
+        heading="## Function Library",
+    )
+    if bounds is None:
+        return {}
+
+    start, end = bounds
+    ranges: dict[str, dict[str, int]] = {}
+    pending_anchor_start: int | None = None
+    current_display_id: str | None = None
+    current_start: int | None = None
+    for idx in range(start + 1, end):
+        anchor_match = _FUNC_ANCHOR_RE.match(lines[idx])
+        if anchor_match:
+            pending_anchor_start = idx + 1
+            continue
+        heading_match = _FUNCTION_LIBRARY_HEADING_RE.match(lines[idx])
+        if not heading_match:
+            continue
+        if current_display_id is not None and current_start is not None:
+            ranges[current_display_id] = _line_range(current_start, idx)
+        current_display_id = heading_match.group(1)
+        current_start = pending_anchor_start or idx + 1
+        pending_anchor_start = None
+
+    if current_display_id is not None and current_start is not None:
+        ranges[current_display_id] = _line_range(current_start, end)
+    return ranges
+
+
+def _symbol_index_ranges(
+    run: PackRun,
+    lines: list[str],
+    *,
+    scope_start: int,
+    scope_end: int,
+) -> dict[str, dict[str, int]]:
+    bounds = _section_bounds(
+        lines,
+        scope_start=scope_start,
+        scope_end=scope_end,
+        heading="## Symbol Index",
+    )
+    if bounds is None:
+        return {}
+
+    defs_by_file: dict[str, list[str]] = {}
+    for file_pack in sorted(
+        run.pack_result.files,
+        key=lambda item: item.path.relative_to(run.pack_result.root).as_posix(),
+    ):
+        rel = file_pack.path.relative_to(run.pack_result.root).as_posix()
+        defs_by_file[rel] = [
+            defn.local_id
+            for defn in sorted(
+                file_pack.defs,
+                key=lambda item: (item.def_line, item.qualname, item.local_id),
+            )
+        ]
+
+    start, end = bounds
+    current_file: str | None = None
+    current_index = 0
+    ranges: dict[str, dict[str, int]] = {}
+    for idx in range(start + 1, end):
+        file_match = _FILE_HEADING_RE.match(lines[idx])
+        if file_match:
+            current_file = file_match.group(1)
+            current_index = 0
+            continue
+        if current_file is None or not lines[idx].startswith("- `"):
+            continue
+        if lines[idx].startswith("- `class "):
+            continue
+        defs = defs_by_file.get(current_file, [])
+        if current_index >= len(defs):
+            continue
+        ranges[defs[current_index]] = _line_range(idx + 1, idx + 1)
+        current_index += 1
+
+    return ranges
+
+
+def _unsplit_markdown_metadata(
+    run: PackRun,
+    *,
+    repo_output_parts: list[Part],
+    base_dir: Path,
+) -> tuple[
+    str | None,
+    dict[str, dict[str, int]],
+    dict[str, dict[str, int]],
+    dict[str, dict[str, int]],
+]:
+    parts_in = _sorted_unique_parts(repo_output_parts)
+    if len(parts_in) != 1 or parts_in[0].kind != "pack":
+        return None, {}, {}, {}
+
+    part = parts_in[0]
+    markdown_path = _relative_output_path(part.path, base_dir=base_dir)
+    lines, scope_start, scope_end = _repo_scope(part.content, run.label)
+    return (
+        markdown_path,
+        _file_markdown_ranges(lines, scope_start=scope_start, scope_end=scope_end),
+        _symbol_index_ranges(
+            run,
+            lines,
+            scope_start=scope_start,
+            scope_end=scope_end,
+        ),
+        _canonical_markdown_ranges(lines, scope_start=scope_start, scope_end=scope_end),
+    )
 
 
 def _safety_payload(run: PackRun) -> dict[str, Any]:
@@ -295,6 +513,8 @@ def _file_payload(
     run: PackRun,
     *,
     file_to_part: dict[str, str],
+    markdown_path: str | None,
+    file_markdown_ranges: dict[str, dict[str, int]],
 ) -> list[dict[str, Any]]:
     manifest_by_path = _manifest_files_by_path(run)
     safety_by_path = _safety_flags_by_path(run)
@@ -330,9 +550,39 @@ def _file_payload(
             "symbol_backend_used": file_pack.symbol_backend_used,
             "symbol_extraction_status": file_pack.symbol_extraction_status,
             "part_path": file_to_part.get(rel),
+            "hrefs": {
+                "index": _href(file_to_part.get(rel), _file_anchor(rel)),
+                "source": _href(file_to_part.get(rel), _file_src_anchor(rel)),
+            },
             "anchors": {
                 "index": _file_anchor(rel),
                 "source": _file_src_anchor(rel),
+            },
+            "sizes": {
+                "original": {
+                    "chars": len(file_pack.original_text),
+                    "bytes": len(file_pack.original_text.encode("utf-8")),
+                    "token_estimate": approx_token_count(file_pack.original_text),
+                },
+                "effective": {
+                    "chars": len(
+                        file_pack.stubbed_text
+                        if run.effective_layout == "stubs"
+                        else file_pack.original_text
+                    ),
+                    "bytes": len(
+                        (
+                            file_pack.stubbed_text
+                            if run.effective_layout == "stubs"
+                            else file_pack.original_text
+                        ).encode("utf-8")
+                    ),
+                    "token_estimate": approx_token_count(
+                        file_pack.stubbed_text
+                        if run.effective_layout == "stubs"
+                        else file_pack.original_text
+                    ),
+                },
             },
             "symbol_ids": [
                 local_machine_ids[defn.local_id]
@@ -356,6 +606,9 @@ def _file_payload(
                 )
             ],
         }
+        if markdown_path is not None and rel in file_markdown_ranges:
+            file_entry["markdown_path"] = markdown_path
+            file_entry["markdown_lines"] = file_markdown_ranges[rel]
         sha256_stubbed = manifest_entry.get("sha256_stubbed")
         if isinstance(sha256_stubbed, str) and sha256_stubbed:
             file_entry["sha256_stubbed"] = sha256_stubbed
@@ -368,6 +621,10 @@ def _symbol_payload(
     *,
     file_to_part: dict[str, str],
     func_to_part: dict[str, str],
+    markdown_path: str | None,
+    file_markdown_ranges: dict[str, dict[str, int]],
+    symbol_index_ranges: dict[str, dict[str, int]],
+    canonical_markdown_ranges: dict[str, dict[str, int]],
 ) -> list[dict[str, Any]]:
     manifest_defs_by_local_id = _manifest_defs_by_local_id(run)
     local_machine_ids, canonical_machine_ids = _strong_id_maps(run)
@@ -399,8 +656,18 @@ def _symbol_payload(
             "has_marker": bool(manifest_def.get("has_marker", False)),
             "is_deduped": defn.id != defn.local_id,
             "file_part": file_to_part.get(rel),
+            "file_href": _href(file_to_part.get(rel), _file_src_anchor(rel)),
             "file_anchor": _file_src_anchor(rel),
         }
+        if markdown_path is not None:
+            if defn.local_id in symbol_index_ranges:
+                symbol_entry["index_markdown_path"] = markdown_path
+                symbol_entry["index_markdown_lines"] = symbol_index_ranges[
+                    defn.local_id
+                ]
+            if rel in file_markdown_ranges:
+                symbol_entry["file_markdown_path"] = markdown_path
+                symbol_entry["file_markdown_lines"] = file_markdown_ranges[rel]
         if run.effective_layout == "stubs" and defn.id in run.canonical_sources:
             symbol_entry["canonical_part"] = func_to_part.get(
                 canonical_machine_ids[defn.id]
@@ -410,8 +677,50 @@ def _symbol_payload(
                 defn.module,
                 defn.qualname,
             )
+            symbol_entry["canonical_href"] = _href(
+                func_to_part.get(canonical_machine_ids[defn.id]),
+                _anchor_for(defn.id, defn.module, defn.qualname),
+            )
+            if markdown_path is not None and defn.id in canonical_markdown_ranges:
+                symbol_entry["canonical_markdown_path"] = markdown_path
+                symbol_entry["canonical_markdown_lines"] = canonical_markdown_ranges[
+                    defn.id
+                ]
         symbols.append(symbol_entry)
     return symbols
+
+
+def _lookup_indexes(
+    files_payload: list[dict[str, Any]],
+    symbols_payload: list[dict[str, Any]],
+) -> dict[str, Any]:
+    symbols_by_file: dict[str, list[str]] = {}
+    display_symbols_by_file: dict[str, list[str]] = {}
+    file_by_symbol: dict[str, str] = {}
+    file_by_display_symbol: dict[str, str] = {}
+
+    for file_entry in files_payload:
+        path = str(file_entry.get("path") or "")
+        if not path:
+            continue
+        symbols_by_file[path] = list(file_entry.get("symbol_ids") or [])
+        display_symbols_by_file[path] = list(file_entry.get("display_symbol_ids") or [])
+
+    for symbol_entry in symbols_payload:
+        path = str(symbol_entry.get("path") or "")
+        local_id = str(symbol_entry.get("local_id") or "")
+        display_local_id = str(symbol_entry.get("display_local_id") or "")
+        if path and local_id:
+            file_by_symbol[local_id] = path
+        if path and display_local_id:
+            file_by_display_symbol[display_local_id] = path
+
+    return {
+        "symbols_by_file": symbols_by_file,
+        "display_symbols_by_file": display_symbols_by_file,
+        "file_by_symbol": file_by_symbol,
+        "file_by_display_symbol": file_by_display_symbol,
+    }
 
 
 def build_index_payload(
@@ -428,13 +737,38 @@ def build_index_payload(
     all_output_files: list[str] = []
     for run in pack_runs:
         parts_input = repo_output_parts.get(run.slug, [])
+        (
+            markdown_path,
+            file_markdown_ranges,
+            symbol_index_ranges,
+            canonical_markdown_ranges,
+        ) = _unsplit_markdown_metadata(
+            run,
+            repo_output_parts=parts_input,
+            base_dir=base_dir,
+        )
         parts, file_to_part, func_to_part = _part_metadata(
             run,
             repo_output_parts=parts_input,
             base_dir=base_dir,
         )
         all_output_files.extend(part["path"] for part in parts)
-        markdown_path = parts[0]["path"] if len(parts) == 1 else None
+        repo_markdown_path = parts[0]["path"] if len(parts) == 1 else None
+        files_payload = _file_payload(
+            run,
+            file_to_part=file_to_part,
+            markdown_path=markdown_path,
+            file_markdown_ranges=file_markdown_ranges,
+        )
+        symbols_payload = _symbol_payload(
+            run,
+            file_to_part=file_to_part,
+            func_to_part=func_to_part,
+            markdown_path=markdown_path,
+            file_markdown_ranges=file_markdown_ranges,
+            symbol_index_ranges=symbol_index_ranges,
+            canonical_markdown_ranges=canonical_markdown_ranges,
+        )
         repositories.append(
             {
                 "label": run.label,
@@ -444,18 +778,12 @@ def build_index_payload(
                 "layout": run.effective_layout,
                 "contains_manifest": run.options.include_manifest,
                 "manifest_sha256": run.manifest_sha256,
-                "markdown_path": markdown_path,
+                "markdown_path": repo_markdown_path,
                 "parts": parts,
                 "safety": _safety_payload(run),
-                "files": _file_payload(
-                    run,
-                    file_to_part=file_to_part,
-                ),
-                "symbols": _symbol_payload(
-                    run,
-                    file_to_part=file_to_part,
-                    func_to_part=func_to_part,
-                ),
+                "files": files_payload,
+                "symbols": symbols_payload,
+                "lookup": _lookup_indexes(files_payload, symbols_payload),
             }
         )
 

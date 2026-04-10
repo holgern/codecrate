@@ -62,7 +62,15 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     assert files[0]["symbol_backend_requested"] == "python-ast"
     assert files[0]["symbol_backend_used"] == "python-ast"
     assert files[0]["symbol_extraction_status"] == "ok"
+    assert files[0]["hrefs"] == {
+        "index": "context.md#file-a-py",
+        "source": "context.md#src-a-py",
+    }
     assert files[0]["anchors"] == {"index": "file-a-py", "source": "src-a-py"}
+    assert files[0]["sizes"]["original"]["chars"] > 0
+    assert files[0]["sizes"]["original"]["bytes"] > 0
+    assert files[0]["sizes"]["original"]["token_estimate"] > 0
+    assert files[0]["sizes"]["effective"]["chars"] > 0
     assert len(files[0]["symbol_ids"]) == 1
     assert len(files[0]["display_symbol_ids"]) == 1
     assert len(files[0]["symbol_canonical_ids"]) == 1
@@ -70,6 +78,11 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     assert len(files[0]["symbol_canonical_ids"][0]) == 64
     assert len(files[0]["display_symbol_ids"][0]) == 8
     assert files[0]["part_path"] == "context.md"
+    assert files[0]["markdown_path"] == "context.md"
+    assert (
+        files[0]["markdown_lines"]["start_line"]
+        < files[0]["markdown_lines"]["end_line"]
+    )
 
     symbols = repo["symbols"]
     assert len(symbols) == 1
@@ -81,9 +94,22 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     assert symbols[0]["path"] == "a.py"
     assert symbols[0]["has_marker"] is False
     assert symbols[0]["is_deduped"] is False
+    assert symbols[0]["file_href"] == "context.md#src-a-py"
     assert symbols[0]["file_anchor"] == "src-a-py"
     assert symbols[0]["file_part"] == "context.md"
+    assert symbols[0]["index_markdown_path"] == "context.md"
+    assert symbols[0]["index_markdown_lines"]["start_line"] > 0
+    assert symbols[0]["file_markdown_path"] == "context.md"
     assert "canonical_part" not in symbols[0]
+
+    assert repo["lookup"]["symbols_by_file"] == {"a.py": files[0]["symbol_ids"]}
+    assert repo["lookup"]["display_symbols_by_file"] == {
+        "a.py": files[0]["display_symbol_ids"]
+    }
+    assert repo["lookup"]["file_by_symbol"] == {files[0]["symbol_ids"][0]: "a.py"}
+    assert repo["lookup"]["file_by_display_symbol"] == {
+        files[0]["display_symbol_ids"][0]: "a.py"
+    }
 
 
 def test_pack_index_json_explicit_path_multi_repo(tmp_path: Path) -> None:
@@ -161,7 +187,9 @@ def test_pack_index_json_includes_split_output_paths(tmp_path: Path) -> None:
     assert any(part["kind"] == "index" for part in repo["parts"])
     assert any(part["kind"] == "part" for part in repo["parts"])
     assert repo["files"][0]["part_path"].startswith("context.part")
+    assert repo["files"][0]["hrefs"]["source"].startswith("context.part")
     assert repo["symbols"][0]["file_part"].startswith("context.part")
+    assert repo["symbols"][0]["file_href"].startswith("context.part")
     assert any(
         part["contains"]["files"] for part in repo["parts"] if part["kind"] == "part"
     )
@@ -210,10 +238,44 @@ def test_pack_index_json_split_stubs_tracks_canonical_parts(tmp_path: Path) -> N
     assert all(
         symbol["canonical_part"].startswith("context.part") for symbol in symbols
     )
+    assert all(
+        symbol["canonical_href"].startswith("context.part") for symbol in symbols
+    )
     assert all(symbol["file_part"].startswith("context.part") for symbol in symbols)
     assert all(len(symbol["canonical_id"]) == 64 for symbol in symbols)
     assert all(len(symbol["display_id"]) == 8 for symbol in symbols)
+    assert all("canonical_markdown_path" not in symbol for symbol in symbols)
+    assert all("canonical_markdown_lines" not in symbol for symbol in symbols)
     assert any(part["is_oversized"] for part in repo["parts"] if part["kind"] == "part")
+
+
+def test_pack_index_json_unsplit_stubs_include_canonical_markdown_lines(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text(
+        "def alpha():\n    return 1\n\ndef beta():\n    return 2\n",
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(out_path),
+            "--layout",
+            "stubs",
+            "--index-json",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    symbols = payload["repositories"][0]["symbols"]
+    assert all(symbol["canonical_markdown_path"] == "context.md" for symbol in symbols)
+    assert all(
+        symbol["canonical_markdown_lines"]["start_line"] > 0 for symbol in symbols
+    )
 
 
 def test_pack_index_json_reports_non_python_backend_metadata(

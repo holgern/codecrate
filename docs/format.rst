@@ -46,6 +46,9 @@ The index sidecar includes deterministic per-repository metadata for:
 * emitted markdown part files
 * file-to-part lookup
 * symbol-to-file and symbol-to-canonical-body lookup
+* direct href-style links for file and symbol navigation
+* unsplit markdown line ranges for file sections, symbol index entries, and canonical bodies
+* explicit reverse lookup indexes for files and symbols
 * part character and token estimates
 * part oversize status and effective split policy
 * safety findings
@@ -69,6 +72,9 @@ The index sidecar also separates human-facing and machine-facing identifiers:
 * ``display_id`` / ``display_local_id`` keep the current short pack IDs used by markdown anchors
 * ``canonical_id`` / ``local_id`` use stronger SHA-256 based machine IDs for tooling
 * ``display_id_format_version`` and ``canonical_id_format_version`` record both schemes explicitly
+
+Per-file entries also include lightweight review metadata such as byte, character,
+and token estimates for both original and effective packed content.
 
 Machine Header includes:
 
