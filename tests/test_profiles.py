@@ -27,7 +27,9 @@ def test_pack_profile_agent_implies_compact_nav_and_index_json(tmp_path: Path) -
     main(["pack", str(tmp_path), "-o", str(out_path), "--profile", "agent"])
 
     text = out_path.read_text(encoding="utf-8")
-    assert '<a id="src-' not in text
+    assert '<a id="src-' in text
+    assert '<a id="file-' in text
+    assert "— [jump](#src-" not in text
     assert "[jump to index](#file-" not in text
     assert (tmp_path / "context.index.json").exists()
 

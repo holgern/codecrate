@@ -61,6 +61,7 @@ Use The Index Sidecar
 ---------------------
 
 ``codecrate.index-json.v1`` is the main retrieval sidecar for tools and agents.
+See :doc:`index_json` for the full sidecar contract and field guide.
 
 Generate it directly:
 

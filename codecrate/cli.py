@@ -24,7 +24,6 @@ from .config import (
     INCLUDE_PRESETS,
     PYPROJECT_FILENAME,
     Config,
-    include_patterns_for_preset,
     load_config,
 )
 from .diffgen import generate_patch_markdown
@@ -37,8 +36,9 @@ from .formats import (
 )
 from .index_json import build_index_payload, write_index_json
 from .manifest import manifest_sha256, to_manifest
-from .markdown import render_markdown
-from .model import PackResult
+from .markdown import render_markdown_result
+from .options import PackOptions, resolve_encoding_errors, resolve_pack_options
+from .output_model import PackRun
 from .packer import pack_repo
 from .repositories import (
     select_repository_section,
@@ -566,74 +566,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     return p
 
-
-@dataclass(frozen=True)
-class PackOptions:
-    include: list[str] | None
-    include_source: str
-    exclude: list[str] | None
-    keep_docstrings: bool
-    profile: str
-    include_manifest: bool
-    index_json_enabled: bool
-    respect_gitignore: bool
-    security_check: bool
-    security_content_sniff: bool
-    security_redaction: bool
-    safety_report: bool
-    security_path_patterns: list[str]
-    security_path_patterns_add: list[str]
-    security_path_patterns_remove: list[str]
-    security_content_patterns: list[str]
-    dedupe: bool
-    split_max_chars: int
-    split_strict: bool
-    split_allow_cut_files: bool
-    layout: str
-    nav_mode: str
-    symbol_backend: str
-    encoding_errors: str
-
-    # CLI-only diagnostics
-    token_report: bool
-    token_count_tree: bool
-    token_count_tree_threshold: int
-    top_files_len: int
-    token_count_encoding: str
-    file_summary: bool
-    max_file_bytes: int
-    max_total_bytes: int
-    max_file_tokens: int
-    max_total_tokens: int
-    max_workers: int
-
-
-@dataclass(frozen=True)
-class PackRun:
-    root: Path
-    label: str
-    slug: str
-    markdown: str
-    pack_result: PackResult
-    canonical_sources: dict[str, str]
-    options: PackOptions
-    default_output: Path
-    file_count: int
-    skipped_for_safety_count: int
-    redacted_for_safety_count: int
-    safety_findings: list[SafetyFinding]
-
-    # Token diagnostics (optional)
-    effective_layout: str
-    output_tokens: int
-    total_file_tokens: int
-    file_tokens: dict[str, int]
-    file_bytes: dict[str, int]
-    token_backend: str
-    manifest: dict[str, object]
-    manifest_sha256: str
-
-
 @dataclass(frozen=True)
 class _MeasuredFile:
     path: Path
@@ -641,237 +573,6 @@ class _MeasuredFile:
     text: str
     size_bytes: int
     is_binary: bool = False
-
-
-def _resolve_encoding_errors(cfg: Config, cli_value: str | None) -> str:
-    if cli_value is not None:
-        value = str(cli_value).strip().lower()
-    else:
-        value = str(getattr(cfg, "encoding_errors", "replace")).strip().lower()
-    return value if value in {"replace", "strict"} else "replace"
-
-
-def _resolve_profile(cfg: Config, cli_value: str | None) -> str:
-    value = (
-        cli_value if cli_value is not None else str(getattr(cfg, "profile", "human"))
-    )
-    norm = str(value).strip().lower()
-    return norm if norm in {"human", "agent", "hybrid"} else "human"
-
-
-def _resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
-    if args.index_json is not None and bool(getattr(args, "no_index_json", False)):
-        raise ValueError("cannot combine --index-json with --no-index-json")
-
-    profile = _resolve_profile(cfg, args.profile)
-    if args.include is not None:
-        include = args.include
-        include_source = "cli --include"
-    elif args.include_preset is not None:
-        include = include_patterns_for_preset(str(args.include_preset))
-        include_source = f"cli --include-preset={args.include_preset}"
-    else:
-        include = cfg.include
-        include_source = f"config include/include_preset={cfg.include_preset}"
-    exclude = args.exclude if args.exclude is not None else cfg.exclude
-    keep_docstrings = (
-        cfg.keep_docstrings
-        if args.keep_docstrings is None
-        else bool(args.keep_docstrings)
-    )
-    if args.manifest is None:
-        include_manifest = cfg.manifest if profile == "human" else True
-    else:
-        include_manifest = bool(args.manifest)
-    if args.index_json is not None:
-        index_json_enabled = True
-    elif bool(getattr(args, "no_index_json", False)):
-        index_json_enabled = False
-    else:
-        index_json_enabled = profile in {"agent", "hybrid"}
-    respect_gitignore = (
-        cfg.respect_gitignore
-        if args.respect_gitignore is None
-        else bool(args.respect_gitignore)
-    )
-    security_check = (
-        bool(getattr(cfg, "security_check", True))
-        if args.security_check is None
-        else bool(args.security_check)
-    )
-    security_content_sniff = (
-        bool(getattr(cfg, "security_content_sniff", False))
-        if args.security_content_sniff is None
-        else bool(args.security_content_sniff)
-    )
-    security_redaction = (
-        bool(getattr(cfg, "security_redaction", False))
-        if args.security_redaction is None
-        else bool(args.security_redaction)
-    )
-    safety_report = (
-        bool(getattr(cfg, "safety_report", False))
-        if args.safety_report is None
-        else bool(args.safety_report)
-    )
-    security_path_patterns = (
-        list(getattr(cfg, "security_path_patterns", []))
-        if args.security_path_pattern is None
-        else [str(p) for p in args.security_path_pattern]
-    )
-    security_path_patterns_add = (
-        list(getattr(cfg, "security_path_patterns_add", []))
-        if args.security_path_pattern_add is None
-        else [str(p) for p in args.security_path_pattern_add]
-    )
-    security_path_patterns_remove = (
-        list(getattr(cfg, "security_path_patterns_remove", []))
-        if args.security_path_pattern_remove is None
-        else [str(p) for p in args.security_path_pattern_remove]
-    )
-    security_content_patterns = (
-        list(getattr(cfg, "security_content_patterns", []))
-        if args.security_content_pattern is None
-        else [str(p) for p in args.security_content_pattern]
-    )
-    dedupe = bool(cfg.dedupe) if args.dedupe is None else bool(args.dedupe)
-    split_max_chars = (
-        cfg.split_max_chars
-        if args.split_max_chars is None
-        else int(args.split_max_chars or 0)
-    )
-    split_strict = (
-        bool(getattr(cfg, "split_strict", False))
-        if args.split_strict is None
-        else bool(args.split_strict)
-    )
-    split_allow_cut_files = (
-        bool(getattr(cfg, "split_allow_cut_files", False))
-        if args.split_allow_cut_files is None
-        else bool(args.split_allow_cut_files)
-    )
-    layout = (
-        str(args.layout).strip().lower()
-        if args.layout is not None
-        else str(getattr(cfg, "layout", "auto")).strip().lower()
-    )
-    nav_mode = (
-        str(args.nav_mode).strip().lower()
-        if args.nav_mode is not None
-        else (
-            "compact"
-            if profile == "agent"
-            else str(getattr(cfg, "nav_mode", "auto")).strip().lower()
-        )
-    )
-    symbol_backend = (
-        str(args.symbol_backend).strip().lower()
-        if args.symbol_backend is not None
-        else str(getattr(cfg, "symbol_backend", "auto")).strip().lower()
-    )
-    encoding_errors = _resolve_encoding_errors(cfg, args.encoding_errors)
-
-    # Token diagnostics (CLI-only)
-    token_count_encoding = (
-        str(args.token_count_encoding).strip()
-        if args.token_count_encoding is not None
-        else str(getattr(cfg, "token_count_encoding", "o200k_base")).strip()
-    ) or "o200k_base"
-
-    cfg_tree = bool(getattr(cfg, "token_count_tree", False))
-    cfg_thr = int(getattr(cfg, "token_count_tree_threshold", 0) or 0)
-    cfg_top = int(getattr(cfg, "top_files_len", 5) or 5)
-
-    token_count_tree = cfg_tree
-    token_count_tree_threshold = cfg_thr
-    if args.token_count_tree is not None:
-        token_count_tree = True
-        raw = str(args.token_count_tree).strip()
-        if raw and raw != "-1":
-            try:
-                token_count_tree_threshold = int(raw)
-            except Exception:
-                token_count_tree_threshold = cfg_thr
-
-    top_files_len = cfg_top
-    if args.top_files_len is not None:
-        top_files_len = int(args.top_files_len)
-
-    token_report = bool(
-        token_count_tree
-        or args.top_files_len is not None
-        or args.token_count_encoding is not None
-    )
-    file_summary = (
-        bool(getattr(cfg, "file_summary", True))
-        if args.file_summary is None
-        else bool(args.file_summary)
-    )
-
-    max_file_bytes = (
-        int(getattr(cfg, "max_file_bytes", 0) or 0)
-        if args.max_file_bytes is None
-        else int(args.max_file_bytes or 0)
-    )
-    max_total_bytes = (
-        int(getattr(cfg, "max_total_bytes", 0) or 0)
-        if args.max_total_bytes is None
-        else int(args.max_total_bytes or 0)
-    )
-    max_file_tokens = (
-        int(getattr(cfg, "max_file_tokens", 0) or 0)
-        if args.max_file_tokens is None
-        else int(args.max_file_tokens or 0)
-    )
-    max_total_tokens = (
-        int(getattr(cfg, "max_total_tokens", 0) or 0)
-        if args.max_total_tokens is None
-        else int(args.max_total_tokens or 0)
-    )
-    max_workers = (
-        int(getattr(cfg, "max_workers", 0) or 0)
-        if args.max_workers is None
-        else int(args.max_workers or 0)
-    )
-
-    return PackOptions(
-        include=include,
-        include_source=include_source,
-        exclude=exclude,
-        keep_docstrings=keep_docstrings,
-        profile=profile,
-        include_manifest=include_manifest,
-        index_json_enabled=index_json_enabled,
-        respect_gitignore=respect_gitignore,
-        security_check=security_check,
-        security_content_sniff=security_content_sniff,
-        security_redaction=security_redaction,
-        safety_report=safety_report,
-        security_path_patterns=security_path_patterns,
-        security_path_patterns_add=security_path_patterns_add,
-        security_path_patterns_remove=security_path_patterns_remove,
-        security_content_patterns=security_content_patterns,
-        dedupe=dedupe,
-        split_max_chars=split_max_chars,
-        split_strict=split_strict,
-        split_allow_cut_files=split_allow_cut_files,
-        layout=layout,
-        nav_mode=nav_mode,
-        symbol_backend=symbol_backend,
-        encoding_errors=encoding_errors,
-        token_report=token_report,
-        token_count_tree=token_count_tree,
-        token_count_tree_threshold=token_count_tree_threshold,
-        top_files_len=top_files_len,
-        token_count_encoding=token_count_encoding,
-        file_summary=file_summary,
-        max_file_bytes=max_file_bytes,
-        max_total_bytes=max_total_bytes,
-        max_file_tokens=max_file_tokens,
-        max_total_tokens=max_total_tokens,
-        max_workers=max_workers,
-    )
-
 
 def _resolve_output_path(cfg: Config, args: argparse.Namespace, root: Path) -> Path:
     if args.output is not None:
@@ -1794,6 +1495,10 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     if candidate.exists():
                         args.root = candidate
                         args.token_count_tree = "-1"
+        from .cli_pack import run_pack_command
+
+        run_pack_command(parser, args)
+        return
 
         if args.repo:
             if args.root is not None:
@@ -1839,7 +1544,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         for root in roots:
             cfg = load_config(root)
             try:
-                options = _resolve_pack_options(cfg, args)
+                options = resolve_pack_options(cfg, args)
             except ValueError as e:
                 parser.error(f"pack: {e}")
             label = _unique_label(root, used_labels)
@@ -2011,6 +1716,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 symbol_backend=options.symbol_backend,
                 file_texts=file_texts,
                 max_workers=options.max_workers,
+                encoding_errors=options.encoding_errors,
             )
             use_stubs = options.layout == "stubs" or (
                 options.layout == "auto" and _pack_has_effective_dedupe(pack)
@@ -2040,14 +1746,15 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     ),
                 )
             ]
-            md = render_markdown(
+            effective_nav_mode = _resolve_effective_nav_mode(
+                options.nav_mode,
+                options.split_max_chars,
+            )
+            rendered = render_markdown_result(
                 pack,
                 canonical,
                 layout=options.layout,
-                nav_mode=_resolve_effective_nav_mode(
-                    options.nav_mode,
-                    options.split_max_chars,
-                ),
+                nav_mode=effective_nav_mode,
                 skipped_for_safety_count=skipped_for_safety_count,
                 skipped_for_binary_count=binary_count,
                 redacted_for_safety_count=redacted_count,
@@ -2058,6 +1765,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                 repo_label=label,
                 repo_slug=slug,
             )
+            md = rendered.markdown
 
             file_tokens: dict[str, int] = {}
             output_tokens = 0
@@ -2096,6 +1804,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     label=label,
                     slug=slug,
                     markdown=md,
+                    render_metadata=rendered.metadata,
                     pack_result=pack,
                     canonical_sources=canonical,
                     options=options,
@@ -2105,6 +1814,7 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
                     redacted_for_safety_count=redacted_count,
                     safety_findings=safety_findings,
                     effective_layout=effective_layout,
+                    effective_nav_mode=effective_nav_mode,
                     output_tokens=output_tokens,
                     total_file_tokens=total_file_tokens,
                     file_tokens=file_tokens,
@@ -2351,8 +2061,12 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         print(f"Unpacked into {args.out_dir}")
 
     elif args.cmd == "patch":
+        from .cli_patch import run_patch_command
+
+        run_patch_command(parser, args)
+        return
         cfg = load_config(args.root)
-        patch_encoding_errors = _resolve_encoding_errors(cfg, args.encoding_errors)
+        patch_encoding_errors = resolve_encoding_errors(cfg, args.encoding_errors)
         try:
             old_md = _read_text_with_policy(
                 args.old_markdown,
@@ -2398,11 +2112,15 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
         print(f"Wrote {args.output}")
 
     elif args.cmd == "validate-pack":
+        from .cli_validate import run_validate_pack_command
+
+        run_validate_pack_command(parser, args)
+        return
         if args.fail_on_root_drift and args.root is None:
             parser.error("validate-pack: --fail-on-root-drift requires --root")
         cfg_root = args.root if args.root is not None else Path.cwd()
         cfg = load_config(cfg_root)
-        validate_encoding_errors = _resolve_encoding_errors(cfg, args.encoding_errors)
+        validate_encoding_errors = resolve_encoding_errors(cfg, args.encoding_errors)
         try:
             md_text = _read_text_with_policy(
                 args.markdown,
@@ -2436,12 +2154,20 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             print("OK: pack is internally consistent.")
 
     elif args.cmd == "doctor":
+        from .cli_doctor import run_doctor_command
+
+        run_doctor_command(parser, args)
+        return
         if not args.root.exists() or not args.root.is_dir():
             parser.error(f"doctor: root is not a directory: {args.root}")
         _run_doctor(args.root)
 
     elif args.cmd == "config":
         if args.config_cmd == "show":
+            from .cli_doctor import run_config_show_command
+
+            run_config_show_command(parser, args)
+            return
             if not args.root.exists() or not args.root.is_dir():
                 parser.error(f"config show: root is not a directory: {args.root}")
             _run_config_show(
@@ -2451,8 +2177,12 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901
             )
 
     elif args.cmd == "apply":
+        from .cli_patch import run_apply_command
+
+        run_apply_command(parser, args)
+        return
         cfg = load_config(args.root)
-        apply_encoding_errors = _resolve_encoding_errors(cfg, args.encoding_errors)
+        apply_encoding_errors = resolve_encoding_errors(cfg, args.encoding_errors)
         try:
             md_text = _read_text_with_policy(
                 args.patch_markdown,

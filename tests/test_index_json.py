@@ -23,38 +23,56 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     assert payload["pack"]["display_id_format_version"] == "sha1-8-upper:v1"
     assert payload["pack"]["canonical_id_format_version"] == "sha256-64-lower:v1"
     assert payload["pack"]["output_files"] == ["context.md"]
+    assert payload["pack"]["capabilities"] == {
+        "has_manifest": True,
+        "has_machine_header": True,
+        "supports_unpack": True,
+        "supports_patch": True,
+        "supports_validate": True,
+        "has_unsplit_line_ranges": True,
+        "has_split_line_ranges": False,
+    }
+    assert payload["pack"]["authority"] == {
+        "full_layout_source": "files",
+        "stub_layout_source": "files+function-library+manifest",
+        "patch_source": "unified-diff",
+    }
 
     repos = payload["repositories"]
     assert len(repos) == 1
     repo = repos[0]
     assert repo["split_policy"] == "preserve"
     assert repo["layout"] == "full"
+    assert repo["effective_layout"] == "full"
+    assert repo["nav_mode"] == "compact"
+    assert repo["locator_mode"] == "anchors+line-ranges"
+    assert repo["has_manifest"] is True
+    assert repo["has_machine_header"] is True
     assert repo["markdown_path"] == "context.md"
-    assert repo["parts"] == [
-        {
-            "part_id": f"{repo['slug']}:pack",
-            "path": "context.md",
-            "kind": "pack",
-            "repo_slug": repo["slug"],
-            "char_count": repo["parts"][0]["char_count"],
-            "token_estimate": repo["parts"][0]["token_estimate"],
-            "is_oversized": False,
-            "contains": {
-                "files": ["a.py"],
-                "canonical_ids": [],
-                "display_canonical_ids": [],
-                "section_types": ["Pack"],
-            },
-        }
-    ]
+    assert repo["parts"][0]["part_id"] == f"{repo['slug']}:pack"
+    assert repo["parts"][0]["path"] == "context.md"
+    assert repo["parts"][0]["kind"] == "pack"
+    assert repo["parts"][0]["repo_slug"] == repo["slug"]
+    assert repo["parts"][0]["is_oversized"] is False
+    assert repo["parts"][0]["line_count"] > 0
+    assert len(repo["parts"][0]["sha256_content"]) == 64
+    assert repo["parts"][0]["contains"] == {
+        "files": ["a.py"],
+        "canonical_ids": [],
+        "display_canonical_ids": [],
+        "section_types": ["Pack"],
+    }
 
     files = repo["files"]
     assert len(files) == 1
     assert files[0]["path"] == "a.py"
     assert files[0]["language"] == "python"
+    assert files[0]["fence_language"] == "python"
     assert files[0]["language_detected"] == "python"
+    assert files[0]["language_family"] == "python"
     assert files[0]["module"] == "a"
     assert files[0]["line_count"] == 3
+    assert files[0]["sha256_effective"] == files[0]["sha256_original"]
     assert files[0]["is_stubbed"] is False
     assert files[0]["is_redacted"] is False
     assert files[0]["is_binary_skipped"] is False
@@ -67,6 +85,13 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
         "source": "context.md#src-a-py",
     }
     assert files[0]["anchors"] == {"index": "file-a-py", "source": "src-a-py"}
+    assert files[0]["locators"] == {
+        "mode": "anchors+line-ranges",
+        "source_anchor_available": True,
+        "index_anchor_available": True,
+        "part_line_ranges_available": False,
+        "unsplit_line_ranges_available": True,
+    }
     assert files[0]["sizes"]["original"]["chars"] > 0
     assert files[0]["sizes"]["original"]["bytes"] > 0
     assert files[0]["sizes"]["original"]["token_estimate"] > 0
@@ -90,13 +115,27 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     assert symbols[0]["canonical_id"] == files[0]["symbol_canonical_ids"][0]
     assert symbols[0]["display_local_id"] == files[0]["display_symbol_ids"][0]
     assert symbols[0]["local_id"] == files[0]["symbol_ids"][0]
+    assert symbols[0]["ids"] == {
+        "display_canonical_id": symbols[0]["display_id"],
+        "display_occurrence_id": symbols[0]["display_local_id"],
+        "machine_canonical_id": symbols[0]["canonical_id"],
+        "machine_occurrence_id": symbols[0]["local_id"],
+    }
     assert symbols[0]["qualname"] == "alpha"
     assert symbols[0]["path"] == "a.py"
     assert symbols[0]["has_marker"] is False
     assert symbols[0]["is_deduped"] is False
+    assert symbols[0]["occurrence_count_for_canonical_id"] == 1
     assert symbols[0]["file_href"] == "context.md#src-a-py"
     assert symbols[0]["file_anchor"] == "src-a-py"
     assert symbols[0]["file_part"] == "context.md"
+    assert symbols[0]["locators"] == {
+        "mode": "anchors+line-ranges",
+        "source_anchor_available": True,
+        "index_anchor_available": True,
+        "part_line_ranges_available": False,
+        "unsplit_line_ranges_available": True,
+    }
     assert symbols[0]["index_markdown_path"] == "context.md"
     assert symbols[0]["index_markdown_lines"]["start_line"] > 0
     assert symbols[0]["file_markdown_path"] == "context.md"
@@ -110,6 +149,35 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     assert repo["lookup"]["file_by_display_symbol"] == {
         files[0]["display_symbol_ids"][0]: "a.py"
     }
+    assert repo["lookup"]["file_by_path"] == {
+        "a.py": {
+            "path": "a.py",
+            "part_path": "context.md",
+            "index_href": "context.md#file-a-py",
+            "source_href": "context.md#src-a-py",
+        }
+    }
+    assert repo["lookup"]["part_by_file"] == {"a.py": "context.md"}
+    assert (
+        repo["lookup"]["symbol_by_local_id"][files[0]["symbol_ids"][0]]["path"]
+        == "a.py"
+    )
+    assert (
+        repo["lookup"]["symbol_by_display_local_id"][files[0]["display_symbol_ids"][0]][
+            "path"
+        ]
+        == "a.py"
+    )
+    assert (
+        repo["lookup"]["symbols_by_canonical_id"][symbols[0]["canonical_id"]][0][
+            "path"
+        ]
+        == "a.py"
+    )
+    assert (
+        repo["lookup"]["symbols_by_display_id"][symbols[0]["display_id"]][0]["path"]
+        == "a.py"
+    )
 
 
 def test_pack_index_json_explicit_path_multi_repo(tmp_path: Path) -> None:
@@ -184,11 +252,16 @@ def test_pack_index_json_includes_split_output_paths(tmp_path: Path) -> None:
     repo = payload["repositories"][0]
     assert repo["split_policy"] == "cut-files"
     assert repo["markdown_path"] is None
+    assert repo["locator_mode"] == "anchors"
     assert any(part["kind"] == "index" for part in repo["parts"])
     assert any(part["kind"] == "part" for part in repo["parts"])
+    assert all(part["line_count"] > 0 for part in repo["parts"])
+    assert all(len(part["sha256_content"]) == 64 for part in repo["parts"])
     assert repo["files"][0]["part_path"].startswith("context.part")
+    assert repo["files"][0]["locators"]["mode"] == "anchors"
     assert repo["files"][0]["hrefs"]["source"].startswith("context.part")
     assert repo["symbols"][0]["file_part"].startswith("context.part")
+    assert repo["symbols"][0]["locators"]["mode"] == "anchors"
     assert repo["symbols"][0]["file_href"].startswith("context.part")
     assert any(
         part["contains"]["files"] for part in repo["parts"] if part["kind"] == "part"
@@ -230,6 +303,7 @@ def test_pack_index_json_split_stubs_tracks_canonical_parts(tmp_path: Path) -> N
     assert any(part["contains"]["display_canonical_ids"] for part in repo["parts"])
     assert repo["files"][0]["is_stubbed"] is True
     assert repo["files"][0]["sha256_stubbed"]
+    assert repo["files"][0]["sha256_effective"] == repo["files"][0]["sha256_stubbed"]
 
     symbols = repo["symbols"]
     assert len(symbols) == 3
@@ -244,6 +318,10 @@ def test_pack_index_json_split_stubs_tracks_canonical_parts(tmp_path: Path) -> N
     assert all(symbol["file_part"].startswith("context.part") for symbol in symbols)
     assert all(len(symbol["canonical_id"]) == 64 for symbol in symbols)
     assert all(len(symbol["display_id"]) == 8 for symbol in symbols)
+    assert all(
+        symbol["ids"]["machine_canonical_id"] == symbol["canonical_id"]
+        for symbol in symbols
+    )
     assert all("canonical_markdown_path" not in symbol for symbol in symbols)
     assert all("canonical_markdown_lines" not in symbol for symbol in symbols)
     assert any(part["is_oversized"] for part in repo["parts"] if part["kind"] == "part")

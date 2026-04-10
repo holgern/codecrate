@@ -670,7 +670,9 @@ def test_pack_nav_mode_auto_unsplit_is_compact(tmp_path: Path) -> None:
     main(["pack", str(tmp_path), "-o", str(out_path)])
 
     text = out_path.read_text(encoding="utf-8")
-    assert '<a id="src-' not in text
+    assert '<a id="src-' in text
+    assert '<a id="file-' in text
+    assert "— [jump](#src-" not in text
     assert "[jump to index](#file-" not in text
 
 

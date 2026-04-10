@@ -35,6 +35,8 @@ Codecrate can also emit JSON sidecars:
 * ``codecrate.manifest-json.v1``: manifest-focused tooling export
 * ``codecrate.index-json.v1``: retrieval-oriented file/symbol/part index for agents and tools
 
+See :doc:`index_json` for the detailed sidecar contract.
+
 Profiles can change output defaults without changing the underlying pack format:
 
 * ``human`` keeps current markdown-first behavior

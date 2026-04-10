@@ -20,6 +20,7 @@ It is designed for LLM workflows:
    quickstart
    cli
    format
+   index_json
    agent_workflows
    api
 

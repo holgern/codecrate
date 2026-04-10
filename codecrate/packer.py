@@ -39,6 +39,7 @@ def _pack_one_file(
     keep_docstrings: bool,
     symbol_backend: str,
     file_texts: dict[Path, str] | None,
+    encoding_errors: str,
 ) -> tuple[
     Path,
     str,
@@ -55,8 +56,16 @@ def _pack_one_file(
     text = (
         file_texts[path]
         if file_texts is not None and path in file_texts
-        else path.read_text(encoding="utf-8", errors="replace")
+        else ""
     )
+    if file_texts is None or path not in file_texts:
+        try:
+            text = path.read_text(encoding="utf-8", errors=encoding_errors)
+        except UnicodeDecodeError as e:
+            raise ValueError(
+                f"Failed to decode UTF-8 for {path.relative_to(root).as_posix()} "
+                f"(encoding_errors={encoding_errors})"
+            ) from e
     local_canon: dict[str, str] = {}
 
     if path.suffix.lower() == ".py":
@@ -122,6 +131,7 @@ def pack_repo(
     *,
     file_texts: dict[Path, str] | None = None,
     max_workers: int = 0,
+    encoding_errors: str = "replace",
 ) -> tuple[PackResult, dict[str, str]]:
     files = sort_paths(files)
     filepacks: list[FilePack] = []
@@ -136,6 +146,7 @@ def pack_repo(
         keep_docstrings=keep_docstrings,
         symbol_backend=symbol_backend,
         file_texts=file_texts,
+        encoding_errors=encoding_errors,
     )
 
     if worker_count == 1:

@@ -6,37 +6,16 @@ from typing import Any, Literal
 
 from .fences import choose_backtick_fence, is_fence_close, parse_fence_open
 from .formats import FENCE_MACHINE_HEADER, FENCE_MANIFEST, PACK_FORMAT_VERSION
+from .locators import (
+    anchor_for_file_index,
+    anchor_for_file_source,
+    anchor_for_symbol,
+)
 from .manifest import machine_header, to_manifest
 from .model import ClassRef, FilePack, PackResult
 from .ordering import sort_paths
+from .output_model import LineRange, RenderedMarkdown, RenderMetadata
 from .parse import parse_symbols
-
-
-def _anchor_for(defn_id: str, module: str, qualname: str) -> str:
-    # Anchors should be stable under dedupe: multiple defs can share the same
-    # canonical id, so we anchor by id only.
-    base = f"func-{defn_id}".lower()
-    safe = "".join(ch if ch.isalnum() else "-" for ch in base)
-    while "--" in safe:
-        safe = safe.replace("--", "-")
-    return safe.strip("-")
-
-
-def _file_anchor(rel_path: str) -> str:
-    base = f"file-{rel_path}".lower()
-    safe = "".join(ch if ch.isalnum() else "-" for ch in base)
-    while "--" in safe:
-        safe = safe.replace("--", "-")
-    return safe.strip("-")
-
-
-def _file_src_anchor(rel_path: str) -> str:
-    # Separate anchor namespace from _file_anchor(): index vs file content.
-    base = f"src-{rel_path}".lower()
-    safe = "".join(ch if ch.isalnum() else "-" for ch in base)
-    while "--" in safe:
-        safe = safe.replace("--", "-")
-    return safe.strip("-")
 
 
 def _file_range(line_count: int) -> str:
@@ -243,6 +222,60 @@ def _scan_section_ranges(lines: list[str]) -> dict[str, tuple[int, int] | None]:
     return ranges
 
 
+def _scan_symbol_index_ranges(
+    lines: list[str],
+    defs_by_file: dict[str, list[str]],
+) -> dict[str, tuple[int, int] | None]:
+    ranges: dict[str, tuple[int, int] | None] = {}
+    in_index = False
+    current_file: str | None = None
+    current_index = 0
+    for idx, line in enumerate(lines, start=1):
+        if line.strip() == "## Symbol Index":
+            in_index = True
+            continue
+        if in_index and line.startswith("## ") and line.strip() != "## Symbol Index":
+            break
+        if not in_index:
+            continue
+        rel_path = _extract_rel_path(line)
+        if rel_path is not None:
+            current_file = rel_path
+            current_index = 0
+            continue
+        if (
+            current_file is None
+            or not line.startswith("- `")
+            or line.startswith("- `class ")
+        ):
+            continue
+        defs = defs_by_file.get(current_file, [])
+        if current_index >= len(defs):
+            continue
+        ranges[defs[current_index]] = (idx, idx)
+        current_index += 1
+    return ranges
+
+
+def _scan_anchor_ids(lines: list[str]) -> set[str]:
+    anchors: set[str] = set()
+    for line in lines:
+        if line.startswith('<a id="') and line.endswith('"></a>'):
+            anchors.add(line[len('<a id="') : -len('"></a>')])
+    return anchors
+
+
+def _to_line_ranges(
+    ranges: dict[str, tuple[int, int] | None],
+) -> dict[str, LineRange]:
+    out: dict[str, LineRange] = {}
+    for key, value in ranges.items():
+        if value is None:
+            continue
+        out[key] = LineRange(start_line=value[0], end_line=value[1])
+    return out
+
+
 def _apply_context_line_numbers(
     text: str,
     def_line_map: dict[str, tuple[int, int]],
@@ -250,12 +283,15 @@ def _apply_context_line_numbers(
     def_to_canon: dict[str, str],
     def_to_file: dict[str, str],
     class_to_file: dict[str, str],
+    defs_by_file: dict[str, list[str]],
     use_stubs: bool,
-) -> str:
+) -> RenderedMarkdown:
     lines = text.splitlines()
     section_ranges = _scan_section_ranges(lines)
     file_ranges = _scan_file_blocks(lines)
     func_ranges = _scan_function_library(lines) if use_stubs else {}
+    symbol_index_ranges = _scan_symbol_index_ranges(lines, defs_by_file)
+    anchors_present = _scan_anchor_ids(lines)
 
     replacements: dict[str, str] = {}
     for title in _SECTION_TITLES:
@@ -303,7 +339,14 @@ def _apply_context_line_numbers(
 
     for token, value in replacements.items():
         text = text.replace(token, value)
-    return text
+    metadata = RenderMetadata(
+        section_ranges=_to_line_ranges(section_ranges),
+        file_ranges=_to_line_ranges(file_ranges),
+        symbol_index_ranges=_to_line_ranges(symbol_index_ranges),
+        canonical_ranges=_to_line_ranges(func_ranges),
+        anchors_present=frozenset(anchors_present),
+    )
+    return RenderedMarkdown(markdown=text, metadata=metadata)
 
 
 def _has_dedupe_effect(pack: PackResult) -> bool:
@@ -381,7 +424,7 @@ def _render_how_to_use_section(*, use_stubs: bool) -> str:
     return "".join(lines)
 
 
-def render_markdown(  # noqa: C901
+def render_markdown_result(  # noqa: C901
     pack: PackResult,
     canonical_sources: dict[str, str],
     layout: str = "auto",
@@ -396,7 +439,7 @@ def render_markdown(  # noqa: C901
     manifest_data: dict[str, Any] | None = None,
     repo_label: str = "repo",
     repo_slug: str = "repo",
-) -> str:
+) -> RenderedMarkdown:
     lines: list[str] = []
     lines.append("# Codecrate Context Pack\n\n")
     # Do not leak absolute local paths; keep the header root stable + relative.
@@ -443,9 +486,13 @@ def render_markdown(  # noqa: C901
     def_to_canon: dict[str, str] = {}
     def_to_file: dict[str, str] = {}
     class_to_file: dict[str, str] = {}
+    defs_by_file: dict[str, list[str]] = {}
 
     for fp in pack.files:
         rel = fp.path.relative_to(pack.root).as_posix()
+        defs_by_file[rel] = [
+            d.local_id for d in sorted(fp.defs, key=lambda d: (d.def_line, d.qualname))
+        ]
         for d in fp.defs:
             def_line_map[d.local_id] = (d.def_line, d.end_line)
             def_to_canon[d.local_id] = d.id
@@ -515,11 +562,12 @@ def render_markdown(  # noqa: C901
     for fp in sorted(pack.files, key=lambda x: x.path.as_posix()):
         rel = fp.path.relative_to(pack.root).as_posix()
         file_range = _range_token("FILE", rel)
+        fa = anchor_for_file_index(rel)
+        sa = anchor_for_file_source(rel)
         if compact_nav:
             lines.append(f"### `{rel}` {file_range}\n")
+            lines.append(f'<a id="{fa}"></a>\n')
         else:
-            fa = _file_anchor(rel)
-            sa = _file_src_anchor(rel)
             # Always provide a jump target to the file contents.
             lines.append(f"### `{rel}` {file_range} — [jump](#{sa})\n")
             lines.append(f'<a id="{fa}"></a>\n')
@@ -533,7 +581,7 @@ def render_markdown(  # noqa: C901
             has_canonical = d.id in canonical_sources
             link = "\n"
             if use_stubs and has_canonical:
-                anchor = _anchor_for(d.id, d.module, d.qualname)
+                anchor = anchor_for_symbol(d.id)
                 link = f" — [jump](#{anchor})\n"
                 id_display = f"**{d.id}**"
                 if getattr(d, "local_id", d.id) != d.id:
@@ -546,7 +594,7 @@ def render_markdown(  # noqa: C901
     if use_stubs:
         lines.append("## Function Library\n\n")
         for defn_id, code in canonical_sources.items():
-            lines.append(f'<a id="{_anchor_for(defn_id, "", "")}"></a>\n')
+            lines.append(f'<a id="{anchor_for_symbol(defn_id)}"></a>\n')
             lines.append(f"### {defn_id}\n")
             _append_fenced_block(lines, _ensure_nl(code), "python")
 
@@ -555,12 +603,12 @@ def render_markdown(  # noqa: C901
         rel = fp.path.relative_to(pack.root).as_posix()
         file_range = _range_token("FILE", rel)
         lines.append(f"### `{rel}` {file_range}\n")
+        sa = anchor_for_file_source(rel)
+        lines.append(f'<a id="{sa}"></a>\n')
         if compact_nav:
             lines.append("\n")
         else:
-            fa = _file_anchor(rel)
-            sa = _file_src_anchor(rel)
-            lines.append(f'<a id="{sa}"></a>\n')
+            fa = anchor_for_file_index(rel)
             lines.append(f"[jump to index](#{fa})\n\n")
 
         # Compact stubs are not line-count aligned, so render as a single block.
@@ -579,7 +627,7 @@ def render_markdown(  # noqa: C901
                 loc = _range_token("DEF", d.local_id)
                 has_canonical = d.id in canonical_sources
                 if has_canonical:
-                    anchor = _anchor_for(d.id, d.module, d.qualname)
+                    anchor = anchor_for_symbol(d.id)
                     link = f" — [jump](#{anchor})\n"
                     id_display = f"**{d.id}**"
                     if getattr(d, "local_id", d.id) != d.id:
@@ -596,5 +644,39 @@ def render_markdown(  # noqa: C901
         def_to_canon=def_to_canon,
         def_to_file=def_to_file,
         class_to_file=class_to_file,
+        defs_by_file=defs_by_file,
         use_stubs=use_stubs,
     )
+
+
+def render_markdown(  # noqa: C901
+    pack: PackResult,
+    canonical_sources: dict[str, str],
+    layout: str = "auto",
+    nav_mode: Literal["compact", "full"] = "full",
+    skipped_for_safety_count: int = 0,
+    skipped_for_binary_count: int = 0,
+    redacted_for_safety_count: int = 0,
+    *,
+    include_safety_report: bool = False,
+    safety_report_entries: list[dict[str, str]] | None = None,
+    include_manifest: bool = True,
+    manifest_data: dict[str, Any] | None = None,
+    repo_label: str = "repo",
+    repo_slug: str = "repo",
+) -> str:
+    return render_markdown_result(
+        pack,
+        canonical_sources,
+        layout=layout,
+        nav_mode=nav_mode,
+        skipped_for_safety_count=skipped_for_safety_count,
+        skipped_for_binary_count=skipped_for_binary_count,
+        redacted_for_safety_count=redacted_for_safety_count,
+        include_safety_report=include_safety_report,
+        safety_report_entries=safety_report_entries,
+        include_manifest=include_manifest,
+        manifest_data=manifest_data,
+        repo_label=repo_label,
+        repo_slug=repo_slug,
+    ).markdown

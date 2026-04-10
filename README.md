@@ -74,6 +74,8 @@ Pack with rich markdown plus an agent sidecar:
 
 ```bash
 codecrate pack . -o context.md --profile hybrid
+
+See `docs/index_json.rst` for the sidecar contract and lookup model.
 ```
 
 Pack with specific output file and write the sidecars explicitly:

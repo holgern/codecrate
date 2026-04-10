@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from .formats import INDEX_JSON_FORMAT_VERSION, PACK_FORMAT_VERSION
 from .ids import (
@@ -13,13 +14,16 @@ from .ids import (
     MACHINE_ID_FORMAT_VERSION,
     stable_machine_location_id,
 )
-from .markdown import _anchor_for, _fence_lang_for, _file_anchor, _file_src_anchor
+from .locators import (
+    anchor_for_file_index,
+    anchor_for_file_source,
+    anchor_for_symbol,
+    href,
+)
+from .markdown import _fence_lang_for
+from .output_model import PackRun, RenderMetadata
 from .token_budget import Part
 from .tokens import approx_token_count
-
-if TYPE_CHECKING:
-    from .cli import PackRun
-
 
 _FILE_HEADING_RE = re.compile(r"^### `([^`]+)`")
 _FUNCTION_LIBRARY_HEADING_RE = re.compile(r"^### ([0-9A-F]{8})\s*$")
@@ -34,17 +38,22 @@ def _sort_rel_paths(paths: Iterable[str]) -> list[str]:
     return sorted(set(paths), key=lambda item: (item.lower(), item))
 
 
-def _href(path: str | None, anchor: str | None) -> str | None:
-    if not path or not anchor:
-        return None
-    return f"{path}#{anchor}"
-
-
 def _line_range(start_line: int, end_line: int) -> dict[str, int]:
     return {
         "start_line": start_line,
         "end_line": end_line,
     }
+
+
+def _line_ranges_from_metadata(ranges: dict[str, Any]) -> dict[str, dict[str, int]]:
+    return {
+        key: _line_range(value.start_line, value.end_line)
+        for key, value in ranges.items()
+    }
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _sorted_unique_parts(parts: list[Part]) -> list[Part]:
@@ -321,6 +330,14 @@ def _unsplit_markdown_metadata(
 
     part = parts_in[0]
     markdown_path = _relative_output_path(part.path, base_dir=base_dir)
+    if part.content == run.markdown:
+        metadata: RenderMetadata = run.render_metadata
+        return (
+            markdown_path,
+            _line_ranges_from_metadata(metadata.file_ranges),
+            _line_ranges_from_metadata(metadata.symbol_index_ranges),
+            _line_ranges_from_metadata(metadata.canonical_ranges),
+        )
     lines, scope_start, scope_end = _repo_scope(part.content, run.label)
     return (
         markdown_path,
@@ -401,7 +418,7 @@ def _part_metadata(
     *,
     repo_output_parts: list[Part],
     base_dir: Path,
-) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, str]]:
+) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, str], dict[str, str]]:
     parts_in = _sorted_unique_parts(repo_output_parts)
     _, canonical_machine_ids = _strong_id_maps(run)
     if len(parts_in) == 1 and parts_in[0].kind == "pack":
@@ -413,6 +430,8 @@ def _part_metadata(
             "kind": "pack",
             "repo_slug": run.slug,
             "char_count": len(part.content),
+            "line_count": len(part.content.splitlines()),
+            "sha256_content": _sha256_text(part.content),
             "token_estimate": approx_token_count(part.content),
             "is_oversized": False,
             "contains": {
@@ -426,16 +445,20 @@ def _part_metadata(
         file_to_part = {
             rel: rel_path for rel in (list(part.files) or _all_repo_file_paths(run))
         }
+        file_index_to_part = {
+            rel: rel_path for rel in (list(part.files) or _all_repo_file_paths(run))
+        }
         func_to_part = {
             canonical_id: rel_path
             for canonical_id in (
                 list(part.canonical_ids) or _all_repo_canonical_ids(run)
             )
         }
-        return [part_entry], file_to_part, func_to_part
+        return [part_entry], file_to_part, file_index_to_part, func_to_part
 
     parts: list[dict[str, Any]] = []
     file_to_part: dict[str, str] = {}
+    file_index_to_part: dict[str, str] = {}
     func_to_part: dict[str, str] = {}
     part_number = 0
 
@@ -465,6 +488,8 @@ def _part_metadata(
                 "kind": kind,
                 "repo_slug": run.slug,
                 "char_count": len(part.content),
+                "line_count": len(part.content.splitlines()),
+                "sha256_content": _sha256_text(part.content),
                 "token_estimate": approx_token_count(part.content),
                 "is_oversized": (
                     run.options.split_max_chars > 0
@@ -481,10 +506,13 @@ def _part_metadata(
         )
         for rel in files:
             file_to_part.setdefault(rel, rel_path)
+        for rel in _all_repo_file_paths(run):
+            if anchor_for_file_index(rel) in part.content:
+                file_index_to_part.setdefault(rel, rel_path)
         for canonical_id in canonical_ids:
             func_to_part.setdefault(canonical_id, rel_path)
 
-    return parts, file_to_part, func_to_part
+    return parts, file_to_part, file_index_to_part, func_to_part
 
 
 def _safety_flags_by_path(run: PackRun) -> dict[str, dict[str, bool]]:
@@ -513,6 +541,7 @@ def _file_payload(
     run: PackRun,
     *,
     file_to_part: dict[str, str],
+    file_index_to_part: dict[str, str],
     markdown_path: str | None,
     file_markdown_ranges: dict[str, dict[str, int]],
 ) -> list[dict[str, Any]]:
@@ -538,10 +567,17 @@ def _file_payload(
         file_entry: dict[str, Any] = {
             "path": rel,
             "language": _fence_lang_for(rel),
+            "fence_language": _fence_lang_for(rel),
             "language_detected": file_pack.language_detected,
+            "language_family": file_pack.language_detected or _fence_lang_for(rel),
             "module": file_pack.module or None,
             "line_count": file_pack.line_count,
             "sha256_original": manifest_entry.get("sha256_original"),
+            "sha256_effective": (
+                manifest_entry.get("sha256_stubbed")
+                if run.effective_layout == "stubs"
+                else manifest_entry.get("sha256_original")
+            ),
             "is_stubbed": run.effective_layout == "stubs",
             "is_redacted": safety_flags["is_redacted"],
             "is_binary_skipped": safety_flags["is_binary_skipped"],
@@ -551,12 +587,21 @@ def _file_payload(
             "symbol_extraction_status": file_pack.symbol_extraction_status,
             "part_path": file_to_part.get(rel),
             "hrefs": {
-                "index": _href(file_to_part.get(rel), _file_anchor(rel)),
-                "source": _href(file_to_part.get(rel), _file_src_anchor(rel)),
+                "index": href(file_index_to_part.get(rel), anchor_for_file_index(rel)),
+                "source": href(file_to_part.get(rel), anchor_for_file_source(rel)),
             },
             "anchors": {
-                "index": _file_anchor(rel),
-                "source": _file_src_anchor(rel),
+                "index": anchor_for_file_index(rel),
+                "source": anchor_for_file_source(rel),
+            },
+            "locators": {
+                "mode": (
+                    "anchors+line-ranges" if markdown_path is not None else "anchors"
+                ),
+                "source_anchor_available": True,
+                "index_anchor_available": True,
+                "part_line_ranges_available": False,
+                "unsplit_line_ranges_available": markdown_path is not None,
             },
             "sizes": {
                 "original": {
@@ -628,6 +673,12 @@ def _symbol_payload(
 ) -> list[dict[str, Any]]:
     manifest_defs_by_local_id = _manifest_defs_by_local_id(run)
     local_machine_ids, canonical_machine_ids = _strong_id_maps(run)
+    occurrence_counts: dict[str, int] = {}
+    for defn in run.pack_result.defs:
+        machine_canonical_id = canonical_machine_ids[defn.id]
+        occurrence_counts[machine_canonical_id] = (
+            occurrence_counts.get(machine_canonical_id, 0) + 1
+        )
 
     symbols: list[dict[str, Any]] = []
     for defn in sorted(
@@ -646,6 +697,12 @@ def _symbol_payload(
             "canonical_id": canonical_machine_ids[defn.id],
             "display_local_id": defn.local_id,
             "local_id": local_machine_ids[defn.local_id],
+            "ids": {
+                "display_canonical_id": defn.id,
+                "display_occurrence_id": defn.local_id,
+                "machine_canonical_id": canonical_machine_ids[defn.id],
+                "machine_occurrence_id": local_machine_ids[defn.local_id],
+            },
             "qualname": defn.qualname,
             "kind": defn.kind,
             "path": rel,
@@ -655,9 +712,21 @@ def _symbol_payload(
             "body_start": defn.body_start,
             "has_marker": bool(manifest_def.get("has_marker", False)),
             "is_deduped": defn.id != defn.local_id,
+            "occurrence_count_for_canonical_id": occurrence_counts[
+                canonical_machine_ids[defn.id]
+            ],
             "file_part": file_to_part.get(rel),
-            "file_href": _href(file_to_part.get(rel), _file_src_anchor(rel)),
-            "file_anchor": _file_src_anchor(rel),
+            "file_href": href(file_to_part.get(rel), anchor_for_file_source(rel)),
+            "file_anchor": anchor_for_file_source(rel),
+            "locators": {
+                "mode": (
+                    "anchors+line-ranges" if markdown_path is not None else "anchors"
+                ),
+                "source_anchor_available": True,
+                "index_anchor_available": defn.local_id in symbol_index_ranges,
+                "part_line_ranges_available": False,
+                "unsplit_line_ranges_available": markdown_path is not None,
+            },
         }
         if markdown_path is not None:
             if defn.local_id in symbol_index_ranges:
@@ -672,14 +741,10 @@ def _symbol_payload(
             symbol_entry["canonical_part"] = func_to_part.get(
                 canonical_machine_ids[defn.id]
             )
-            symbol_entry["canonical_anchor"] = _anchor_for(
-                defn.id,
-                defn.module,
-                defn.qualname,
-            )
-            symbol_entry["canonical_href"] = _href(
+            symbol_entry["canonical_anchor"] = anchor_for_symbol(defn.id)
+            symbol_entry["canonical_href"] = href(
                 func_to_part.get(canonical_machine_ids[defn.id]),
-                _anchor_for(defn.id, defn.module, defn.qualname),
+                anchor_for_symbol(defn.id),
             )
             if markdown_path is not None and defn.id in canonical_markdown_ranges:
                 symbol_entry["canonical_markdown_path"] = markdown_path
@@ -698,6 +763,12 @@ def _lookup_indexes(
     display_symbols_by_file: dict[str, list[str]] = {}
     file_by_symbol: dict[str, str] = {}
     file_by_display_symbol: dict[str, str] = {}
+    file_by_path: dict[str, dict[str, Any]] = {}
+    part_by_file: dict[str, str | None] = {}
+    symbol_by_local_id: dict[str, dict[str, Any]] = {}
+    symbol_by_display_local_id: dict[str, dict[str, Any]] = {}
+    symbols_by_canonical_id: dict[str, list[dict[str, Any]]] = {}
+    symbols_by_display_id: dict[str, list[dict[str, Any]]] = {}
 
     for file_entry in files_payload:
         path = str(file_entry.get("path") or "")
@@ -705,21 +776,54 @@ def _lookup_indexes(
             continue
         symbols_by_file[path] = list(file_entry.get("symbol_ids") or [])
         display_symbols_by_file[path] = list(file_entry.get("display_symbol_ids") or [])
+        file_by_path[path] = {
+            "path": path,
+            "part_path": file_entry.get("part_path"),
+            "index_href": file_entry.get("hrefs", {}).get("index"),
+            "source_href": file_entry.get("hrefs", {}).get("source"),
+        }
+        part_by_file[path] = file_entry.get("part_path")
 
     for symbol_entry in symbols_payload:
         path = str(symbol_entry.get("path") or "")
         local_id = str(symbol_entry.get("local_id") or "")
         display_local_id = str(symbol_entry.get("display_local_id") or "")
+        canonical_id = str(symbol_entry.get("canonical_id") or "")
+        display_id = str(symbol_entry.get("display_id") or "")
+        pointer = {
+            "local_id": local_id,
+            "display_local_id": display_local_id,
+            "canonical_id": canonical_id,
+            "display_id": display_id,
+            "path": path,
+            "qualname": symbol_entry.get("qualname"),
+            "file_part": symbol_entry.get("file_part"),
+            "file_href": symbol_entry.get("file_href"),
+            "canonical_part": symbol_entry.get("canonical_part"),
+            "canonical_href": symbol_entry.get("canonical_href"),
+        }
         if path and local_id:
             file_by_symbol[local_id] = path
+            symbol_by_local_id[local_id] = pointer
         if path and display_local_id:
             file_by_display_symbol[display_local_id] = path
+            symbol_by_display_local_id[display_local_id] = pointer
+        if canonical_id:
+            symbols_by_canonical_id.setdefault(canonical_id, []).append(pointer)
+        if display_id:
+            symbols_by_display_id.setdefault(display_id, []).append(pointer)
 
     return {
         "symbols_by_file": symbols_by_file,
         "display_symbols_by_file": display_symbols_by_file,
         "file_by_symbol": file_by_symbol,
         "file_by_display_symbol": file_by_display_symbol,
+        "file_by_path": file_by_path,
+        "part_by_file": part_by_file,
+        "symbol_by_local_id": symbol_by_local_id,
+        "symbol_by_display_local_id": symbol_by_display_local_id,
+        "symbols_by_canonical_id": symbols_by_canonical_id,
+        "symbols_by_display_id": symbols_by_display_id,
     }
 
 
@@ -747,7 +851,7 @@ def build_index_payload(
             repo_output_parts=parts_input,
             base_dir=base_dir,
         )
-        parts, file_to_part, func_to_part = _part_metadata(
+        parts, file_to_part, file_index_to_part, func_to_part = _part_metadata(
             run,
             repo_output_parts=parts_input,
             base_dir=base_dir,
@@ -757,6 +861,7 @@ def build_index_payload(
         files_payload = _file_payload(
             run,
             file_to_part=file_to_part,
+            file_index_to_part=file_index_to_part,
             markdown_path=markdown_path,
             file_markdown_ranges=file_markdown_ranges,
         )
@@ -776,7 +881,16 @@ def build_index_payload(
                 "profile": run.options.profile,
                 "split_policy": _split_policy(run),
                 "layout": run.effective_layout,
+                "effective_layout": run.effective_layout,
+                "nav_mode": run.effective_nav_mode,
+                "locator_mode": (
+                    "anchors+line-ranges"
+                    if repo_markdown_path is not None
+                    else "anchors"
+                ),
                 "contains_manifest": run.options.include_manifest,
+                "has_manifest": run.options.include_manifest,
+                "has_machine_header": run.options.include_manifest,
                 "manifest_sha256": run.manifest_sha256,
                 "markdown_path": repo_markdown_path,
                 "parts": parts,
@@ -802,6 +916,28 @@ def build_index_payload(
             "canonical_id_format_version": MACHINE_ID_FORMAT_VERSION,
             "profiles": sorted({run.options.profile for run in pack_runs}),
             "output_files": _sort_rel_paths(all_output_files),
+            "capabilities": {
+                "has_manifest": all(run.options.include_manifest for run in pack_runs),
+                "has_machine_header": all(
+                    run.options.include_manifest for run in pack_runs
+                ),
+                "supports_unpack": all(
+                    run.options.include_manifest for run in pack_runs
+                ),
+                "supports_patch": all(
+                    run.options.include_manifest for run in pack_runs
+                ),
+                "supports_validate": all(
+                    run.options.include_manifest for run in pack_runs
+                ),
+                "has_unsplit_line_ranges": not is_split,
+                "has_split_line_ranges": False,
+            },
+            "authority": {
+                "full_layout_source": "files",
+                "stub_layout_source": "files+function-library+manifest",
+                "patch_source": "unified-diff",
+            },
         },
         "repositories": repositories,
     }
