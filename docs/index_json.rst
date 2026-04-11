@@ -1,10 +1,10 @@
 Index JSON Sidecar
 ==================
 
-``codecrate.index-json.v1`` is the machine-facing companion to the Markdown
-pack. The Markdown output stays optimized for human reading, patch/apply, and
-round-trip reconstruction; the sidecar exists so tools can answer common
-retrieval questions without scraping markdown.
+``index-json`` is the machine-facing companion to the Markdown pack. The
+Markdown output stays optimized for human reading, patch/apply, and round-trip
+reconstruction; the sidecar exists so tools can answer common retrieval
+questions without scraping markdown.
 
 
 Generation
@@ -23,6 +23,13 @@ Or let the profile enable it:
    codecrate pack . -o context.md --profile agent
    codecrate pack . -o context.md --profile hybrid
 
+Or choose a specific sidecar mode:
+
+.. code-block:: console
+
+   codecrate pack . -o context.md --index-json-mode compact
+   codecrate pack . -o context.md --index-json-mode minimal
+
 By default, the sidecar is written next to the markdown output as
 ``<output>.index.json``.
 
@@ -30,12 +37,19 @@ By default, the sidecar is written next to the markdown output as
 Contract and compatibility
 --------------------------
 
-The sidecar is versioned independently as ``codecrate.index-json.v1``.
+The sidecar is versioned independently:
 
-Compatibility rules for v1:
+* ``codecrate.index-json.v1``: full sidecar surface
+* ``codecrate.index-json.v2``: compact or minimal sidecar surface
 
-* existing fields are preserved
-* new metadata is added additively
+The top-level ``mode`` field distinguishes ``full``, ``compact``, and
+``minimal`` output.
+
+Compatibility rules:
+
+* v1 remains the full-fidelity compatibility surface
+* v2 is a machine-first retrieval surface that removes redundant display and
+  reverse-index duplication by default
 * machine-facing lookups should prefer explicit IDs and lookup maps over
   markdown scraping
 
@@ -51,11 +65,12 @@ The payload has this high-level structure:
 
 .. code-block:: json
 
-   {
-     "format": "codecrate.index-json.v1",
-     "pack": { ... },
-     "repositories": [ ... ]
-   }
+    {
+      "format": "codecrate.index-json.v2",
+      "mode": "compact",
+      "pack": { ... },
+      "repositories": [ ... ]
+    }
 
 ``pack``
    Global metadata about the emitted artifact set.
@@ -68,6 +83,9 @@ Pack metadata
 -------------
 
 Useful ``pack`` fields include:
+
+``index_json_mode``
+   The resolved sidecar mode used for the emitted payload.
 
 ``format``
    The markdown pack protocol version.
@@ -129,7 +147,32 @@ Useful fields include:
    Symbol-level occurrence and canonical-body metadata.
 
 ``lookup``
-   Reverse indexes for direct access by path or ID.
+    Reverse indexes for direct access by path or ID.
+
+
+Mode summary
+------------
+
+``full`` (v1)
+   Preserves the current compatibility surface, including display IDs, richer
+   file and symbol metadata, and the larger reverse lookup set.
+
+``compact`` (v2)
+   Keeps machine-first retrieval with direct file and symbol navigation while
+   dropping display-oriented duplication and heavyweight membership metadata.
+   The guaranteed lookup maps are:
+
+   * ``file_by_path``
+   * ``part_by_file``
+   * ``file_by_symbol``
+   * ``symbol_by_local_id``
+
+``minimal`` (v2)
+   Starts from compact mode and removes additional convenience duplication.
+   The guaranteed lookup maps are:
+
+   * ``file_by_path``
+   * ``symbol_by_local_id``
 
 
 Part metadata

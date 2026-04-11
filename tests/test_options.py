@@ -25,6 +25,7 @@ def test_resolve_pack_options_uses_profile_defaults(tmp_path: Path) -> None:
     assert options.profile == "agent"
     assert options.nav_mode == "compact"
     assert options.index_json_enabled is True
+    assert options.index_json_mode == "compact"
     assert options.include_manifest is True
 
 
@@ -48,6 +49,7 @@ def test_resolve_pack_options_config_overrides_defaults(tmp_path: Path) -> None:
 
     assert options.profile == "hybrid"
     assert options.index_json_enabled is True
+    assert options.index_json_mode == "full"
     assert options.include == ["**/*.py"]
     assert options.include_source == "config include/include_preset=python-only"
 
@@ -74,6 +76,40 @@ def test_resolve_pack_options_cli_overrides_config(tmp_path: Path) -> None:
     assert options.include_source == "cli --include-preset=everything"
 
 
+def test_resolve_pack_options_explicit_index_json_defaults_to_full(
+    tmp_path: Path,
+) -> None:
+    cfg = Config(profile="agent")
+
+    options = resolve_pack_options(cfg, _parse_pack_args(tmp_path, "--index-json"))
+
+    assert options.index_json_enabled is True
+    assert options.index_json_mode == "full"
+
+
+def test_resolve_pack_options_index_json_mode_enables_sidecar(tmp_path: Path) -> None:
+    cfg = Config()
+
+    options = resolve_pack_options(
+        cfg,
+        _parse_pack_args(tmp_path, "--index-json-mode", "minimal"),
+    )
+
+    assert options.index_json_enabled is True
+    assert options.index_json_mode == "minimal"
+
+
+def test_resolve_pack_options_config_index_json_mode_enables_sidecar(
+    tmp_path: Path,
+) -> None:
+    cfg = Config(index_json_mode="compact")
+
+    options = resolve_pack_options(cfg, _parse_pack_args(tmp_path))
+
+    assert options.index_json_enabled is True
+    assert options.index_json_mode == "compact"
+
+
 def test_resolve_pack_options_rejects_conflicting_index_json_flags(
     tmp_path: Path,
 ) -> None:
@@ -86,4 +122,24 @@ def test_resolve_pack_options_rejects_conflicting_index_json_flags(
         resolve_pack_options(
             cfg,
             _parse_pack_args(tmp_path, "--index-json", "--no-index-json"),
+        )
+
+
+def test_resolve_pack_options_rejects_conflicting_index_json_mode_flags(
+    tmp_path: Path,
+) -> None:
+    cfg = Config()
+
+    with pytest.raises(
+        ValueError,
+        match="cannot combine --index-json-mode with --no-index-json",
+    ):
+        resolve_pack_options(
+            cfg,
+            _parse_pack_args(
+                tmp_path,
+                "--index-json-mode",
+                "compact",
+                "--no-index-json",
+            ),
         )

@@ -15,6 +15,7 @@ class PackOptions:
     profile: str
     include_manifest: bool
     index_json_enabled: bool
+    index_json_mode: str | None
     respect_gitignore: bool
     security_check: bool
     security_content_sniff: bool
@@ -63,11 +64,39 @@ def resolve_profile(cfg: Config, cli_value: str | None) -> str:
     return norm if norm in {"human", "agent", "hybrid"} else "human"
 
 
+def resolve_index_json_mode(
+    cfg: Config, args: argparse.Namespace, profile: str
+) -> str | None:
+    cli_value = getattr(args, "index_json_mode", None)
+    if cli_value is not None:
+        value = str(cli_value).strip().lower()
+        return value if value in {"full", "compact", "minimal"} else None
+
+    cfg_value = getattr(cfg, "index_json_mode", None)
+    if isinstance(cfg_value, str):
+        value = cfg_value.strip().lower()
+        if value in {"full", "compact", "minimal"}:
+            return value
+
+    if args.index_json is not None:
+        return "full"
+    if profile == "agent":
+        return "compact"
+    if profile == "hybrid":
+        return "full"
+    return None
+
+
 def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
     if args.index_json is not None and bool(getattr(args, "no_index_json", False)):
         raise ValueError("cannot combine --index-json with --no-index-json")
+    if getattr(args, "index_json_mode", None) is not None and bool(
+        getattr(args, "no_index_json", False)
+    ):
+        raise ValueError("cannot combine --index-json-mode with --no-index-json")
 
     profile = resolve_profile(cfg, args.profile)
+    index_json_mode = resolve_index_json_mode(cfg, args, profile)
     if args.include is not None:
         include = args.include
         include_source = "cli --include"
@@ -91,6 +120,10 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         index_json_enabled = True
     elif bool(getattr(args, "no_index_json", False)):
         index_json_enabled = False
+    elif getattr(args, "index_json_mode", None) is not None:
+        index_json_enabled = True
+    elif getattr(cfg, "index_json_mode", None) is not None:
+        index_json_enabled = True
     else:
         index_json_enabled = profile in {"agent", "hybrid"}
     respect_gitignore = (
@@ -245,6 +278,7 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         profile=profile,
         include_manifest=include_manifest,
         index_json_enabled=index_json_enabled,
+        index_json_mode=index_json_mode,
         respect_gitignore=respect_gitignore,
         security_check=security_check,
         security_content_sniff=security_content_sniff,

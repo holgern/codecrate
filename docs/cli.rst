@@ -135,7 +135,9 @@ Useful flags:
 * ``--manifest-json [PATH]``: write manifest JSON for tooling (default:
   ``<output>.manifest.json``)
 * ``--index-json [PATH]``: write index JSON for agent/tooling lookup (default:
-  ``<output>.index.json``)
+  ``<output>.index.json``; explicit ``--index-json`` defaults to full mode)
+* ``--index-json-mode full|compact|minimal``: choose sidecar mode and enable
+  index-json output
 * ``--no-index-json``: disable index JSON output, including profile-implied defaults
 * ``--encoding-errors replace|strict``: UTF-8 decode policy when reading files
 * ``-o/--output PATH``: output markdown path (defaults to config ``output`` or ``context.md``)

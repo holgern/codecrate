@@ -132,7 +132,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Output defaults profile: human keeps current behavior, "
-            "agent implies compact nav + index-json, hybrid implies index-json."
+            "agent implies compact nav + compact v2 index-json, "
+            "hybrid implies full index-json."
         ),
     )
     pack.add_argument(
@@ -362,7 +363,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Write index JSON for agent/tooling lookup. Optionally pass output "
-            "path; without a path writes <output>.index.json"
+            "path; without a path writes <output>.index.json. Explicit "
+            "--index-json defaults to full mode unless --index-json-mode overrides it."
+        ),
+    )
+    pack.add_argument(
+        "--index-json-mode",
+        choices=["full", "compact", "minimal"],
+        default=None,
+        help=(
+            "Index JSON mode: full (v1-compatible), compact (v2), or minimal (v2). "
+            "Specifying a mode enables index-json output."
         ),
     )
     pack.add_argument(
@@ -553,6 +564,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     return p
 
+
 @dataclass(frozen=True)
 class _MeasuredFile:
     path: Path
@@ -560,6 +572,7 @@ class _MeasuredFile:
     text: str
     size_bytes: int
     is_binary: bool = False
+
 
 def _resolve_output_path(cfg: Config, args: argparse.Namespace, root: Path) -> Path:
     if args.output is not None:

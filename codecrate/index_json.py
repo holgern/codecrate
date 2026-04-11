@@ -8,7 +8,11 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from .formats import INDEX_JSON_FORMAT_VERSION, PACK_FORMAT_VERSION
+from .formats import (
+    INDEX_JSON_FORMAT_VERSION_V1,
+    INDEX_JSON_FORMAT_VERSION_V2,
+    PACK_FORMAT_VERSION,
+)
 from .ids import (
     ID_FORMAT_VERSION,
     MACHINE_ID_FORMAT_VERSION,
@@ -542,7 +546,7 @@ def _safety_flags_by_path(run: PackRun) -> dict[str, dict[str, bool]]:
     return flags
 
 
-def _file_payload(
+def _full_file_payload(
     run: PackRun,
     *,
     file_to_part: dict[str, str],
@@ -666,7 +670,7 @@ def _file_payload(
     return payload
 
 
-def _symbol_payload(
+def _full_symbol_payload(
     run: PackRun,
     *,
     file_to_part: dict[str, str],
@@ -760,7 +764,7 @@ def _symbol_payload(
     return symbols
 
 
-def _lookup_indexes(
+def _full_lookup_indexes(
     files_payload: list[dict[str, Any]],
     symbols_payload: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -832,6 +836,197 @@ def _lookup_indexes(
     }
 
 
+def _should_include_canonical_ids(run: PackRun) -> bool:
+    return run.effective_layout == "stubs" or any(
+        defn.id != defn.local_id for defn in run.pack_result.defs
+    )
+
+
+def _compact_file_payload(
+    run: PackRun,
+    *,
+    file_to_part: dict[str, str],
+    file_index_to_part: dict[str, str],
+    markdown_path: str | None,
+    file_markdown_ranges: dict[str, dict[str, int]],
+    index_json_mode: str,
+) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for file_pack in sorted(
+        run.pack_result.files,
+        key=lambda item: item.path.relative_to(run.pack_result.root).as_posix(),
+    ):
+        rel = file_pack.path.relative_to(run.pack_result.root).as_posix()
+        hrefs = {
+            "source": href(file_to_part.get(rel), anchor_for_file_source(rel)),
+        }
+        index_href = href(file_index_to_part.get(rel), anchor_for_file_index(rel))
+        if index_href is not None:
+            hrefs["index"] = index_href
+        file_entry: dict[str, Any] = {
+            "path": rel,
+            "part_path": file_to_part.get(rel),
+            "hrefs": hrefs,
+            "language": _fence_lang_for(rel),
+            "language_detected": file_pack.language_detected,
+            "symbol_backend_requested": file_pack.symbol_backend_requested,
+            "symbol_backend_used": file_pack.symbol_backend_used,
+            "symbol_extraction_status": file_pack.symbol_extraction_status,
+        }
+        if index_json_mode == "compact":
+            file_entry["language_family"] = (
+                file_pack.language_detected or _fence_lang_for(rel)
+            )
+        if markdown_path is not None and rel in file_markdown_ranges:
+            file_entry["markdown_lines"] = file_markdown_ranges[rel]
+        payload.append(file_entry)
+    return payload
+
+
+def _compact_symbol_payload(
+    run: PackRun,
+    *,
+    file_to_part: dict[str, str],
+    func_to_part: dict[str, str],
+    markdown_path: str | None,
+    symbol_index_ranges: dict[str, dict[str, int]],
+    canonical_markdown_ranges: dict[str, dict[str, int]],
+    index_json_mode: str,
+) -> list[dict[str, Any]]:
+    local_machine_ids, canonical_machine_ids = _strong_id_maps(run)
+    include_canonical_ids = _should_include_canonical_ids(run)
+    symbols: list[dict[str, Any]] = []
+    for defn in sorted(
+        run.pack_result.defs,
+        key=lambda item: (
+            item.path.relative_to(run.pack_result.root).as_posix(),
+            item.def_line,
+            item.qualname,
+            item.local_id,
+        ),
+    ):
+        rel = defn.path.relative_to(run.pack_result.root).as_posix()
+        symbol_entry: dict[str, Any] = {
+            "local_id": local_machine_ids[defn.local_id],
+            "path": rel,
+            "qualname": defn.qualname,
+            "kind": defn.kind,
+            "def_line": defn.def_line,
+            "end_line": defn.end_line,
+            "file_part": file_to_part.get(rel),
+            "file_href": href(file_to_part.get(rel), anchor_for_file_source(rel)),
+        }
+        if include_canonical_ids:
+            symbol_entry["canonical_id"] = canonical_machine_ids[defn.id]
+        if index_json_mode == "compact" and markdown_path is not None:
+            if defn.local_id in symbol_index_ranges:
+                symbol_entry["index_markdown_lines"] = symbol_index_ranges[
+                    defn.local_id
+                ]
+        if run.effective_layout == "stubs" and defn.id in run.canonical_sources:
+            symbol_entry["canonical_part"] = func_to_part.get(
+                canonical_machine_ids[defn.id]
+            )
+            symbol_entry["canonical_href"] = href(
+                func_to_part.get(canonical_machine_ids[defn.id]),
+                anchor_for_symbol(defn.id),
+            )
+            if (
+                index_json_mode == "compact"
+                and markdown_path is not None
+                and defn.id in canonical_markdown_ranges
+            ):
+                symbol_entry["canonical_markdown_lines"] = canonical_markdown_ranges[
+                    defn.id
+                ]
+        symbols.append(symbol_entry)
+    return symbols
+
+
+def _compact_lookup_indexes(
+    files_payload: list[dict[str, Any]],
+    symbols_payload: list[dict[str, Any]],
+    *,
+    index_json_mode: str,
+) -> dict[str, Any]:
+    file_by_path: dict[str, dict[str, Any]] = {}
+    part_by_file: dict[str, str | None] = {}
+    file_by_symbol: dict[str, str] = {}
+    symbol_by_local_id: dict[str, dict[str, Any]] = {}
+
+    for file_entry in files_payload:
+        path = str(file_entry.get("path") or "")
+        if not path:
+            continue
+        hrefs = file_entry.get("hrefs") or {}
+        lookup_entry: dict[str, Any] = {
+            "part_path": file_entry.get("part_path"),
+            "source_href": hrefs.get("source"),
+        }
+        if index_json_mode == "compact":
+            lookup_entry["path"] = path
+            lookup_entry["index_href"] = hrefs.get("index")
+        file_by_path[path] = lookup_entry
+        if index_json_mode == "compact":
+            part_by_file[path] = file_entry.get("part_path")
+
+    for symbol_entry in symbols_payload:
+        path = str(symbol_entry.get("path") or "")
+        local_id = str(symbol_entry.get("local_id") or "")
+        if not path or not local_id:
+            continue
+        pointer = {
+            "path": path,
+            "qualname": symbol_entry.get("qualname"),
+            "kind": symbol_entry.get("kind"),
+            "file_part": symbol_entry.get("file_part"),
+            "file_href": symbol_entry.get("file_href"),
+        }
+        if "canonical_id" in symbol_entry:
+            pointer["canonical_id"] = symbol_entry.get("canonical_id")
+        if "canonical_part" in symbol_entry:
+            pointer["canonical_part"] = symbol_entry.get("canonical_part")
+        if "canonical_href" in symbol_entry:
+            pointer["canonical_href"] = symbol_entry.get("canonical_href")
+        symbol_by_local_id[local_id] = pointer
+        if index_json_mode == "compact":
+            file_by_symbol[local_id] = path
+
+    lookup = {
+        "file_by_path": file_by_path,
+        "symbol_by_local_id": symbol_by_local_id,
+    }
+    if index_json_mode == "compact":
+        lookup["part_by_file"] = part_by_file
+        lookup["file_by_symbol"] = file_by_symbol
+    return lookup
+
+
+def _repository_common_payload(
+    run: PackRun,
+    *,
+    repo_markdown_path: str | None,
+    parts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "label": run.label,
+        "slug": run.slug,
+        "profile": run.options.profile,
+        "split_policy": _split_policy(run),
+        "layout": run.effective_layout,
+        "nav_mode": run.effective_nav_mode,
+        "locator_mode": (
+            "anchors+line-ranges" if repo_markdown_path is not None else "anchors"
+        ),
+        "has_manifest": run.options.include_manifest,
+        "has_machine_header": run.options.include_manifest,
+        "manifest_sha256": run.manifest_sha256,
+        "markdown_path": repo_markdown_path,
+        "parts": parts,
+        "safety": _safety_payload(run),
+    }
+
+
 def build_index_payload(
     *,
     codecrate_version: str,
@@ -839,6 +1034,7 @@ def build_index_payload(
     pack_runs: list[PackRun],
     repo_output_parts: dict[str, list[Part]],
     is_split: bool,
+    index_json_mode: str,
 ) -> dict[str, Any]:
     base_dir = index_output_path.parent.resolve()
 
@@ -863,51 +1059,76 @@ def build_index_payload(
         )
         all_output_files.extend(part["path"] for part in parts)
         repo_markdown_path = parts[0]["path"] if len(parts) == 1 else None
-        files_payload = _file_payload(
-            run,
-            file_to_part=file_to_part,
-            file_index_to_part=file_index_to_part,
-            markdown_path=markdown_path,
-            file_markdown_ranges=file_markdown_ranges,
-        )
-        symbols_payload = _symbol_payload(
-            run,
-            file_to_part=file_to_part,
-            func_to_part=func_to_part,
-            markdown_path=markdown_path,
-            file_markdown_ranges=file_markdown_ranges,
-            symbol_index_ranges=symbol_index_ranges,
-            canonical_markdown_ranges=canonical_markdown_ranges,
-        )
-        repositories.append(
-            {
-                "label": run.label,
-                "slug": run.slug,
-                "profile": run.options.profile,
-                "split_policy": _split_policy(run),
-                "layout": run.effective_layout,
-                "effective_layout": run.effective_layout,
-                "nav_mode": run.effective_nav_mode,
-                "locator_mode": (
-                    "anchors+line-ranges"
-                    if repo_markdown_path is not None
-                    else "anchors"
+        if index_json_mode == "full":
+            files_payload = _full_file_payload(
+                run,
+                file_to_part=file_to_part,
+                file_index_to_part=file_index_to_part,
+                markdown_path=markdown_path,
+                file_markdown_ranges=file_markdown_ranges,
+            )
+            symbols_payload = _full_symbol_payload(
+                run,
+                file_to_part=file_to_part,
+                func_to_part=func_to_part,
+                markdown_path=markdown_path,
+                file_markdown_ranges=file_markdown_ranges,
+                symbol_index_ranges=symbol_index_ranges,
+                canonical_markdown_ranges=canonical_markdown_ranges,
+            )
+            repository = {
+                **_repository_common_payload(
+                    run,
+                    repo_markdown_path=repo_markdown_path,
+                    parts=parts,
                 ),
+                "effective_layout": run.effective_layout,
                 "contains_manifest": run.options.include_manifest,
-                "has_manifest": run.options.include_manifest,
-                "has_machine_header": run.options.include_manifest,
-                "manifest_sha256": run.manifest_sha256,
-                "markdown_path": repo_markdown_path,
-                "parts": parts,
-                "safety": _safety_payload(run),
                 "files": files_payload,
                 "symbols": symbols_payload,
-                "lookup": _lookup_indexes(files_payload, symbols_payload),
+                "lookup": _full_lookup_indexes(files_payload, symbols_payload),
             }
-        )
+        else:
+            files_payload = _compact_file_payload(
+                run,
+                file_to_part=file_to_part,
+                file_index_to_part=file_index_to_part,
+                markdown_path=markdown_path,
+                file_markdown_ranges=file_markdown_ranges,
+                index_json_mode=index_json_mode,
+            )
+            symbols_payload = _compact_symbol_payload(
+                run,
+                file_to_part=file_to_part,
+                func_to_part=func_to_part,
+                markdown_path=markdown_path,
+                symbol_index_ranges=symbol_index_ranges,
+                canonical_markdown_ranges=canonical_markdown_ranges,
+                index_json_mode=index_json_mode,
+            )
+            repository = {
+                **_repository_common_payload(
+                    run,
+                    repo_markdown_path=repo_markdown_path,
+                    parts=parts,
+                ),
+                "files": files_payload,
+                "symbols": symbols_payload,
+                "lookup": _compact_lookup_indexes(
+                    files_payload,
+                    symbols_payload,
+                    index_json_mode=index_json_mode,
+                ),
+            }
+        repositories.append(repository)
 
     return {
-        "format": INDEX_JSON_FORMAT_VERSION,
+        "format": (
+            INDEX_JSON_FORMAT_VERSION_V1
+            if index_json_mode == "full"
+            else INDEX_JSON_FORMAT_VERSION_V2
+        ),
+        "mode": index_json_mode,
         "generated_by": {
             "tool": "codecrate",
             "version": codecrate_version,
@@ -916,6 +1137,7 @@ def build_index_payload(
             "format": PACK_FORMAT_VERSION,
             "root": ".",
             "is_split": is_split,
+            "index_json_mode": index_json_mode,
             "repository_count": len(pack_runs),
             "display_id_format_version": ID_FORMAT_VERSION,
             "canonical_id_format_version": MACHINE_ID_FORMAT_VERSION,

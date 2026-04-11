@@ -16,7 +16,7 @@
 
 - **Markdown-native output**: Generates self-contained Markdown files with syntax highlighting
 - **Symbol index**: Quick navigation to functions and classes
-- **Agent-grade sidecar**: Optional retrieval-oriented JSON index output (`--index-json`)
+- **Versioned retrieval sidecar**: Optional JSON index output with full v1 and compact/minimal v2 modes
 - **Deduplication**: Optionally deduplicate identical function bodies to save tokens
 - **Two layout modes**:
   - `stubs`: Compact file stubs with function bodies in a separate "Function Library"
@@ -70,6 +70,8 @@ Pack for agent-oriented retrieval workflows:
 codecrate pack . -o context.md --profile agent
 ```
 
+This uses the compact v2 sidecar by default.
+
 Pack with rich markdown plus an agent sidecar:
 
 ```bash
@@ -78,10 +80,18 @@ codecrate pack . -o context.md --profile hybrid
 See `docs/index_json.rst` for the sidecar contract and lookup model.
 ```
 
+This keeps the full v1-compatible sidecar.
+
 Pack with specific output file and write the sidecars explicitly:
 
 ```bash
 codecrate pack . -o my_project.md --manifest-json --index-json
+```
+
+Generate the smallest practical retrieval sidecar:
+
+```bash
+codecrate pack . -o context.md --index-json-mode minimal
 ```
 
 ### Unpack to Reconstruct Files
@@ -144,6 +154,12 @@ exclude = ["**/test_*.py", "**/tests/**"]
 
 # Output profile: "human", "agent", or "hybrid"
 profile = "human"
+
+# Retrieval sidecar mode: "full" | "compact" | "minimal"
+# - explicit mode also enables index-json output
+# - agent defaults to "compact"
+# - hybrid defaults to "full"
+index_json_mode = "compact"
 
 # Deduplicate identical function bodies (default: false)
 dedupe = true
@@ -268,6 +284,7 @@ codecrate pack <root> [OPTIONS]
 - `--max-workers N`: Max worker threads for IO/parsing/token counting
 - `--manifest-json [PATH]`: Write manifest JSON for tooling
 - `--index-json [PATH]`: Write retrieval-oriented index JSON for agents and tools
+- `--index-json-mode {full,compact,minimal}`: Select sidecar mode and enable index-json output
 - `--no-index-json`: Disable index JSON output, including profile-implied defaults
 - `--encoding-errors {replace,strict}`: UTF-8 decode policy for input files
 

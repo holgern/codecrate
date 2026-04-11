@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .formats import INDEX_JSON_FORMAT_VERSION_V1, INDEX_JSON_FORMAT_VERSION_V2
+
 _ANCHOR_RE = re.compile(r'<a id="([^"]+)"></a>')
 
 
@@ -98,6 +100,7 @@ def _validate_files(
     files: list[dict[str, Any]],
     parts_by_path: dict[str, dict[str, Any]],
     symbols_by_local_id: dict[str, dict[str, Any]],
+    check_symbol_membership: bool,
 ) -> None:
     for file_entry in files:
         path = file_entry.get("path")
@@ -126,13 +129,14 @@ def _validate_files(
                 detail=f"file href for {path}",
                 check_anchors=check_anchors,
             )
-        for symbol_id in file_entry.get("symbol_ids", []):
-            if symbol_id not in symbols_by_local_id:
-                _append_error(
-                    errors,
-                    repo_label,
-                    f"file references unknown symbol id: {symbol_id}",
-                )
+        if check_symbol_membership:
+            for symbol_id in file_entry.get("symbol_ids", []):
+                if symbol_id not in symbols_by_local_id:
+                    _append_error(
+                        errors,
+                        repo_label,
+                        f"file references unknown symbol id: {symbol_id}",
+                    )
 
 
 def _validate_symbols(
@@ -239,6 +243,69 @@ def _validate_lookup(
                 repo_label,
                 f"lookup part_by_file inconsistent for {path}",
             )
+    for path, file_pointer in lookup.get("file_by_path", {}).items():
+        file_entry = files_by_path.get(path)
+        if file_entry is None:
+            _append_error(
+                errors,
+                repo_label,
+                f"lookup file_by_path references unknown path: {path}",
+            )
+            continue
+        if not isinstance(file_pointer, dict):
+            _append_error(
+                errors,
+                repo_label,
+                f"lookup file_by_path entry is not an object: {path}",
+            )
+            continue
+        if file_pointer.get("part_path") is not None and file_pointer.get(
+            "part_path"
+        ) != file_entry.get("part_path"):
+            _append_error(
+                errors,
+                repo_label,
+                f"lookup file_by_path part mismatch for {path}",
+            )
+        hrefs = file_entry.get("hrefs") or {}
+        if file_pointer.get("source_href") is not None and file_pointer.get(
+            "source_href"
+        ) != hrefs.get("source"):
+            _append_error(
+                errors,
+                repo_label,
+                f"lookup file_by_path source href mismatch for {path}",
+            )
+        if file_pointer.get("index_href") is not None and file_pointer.get(
+            "index_href"
+        ) != hrefs.get("index"):
+            _append_error(
+                errors,
+                repo_label,
+                f"lookup file_by_path index href mismatch for {path}",
+            )
+    for symbol_id, symbol_pointer in lookup.get("symbol_by_local_id", {}).items():
+        symbol_entry = symbols_by_local_id.get(symbol_id)
+        if symbol_entry is None:
+            _append_error(
+                errors,
+                repo_label,
+                f"lookup symbol_by_local_id references unknown symbol id: {symbol_id}",
+            )
+            continue
+        if not isinstance(symbol_pointer, dict):
+            _append_error(
+                errors,
+                repo_label,
+                f"lookup symbol_by_local_id entry is not an object: {symbol_id}",
+            )
+            continue
+        if symbol_pointer.get("path") != symbol_entry.get("path"):
+            _append_error(
+                errors,
+                repo_label,
+                f"lookup symbol_by_local_id path mismatch for {symbol_id}",
+            )
 
 
 def validate_index_payload(
@@ -247,6 +314,22 @@ def validate_index_payload(
     base_dir: Path | None = None,
 ) -> list[str]:
     errors: list[str] = []
+    format_version = str(payload.get("format") or "")
+    mode = payload.get("mode")
+    if format_version == INDEX_JSON_FORMAT_VERSION_V1:
+        if mode not in (None, "full"):
+            errors.append(f"invalid mode for {format_version}: {mode}")
+    elif format_version == INDEX_JSON_FORMAT_VERSION_V2:
+        if mode not in {"compact", "minimal"}:
+            errors.append(f"invalid mode for {format_version}: {mode}")
+    else:
+        errors.append(f"unsupported index-json format: {format_version}")
+    pack_mode = payload.get("pack", {}).get("index_json_mode")
+    if pack_mode is not None and mode is not None and pack_mode != mode:
+        errors.append(
+            f"pack.index_json_mode does not match payload mode: {pack_mode} != {mode}"
+        )
+
     output_files = set(payload.get("pack", {}).get("output_files", []))
     anchors_by_path: dict[str, set[str]] = {}
     check_anchors = base_dir is not None
@@ -294,6 +377,7 @@ def validate_index_payload(
             files=files,
             parts_by_path=parts_by_path,
             symbols_by_local_id=symbols_by_local_id,
+            check_symbol_membership=format_version == INDEX_JSON_FORMAT_VERSION_V1,
         )
         _validate_lookup(
             errors,

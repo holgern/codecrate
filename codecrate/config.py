@@ -104,6 +104,12 @@ class Config:
     # - "full": keep all navigation helpers
     # - "auto": compact for unsplit packs, full when split outputs are requested
     nav_mode: Literal["auto", "compact", "full"] = "auto"
+    # Retrieval sidecar mode for index-json output.
+    # - None: let profile/default behavior decide whether to emit it
+    # - "full": current v1-compatible sidecar
+    # - "compact": slimmer v2 retrieval sidecar
+    # - "minimal": smallest practical v2 retrieval sidecar
+    index_json_mode: Literal["full", "compact", "minimal"] | None = None
     # Optional symbol extraction backend for non-Python files.
     # Python files always use the built-in AST parser.
     symbol_backend: Literal["auto", "python", "tree-sitter", "none"] = "auto"
@@ -300,6 +306,12 @@ def load_config(root: Path) -> Config:  # noqa: C901
         nav_mode = nav_mode.strip().lower()
         if nav_mode in {"auto", "compact", "full"}:
             cfg.nav_mode = nav_mode  # type: ignore[assignment]
+
+    index_json_mode = section.get("index_json_mode", cfg.index_json_mode)
+    if isinstance(index_json_mode, str):
+        index_json_mode = index_json_mode.strip().lower()
+        if index_json_mode in {"full", "compact", "minimal"}:
+            cfg.index_json_mode = index_json_mode  # type: ignore[assignment]
 
     backend = section.get("symbol_backend", cfg.symbol_backend)
     if isinstance(backend, str):

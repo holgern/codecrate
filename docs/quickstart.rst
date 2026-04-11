@@ -58,8 +58,10 @@ Pack a repository into ``context.md``:
 
    codecrate pack /path/to/repo -o context.md
    codecrate pack /path/to/repo -o context.md --profile agent
+   codecrate pack /path/to/repo -o context.md --profile hybrid
    codecrate pack /path/to/repo -o context.md --manifest-json
    codecrate pack /path/to/repo -o context.md --index-json
+   codecrate pack /path/to/repo -o context.md --index-json-mode minimal
    codecrate pack /path/to/repo -o context.md --include "*.java" --symbol-backend tree-sitter --index-json
 
 Pack multiple repositories into one output root:
@@ -82,8 +84,9 @@ Common options:
 * ``--max-total-bytes`` / ``--max-total-tokens``: fail fast when total included size exceeds budget
 * ``--security-redaction``: mask flagged files instead of skipping
 * ``--safety-report``: include a Safety Report section with reasons
-* ``--index-json [PATH]``: emit a versioned retrieval sidecar for tooling and agents
-  with file, symbol, part, and safety metadata
+* ``--index-json [PATH]``: emit the full v1-compatible retrieval sidecar for tooling and agents
+* ``--index-json-mode full|compact|minimal``: choose full v1 or compact/minimal v2 sidecars;
+  ``agent`` defaults to ``compact`` and ``hybrid`` defaults to ``full``
 * ``--symbol-backend auto|tree-sitter|none``: control non-Python symbol extraction
   and record requested/used backend metadata in ``index-json`` output
   The sidecar includes short display IDs for markdown references and stronger

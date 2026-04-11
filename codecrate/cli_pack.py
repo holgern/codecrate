@@ -26,6 +26,18 @@ from .tokens import (
 )
 
 
+def _resolve_output_index_json_mode(pack_runs: list[PackRun]) -> str:
+    priority = {"minimal": 0, "compact": 1, "full": 2}
+    modes = [
+        str(run.options.index_json_mode)
+        for run in pack_runs
+        if run.options.index_json_enabled and run.options.index_json_mode is not None
+    ]
+    if not modes:
+        return "full"
+    return max(modes, key=lambda item: priority.get(item, -1))
+
+
 def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: C901
     if args.repo:
         if args.root is not None:
@@ -487,6 +499,7 @@ def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: 
             pack_runs=pack_runs,
             repo_output_parts=repo_output_parts,
             is_split=wrote_split_outputs,
+            index_json_mode=_resolve_output_index_json_mode(pack_runs),
         )
         write_index_json(index_json_path, payload)
 
@@ -508,9 +521,7 @@ def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: 
             top_block = (
                 format_top_files(run.file_tokens, run.options.top_files_len)
                 if run.file_tokens
-                else format_top_files_by_size(
-                    run.file_bytes, run.options.top_files_len
-                )
+                else format_top_files_by_size(run.file_bytes, run.options.top_files_len)
             )
             if top_block:
                 print(top_block, file=sys.stderr)

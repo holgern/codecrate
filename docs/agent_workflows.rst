@@ -14,8 +14,8 @@ Choose A Profile
 Codecrate supports three output profiles:
 
 * ``human``: keep the current markdown-first behavior
-* ``agent``: compact navigation, manifest enabled, and ``index-json`` enabled
-* ``hybrid``: current markdown richness plus ``index-json`` output
+* ``agent``: compact navigation plus compact ``codecrate.index-json.v2``
+* ``hybrid``: current markdown richness plus full ``codecrate.index-json.v1``
 
 Example:
 
@@ -60,20 +60,27 @@ In practice:
 Use The Index Sidecar
 ---------------------
 
-``codecrate.index-json.v1`` is the main retrieval sidecar for tools and agents.
-See :doc:`index_json` for the full sidecar contract and field guide.
+Codecrate now exposes three sidecar modes:
+
+* ``full``: current v1-compatible retrieval surface
+* ``compact``: machine-first v2 retrieval surface
+* ``minimal``: smallest practical v2 retrieval surface
+
+See :doc:`index_json` for the contract and field guide.
 
 Generate it directly:
 
 .. code-block:: console
 
    codecrate pack . -o context.md --index-json
+   codecrate pack . -o context.md --index-json-mode minimal
 
 Or let the profile imply it:
 
 .. code-block:: console
 
    codecrate pack . -o context.md --profile hybrid
+   codecrate pack . -o context.md --profile agent
 
 The sidecar includes:
 
@@ -83,7 +90,7 @@ The sidecar includes:
 * symbol-to-file lookup
 * symbol-to-canonical-body lookup in stub layout
 * direct href-style navigation fields
-* reverse lookup indexes
+* reverse lookup indexes appropriate to the chosen mode
 * unsplit markdown line ranges for review-oriented jumps
 * safety findings
 * language and backend reporting
@@ -114,9 +121,9 @@ Then inspect ``repositories[].files[]`` for:
 * ``path``
 * ``part_path``
 * ``hrefs.index`` / ``hrefs.source``
-* ``anchors.index``
-* ``anchors.source``
 * ``markdown_lines`` on unsplit packs
+
+In full/v1 mode you also get ``anchors`` and richer size/hash metadata.
 
 Locate a symbol and its canonical body in stub layout:
 
@@ -126,24 +133,25 @@ Locate a symbol and its canonical body in stub layout:
 
 Then inspect ``repositories[].symbols[]`` for:
 
-* ``display_id`` / ``display_local_id``
-* ``canonical_id`` / ``local_id``
+* ``local_id``
+* ``canonical_id`` when stub/dedupe behavior requires it
 * ``file_part``
 * ``file_href``
-* ``file_anchor``
 * ``canonical_part``
 * ``canonical_href``
-* ``canonical_anchor``
 * ``index_markdown_lines`` on unsplit packs
 * ``canonical_markdown_lines`` on unsplit stub packs
 
 If you need explicit reverse indexes instead of scanning arrays, inspect
 ``repositories[].lookup`` for:
 
-* ``symbols_by_file``
-* ``display_symbols_by_file``
+* ``file_by_path``
 * ``file_by_symbol``
-* ``file_by_display_symbol``
+* ``part_by_file``
+* ``symbol_by_local_id``
+
+``minimal`` mode trims that further to ``file_by_path`` and
+``symbol_by_local_id`` only.
 
 
 Understand Split Output
