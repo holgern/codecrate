@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from codecrate.cli import main
 from codecrate.discover import discover_python_files
 from codecrate.markdown import render_markdown
 from codecrate.packer import pack_repo
@@ -110,4 +111,46 @@ def test_pack_unpack_roundtrip_with_embedded_backticks(tmp_path: Path) -> None:
 
     assert (out_dir / "README.md").read_text(encoding="utf-8") == (
         root / "README.md"
+    ).read_text(encoding="utf-8")
+
+
+def test_unpack_portable_roundtrip_with_markdown_headings_in_file_content(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    (root / "AGENTS.md").write_text(
+        "# AGENTS.md\n\n"
+        "## Repository Overview\n\n"
+        "- Project: codecrate\n\n"
+        "## Build, Lint, Format, Test Commands\n\n"
+        "- pytest\n",
+        encoding="utf-8",
+    )
+
+    packed = tmp_path / "context.md"
+    main(
+        [
+            "pack",
+            str(root),
+            "-o",
+            str(packed),
+            "--profile",
+            "portable",
+            "--include",
+            "**/*.py",
+            "--include",
+            "**/*.md",
+        ]
+    )
+
+    out_dir = tmp_path / "out"
+    unpack_to_dir(packed.read_text(encoding="utf-8"), out_dir)
+
+    assert (out_dir / "a.py").read_text(encoding="utf-8") == (root / "a.py").read_text(
+        encoding="utf-8"
+    )
+    assert (out_dir / "AGENTS.md").read_text(encoding="utf-8") == (
+        root / "AGENTS.md"
     ).read_text(encoding="utf-8")

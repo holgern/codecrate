@@ -38,17 +38,35 @@ def _iter_fenced_blocks(lines: list[str]) -> Iterator[tuple[str, str]]:
 
 def _section_bounds(title: str, text_lines: list[str]) -> tuple[int, int]:
     start = None
+    fence: str | None = None
     for i, ln in enumerate(text_lines):
-        if ln.strip() == title:
-            start = i + 1
-            break
+        if fence is None:
+            opened = parse_fence_open(ln)
+            if opened is not None:
+                fence = opened[0]
+                continue
+            if ln.strip() == title:
+                start = i + 1
+                break
+        elif is_fence_close(ln, fence):
+            fence = None
     if start is None:
         return (0, len(text_lines))
+
+    fence = None
     end = len(text_lines)
     for j in range(start, len(text_lines)):
-        if text_lines[j].startswith("## ") and text_lines[j].strip() != title:
-            end = j
-            break
+        line = text_lines[j]
+        if fence is None:
+            opened = parse_fence_open(line)
+            if opened is not None:
+                fence = opened[0]
+                continue
+            if line.startswith("## ") and line.strip() != title:
+                end = j
+                break
+        elif is_fence_close(line, fence):
+            fence = None
     return (start, end)
 
 

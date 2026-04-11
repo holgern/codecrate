@@ -80,6 +80,10 @@ def test_pack_emit_standalone_unpacker_writes_deterministic_script(
             str(packed),
             "--profile",
             "portable",
+            "--include",
+            "**/*.py",
+            "--include",
+            "**/*.md",
             "--emit-standalone-unpacker",
         ]
     )
@@ -94,6 +98,10 @@ def test_pack_emit_standalone_unpacker_writes_deterministic_script(
             str(packed),
             "--profile",
             "portable",
+            "--include",
+            "**/*.py",
+            "--include",
+            "**/*.md",
             "--emit-standalone-unpacker",
         ]
     )
@@ -138,6 +146,52 @@ def test_standalone_unpacker_reconstructs_single_repo_from_sibling_pack(
     ).read_text(encoding="utf-8")
     assert (tmp_path / "out" / "README.md").read_text(encoding="utf-8") == (
         repo / "README.md"
+    ).read_text(encoding="utf-8")
+
+
+def test_standalone_unpacker_reconstructs_markdown_with_internal_headings(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(
+        repo,
+        {
+            "a.py": "def alpha():\n    return 1\n",
+            "AGENTS.md": (
+                "# AGENTS.md\n\n"
+                "## Repository Overview\n\n"
+                "- Project: codecrate\n\n"
+                "## Build, Lint, Format, Test Commands\n\n"
+                "- pytest\n"
+            ),
+        },
+    )
+
+    packed = tmp_path / "context.md"
+    main(
+        [
+            "pack",
+            str(repo),
+            "-o",
+            str(packed),
+            "--profile",
+            "portable",
+            "--include",
+            "**/*.py",
+            "--include",
+            "**/*.md",
+            "--emit-standalone-unpacker",
+        ]
+    )
+
+    result = _run_script(tmp_path / "context.unpack.py", "-o", tmp_path / "out")
+
+    assert result.returncode == 0
+    assert (tmp_path / "out" / "a.py").read_text(encoding="utf-8") == (
+        repo / "a.py"
+    ).read_text(encoding="utf-8")
+    assert (tmp_path / "out" / "AGENTS.md").read_text(encoding="utf-8") == (
+        repo / "AGENTS.md"
     ).read_text(encoding="utf-8")
 
 
