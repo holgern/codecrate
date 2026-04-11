@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+from argparse import ArgumentParser, Namespace
 from pathlib import Path
 
 from . import cli as cli_impl
+from .config import load_config
+from .options import resolve_encoding_errors
+from .validate import validate_pack_markdown
 
 
-def run_validate_pack_command(parser: object, args: object) -> None:
+def run_validate_pack_command(parser: ArgumentParser, args: Namespace) -> None:
     if args.fail_on_root_drift and args.root is None:
         parser.error("validate-pack: --fail-on-root-drift requires --root")
     cfg_root = args.root if args.root is not None else Path.cwd()
-    cfg = cli_impl.load_config(cfg_root)
-    validate_encoding_errors = cli_impl.resolve_encoding_errors(
+    cfg = load_config(cfg_root)
+    validate_encoding_errors = resolve_encoding_errors(
         cfg,
         args.encoding_errors,
     )
@@ -22,7 +26,7 @@ def run_validate_pack_command(parser: object, args: object) -> None:
     except ValueError as e:
         parser.error(f"validate-pack: {e}")
     try:
-        report = cli_impl.validate_pack_markdown(
+        report = validate_pack_markdown(
             md_text,
             root=args.root,
             strict=bool(args.strict),

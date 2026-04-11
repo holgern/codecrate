@@ -442,19 +442,24 @@ def _part_metadata(
                 "section_types": list(part.section_types) or ["Pack"],
             },
         }
-        file_to_part = {
+        single_file_to_part = {
             rel: rel_path for rel in (list(part.files) or _all_repo_file_paths(run))
         }
-        file_index_to_part = {
+        single_file_index_to_part = {
             rel: rel_path for rel in (list(part.files) or _all_repo_file_paths(run))
         }
-        func_to_part = {
+        single_func_to_part = {
             canonical_id: rel_path
             for canonical_id in (
                 list(part.canonical_ids) or _all_repo_canonical_ids(run)
             )
         }
-        return [part_entry], file_to_part, file_index_to_part, func_to_part
+        return (
+            [part_entry],
+            single_file_to_part,
+            single_file_index_to_part,
+            single_func_to_part,
+        )
 
     parts: list[dict[str, Any]] = []
     file_to_part: dict[str, str] = {}

@@ -64,7 +64,11 @@ def _validate_parts(
     parts: list[dict[str, Any]],
     files_by_path: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    parts_by_path = {entry.get("path"): entry for entry in parts}
+    parts_by_path: dict[str, dict[str, Any]] = {}
+    for entry in parts:
+        path = entry.get("path")
+        if isinstance(path, str):
+            parts_by_path[path] = entry
     for part in parts:
         part_path = part.get("path")
         if part_path not in output_files:
@@ -142,7 +146,11 @@ def _validate_symbols(
     files_by_path: dict[str, dict[str, Any]],
     parts_by_path: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    symbols_by_local_id = {entry.get("local_id"): entry for entry in symbols}
+    symbols_by_local_id: dict[str, dict[str, Any]] = {}
+    for entry in symbols:
+        local_id = entry.get("local_id")
+        if isinstance(local_id, str):
+            symbols_by_local_id[local_id] = entry
     for symbol_entry in symbols:
         path = symbol_entry.get("path")
         if path not in files_by_path:

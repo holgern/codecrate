@@ -148,9 +148,9 @@ def _node_name(source: bytes, node: Any) -> str | None:
         child = node.child_by_field_name(field_name)
         if child is None:
             continue
-        name = _node_name(source, child)
-        if name:
-            return name
+        child_name = _node_name(source, child)
+        if child_name:
+            return child_name
 
     for child in getattr(node, "children", []):
         ctype = getattr(child, "type", "")
@@ -162,9 +162,9 @@ def _node_name(source: bytes, node: Any) -> str | None:
             "namespace_identifier",
             "name",
         }:
-            name = _decode_node_text(source, child).strip()
-            if name:
-                return name
+            child_name = _decode_node_text(source, child).strip()
+            if child_name:
+                return child_name
     return None
 
 

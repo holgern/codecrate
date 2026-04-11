@@ -35,7 +35,7 @@ INCLUDE_PRESETS: dict[str, list[str]] = {
     "python+docs": DEFAULT_INCLUDES,
     "everything": ["**/*"],
 }
-DEFAULT_INCLUDE_PRESET = "python+docs"
+DEFAULT_INCLUDE_PRESET: Literal["python+docs"] = "python+docs"
 
 
 def include_patterns_for_preset(name: str) -> list[str]:

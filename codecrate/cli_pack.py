@@ -1,12 +1,32 @@
 from __future__ import annotations
 
+import json
 import sys
+from argparse import ArgumentParser, Namespace
 from pathlib import Path
 
 from . import cli as cli_impl
+from .config import load_config
+from .discover import discover_files
+from .formats import MANIFEST_JSON_FORMAT_VERSION
+from .index_json import build_index_payload, write_index_json
+from .manifest import manifest_sha256, to_manifest
+from .markdown import render_markdown_result
+from .options import resolve_pack_options
+from .output_model import PackRun
+from .packer import pack_repo
+from .security import SafetyFinding, apply_safety_filters, build_ruleset
+from .token_budget import Part, split_by_max_chars
+from .tokens import (
+    TokenCounter,
+    approx_token_count,
+    format_token_count_tree,
+    format_top_files,
+    format_top_files_by_size,
+)
 
 
-def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
+def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: C901
     if args.repo:
         if args.root is not None:
             parser.error("pack: specify either ROOT or --repo (repeatable), not both")
@@ -44,9 +64,9 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
     pack_runs = []
 
     for root in roots:
-        cfg = cli_impl.load_config(root)
+        cfg = load_config(root)
         try:
-            options = cli_impl.resolve_pack_options(cfg, args)
+            options = resolve_pack_options(cfg, args)
         except ValueError as e:
             parser.error(f"pack: {e}")
         label = cli_impl._unique_label(root, used_labels)
@@ -55,7 +75,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
         if args.print_rules:
             cli_impl._print_effective_rules(label=label, root=root, options=options)
 
-        disc = cli_impl.discover_files(
+        disc = discover_files(
             root=root,
             include=options.include,
             exclude=options.exclude,
@@ -68,7 +88,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
         redacted_files: dict[Path, str] = {}
         if options.security_check:
             try:
-                ruleset = cli_impl.build_ruleset(
+                ruleset = build_ruleset(
                     path_patterns=options.security_path_patterns,
                     path_patterns_add=options.security_path_patterns_add,
                     path_patterns_remove=options.security_path_patterns_remove,
@@ -77,7 +97,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
             except ValueError as e:
                 parser.error(f"pack: invalid security rule pattern: {e}")
 
-            safety_result = cli_impl.apply_safety_filters(
+            safety_result = apply_safety_filters(
                 disc.root,
                 disc.files,
                 ruleset=ruleset,
@@ -95,16 +115,16 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
             or options.max_total_tokens > 0
         )
         token_backend = ""
-        count_tokens = cli_impl.approx_token_count
+        count_tokens = approx_token_count
         if needs_token_counts:
             try:
-                counter = cli_impl.TokenCounter(options.token_count_encoding)
+                counter = TokenCounter(options.token_count_encoding)
                 token_backend = getattr(counter, "backend", "")
                 counter.count("")
                 count_tokens = counter.count
             except Exception as e:
                 token_backend = "approx"
-                count_tokens = cli_impl.approx_token_count
+                count_tokens = approx_token_count
                 print(
                     f"Warning: token counting disabled ({e}); "
                     "falling back to approximate counts.",
@@ -124,7 +144,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
         binary_measured = [m for m in measured_files if m.is_binary]
         if binary_measured:
             binary_skipped = [
-                cli_impl.SafetyFinding(path=m.path, reason="binary", action="skipped")
+                SafetyFinding(path=m.path, reason="binary", action="skipped")
                 for m in binary_measured
             ]
             skipped.extend(binary_skipped)
@@ -208,7 +228,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
             skipped_details = sorted(set(skipped_details))
             cli_impl._print_skipped_files(label=label, skipped=skipped_details)
 
-        pack, canonical = cli_impl.pack_repo(
+        pack, canonical = pack_repo(
             disc.root,
             files_for_pack,
             keep_docstrings=options.keep_docstrings,
@@ -222,8 +242,8 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
             options.layout == "auto" and cli_impl._pack_has_effective_dedupe(pack)
         )
         effective_layout = "stubs" if use_stubs else "full"
-        manifest_obj = cli_impl.to_manifest(pack, minimal=not use_stubs)
-        manifest_checksum = cli_impl.manifest_sha256(manifest_obj)
+        manifest_obj = to_manifest(pack, minimal=not use_stubs)
+        manifest_checksum = manifest_sha256(manifest_obj)
         binary_count = sum(1 for f in skipped if f.reason == "binary")
         skipped_for_safety_count = sum(
             1 for f in skipped if not (f.reason == "binary" and f.action == "skipped")
@@ -248,7 +268,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
             options.nav_mode,
             options.split_max_chars,
         )
-        rendered = cli_impl.render_markdown_result(
+        rendered = render_markdown_result(
             pack,
             canonical,
             layout=options.layout,
@@ -297,7 +317,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
         default_output = cli_impl._resolve_output_path(cfg, args, root)
 
         pack_runs.append(
-            cli_impl.PackRun(
+            PackRun(
                 root=root,
                 label=label,
                 slug=slug,
@@ -331,11 +351,11 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
 
     wrote_split_outputs = False
     split_files_written: list[Path] = []
-    repo_output_parts: dict[str, list[cli_impl.Part]] = {}
+    repo_output_parts: dict[str, list[Part]] = {}
     if len(pack_runs) == 1:
         split_max_chars = pack_runs[0].options.split_max_chars
         try:
-            parts = cli_impl.split_by_max_chars(
+            parts = split_by_max_chars(
                 md,
                 out_path,
                 split_max_chars,
@@ -346,9 +366,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
             raise SystemExit(f"pack: {e}") from e
         if len(parts) == 1 and parts[0].path == out_path:
             out_path.write_text(md, encoding="utf-8")
-            repo_output_parts[pack_runs[0].slug] = [
-                cli_impl.Part(path=out_path, content=md)
-            ]
+            repo_output_parts[pack_runs[0].slug] = [Part(path=out_path, content=md)]
         else:
             renamed = cli_impl._rename_split_parts(parts, out_path)
             oversized_parts = cli_impl._oversized_split_parts(renamed, split_max_chars)
@@ -380,7 +398,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
                 f"{out_path.stem}.{run_pack.slug}{out_path.suffix}"
             )
             try:
-                parts = cli_impl.split_by_max_chars(
+                parts = split_by_max_chars(
                     run_pack.markdown,
                     repo_base,
                     run_pack.options.split_max_chars,
@@ -411,7 +429,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
                     content_with_header = cli_impl._prefix_repo_header(
                         part.content, run_pack.label
                     )
-                    final_part = cli_impl.Part(
+                    final_part = Part(
                         path=part.path,
                         content=content_with_header,
                         kind=part.kind,
@@ -431,9 +449,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
         else:
             out_path.write_text(md, encoding="utf-8")
             for run_pack in pack_runs:
-                repo_output_parts[run_pack.slug] = [
-                    cli_impl.Part(path=out_path, content=md)
-                ]
+                repo_output_parts[run_pack.slug] = [Part(path=out_path, content=md)]
 
     manifest_json_path = cli_impl._manifest_json_output_path(
         manifest_json_arg=args.manifest_json,
@@ -441,7 +457,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
     )
     if manifest_json_path is not None:
         payload: dict[str, object] = {
-            "format": cli_impl.MANIFEST_JSON_FORMAT_VERSION,
+            "format": MANIFEST_JSON_FORMAT_VERSION,
             "repositories": [
                 {
                     "label": run.label,
@@ -453,7 +469,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
             ],
         }
         manifest_json_path.write_text(
-            cli_impl.json.dumps(payload, indent=2, sort_keys=False) + "\n",
+            json.dumps(payload, indent=2, sort_keys=False) + "\n",
             encoding="utf-8",
         )
 
@@ -465,14 +481,14 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
             markdown_output=out_path,
         )
     if index_json_path is not None:
-        payload = cli_impl.build_index_payload(
+        payload = build_index_payload(
             codecrate_version=cli_impl._codecrate_version(),
             index_output_path=index_json_path,
             pack_runs=pack_runs,
             repo_output_parts=repo_output_parts,
             is_split=wrote_split_outputs,
         )
-        cli_impl.write_index_json(index_json_path, payload)
+        write_index_json(index_json_path, payload)
 
     for run in pack_runs:
         if not run.options.token_report:
@@ -490,9 +506,9 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
         )
         if run.options.top_files_len:
             top_block = (
-                cli_impl.format_top_files(run.file_tokens, run.options.top_files_len)
+                format_top_files(run.file_tokens, run.options.top_files_len)
                 if run.file_tokens
-                else cli_impl.format_top_files_by_size(
+                else format_top_files_by_size(
                     run.file_bytes, run.options.top_files_len
                 )
             )
@@ -500,7 +516,7 @@ def run_pack_command(parser: object, args: object) -> None:  # noqa: C901
                 print(top_block, file=sys.stderr)
         if run.options.token_count_tree and run.file_tokens:
             print(
-                cli_impl.format_token_count_tree(
+                format_token_count_tree(
                     run.file_tokens,
                     threshold=run.options.token_count_tree_threshold,
                 ),

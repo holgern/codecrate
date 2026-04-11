@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from argparse import ArgumentParser, Namespace
 from typing import Literal
 
 from . import cli as cli_impl
+from .config import load_config
+from .diffgen import generate_patch_markdown
+from .options import resolve_encoding_errors
+from .repositories import select_repository_section, split_repository_sections
+from .udiff import apply_file_diffs, parse_unified_diff
 
 
-def run_patch_command(parser: object, args: object) -> None:
-    cfg = cli_impl.load_config(args.root)
-    patch_encoding_errors = cli_impl.resolve_encoding_errors(cfg, args.encoding_errors)
+def run_patch_command(parser: ArgumentParser, args: Namespace) -> None:
+    cfg = load_config(args.root)
+    patch_encoding_errors = resolve_encoding_errors(cfg, args.encoding_errors)
     try:
         old_md = cli_impl._read_text_with_policy(
             args.old_markdown,
@@ -15,11 +21,11 @@ def run_patch_command(parser: object, args: object) -> None:
         )
     except ValueError as e:
         parser.error(f"patch: {e}")
-    old_sections = cli_impl.split_repository_sections(old_md)
+    old_sections = split_repository_sections(old_md)
     selected_label: str | None = None
     if old_sections:
         try:
-            section = cli_impl.select_repository_section(
+            section = select_repository_section(
                 old_sections,
                 args.repo,
                 command_name="patch",
@@ -34,7 +40,7 @@ def run_patch_command(parser: object, args: object) -> None:
         )
 
     try:
-        patch_md = cli_impl.generate_patch_markdown(
+        patch_md = generate_patch_markdown(
             old_md,
             args.root,
             include=cfg.include,
@@ -55,9 +61,9 @@ def run_patch_command(parser: object, args: object) -> None:
     print(f"Wrote {args.output}")
 
 
-def run_apply_command(parser: object, args: object) -> None:
-    cfg = cli_impl.load_config(args.root)
-    apply_encoding_errors = cli_impl.resolve_encoding_errors(cfg, args.encoding_errors)
+def run_apply_command(parser: ArgumentParser, args: Namespace) -> None:
+    cfg = load_config(args.root)
+    apply_encoding_errors = resolve_encoding_errors(cfg, args.encoding_errors)
     try:
         md_text = cli_impl._read_text_with_policy(
             args.patch_markdown,
@@ -65,10 +71,10 @@ def run_apply_command(parser: object, args: object) -> None:
         )
     except ValueError as e:
         parser.error(f"apply: {e}")
-    patch_sections = cli_impl.split_repository_sections(md_text)
+    patch_sections = split_repository_sections(md_text)
     if patch_sections:
         try:
-            section = cli_impl.select_repository_section(
+            section = select_repository_section(
                 patch_sections,
                 args.repo,
                 command_name="apply",
@@ -83,7 +89,7 @@ def run_apply_command(parser: object, args: object) -> None:
         )
 
     diff_text = cli_impl._extract_diff_blocks(md_text)
-    diffs = cli_impl.parse_unified_diff(diff_text)
+    diffs = parse_unified_diff(diff_text)
     patch_meta = cli_impl._extract_patch_metadata(md_text)
     baseline_policy: Literal["auto", "require", "ignore"] = "auto"
     if args.check_baseline:
@@ -101,7 +107,7 @@ def run_apply_command(parser: object, args: object) -> None:
     except ValueError as e:
         parser.error(f"apply: {e}")
     try:
-        changed = cli_impl.apply_file_diffs(
+        changed = apply_file_diffs(
             diffs,
             args.root,
             dry_run=bool(args.dry_run),
