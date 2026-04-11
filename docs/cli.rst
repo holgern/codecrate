@@ -145,7 +145,7 @@ Useful flags:
      include or trim compact v2 symbol index line ranges
    * ``--no-index-json``: disable index JSON output, including profile-implied defaults
    * ``--emit-standalone-unpacker``: write ``<output>.unpack.py`` for zero-install
-     reconstruction of manifest-enabled full-layout packs
+     reconstruction of manifest-enabled packs
    * ``--encoding-errors replace|strict``: UTF-8 decode policy when reading files
    * ``-o/--output PATH``: output markdown path (defaults to config ``output`` or ``context.md``)
 
@@ -162,6 +162,10 @@ Portable reconstruction example:
 
    codecrate pack . -o context.md --profile portable --emit-standalone-unpacker
    python context.unpack.py -o reconstructed/
+
+The emitted script uses only the Python standard library. It supports both
+``full`` and ``stubs`` layouts; ``portable`` remains the recommended profile
+when you want a reconstruction-first ``full`` pack.
 
 When ``--emit-standalone-unpacker`` is used together with ``--split-max-chars``,
 Codecrate still writes the unsplit markdown to the main output path because that

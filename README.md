@@ -105,6 +105,10 @@ python context.unpack.py -o reconstructed/
 This keeps the unsplit markdown as the authoritative reconstruction source and
 does not require `index-json`.
 
+The generated standalone unpacker now reconstructs both manifest-enabled
+`full` and `stubs` packs. The `portable` profile remains the recommended
+default when you want a reconstruction-first `full` pack.
+
 Pack with specific output file and write the sidecars explicitly:
 
 ```bash

@@ -130,6 +130,9 @@ Generate a standalone unpacker next to a portable pack:
 This standalone script uses only the Python standard library and reconstructs
 from the sibling unsplit markdown pack by default.
 
+If you need a token-efficient portable pack instead, you can still emit the
+standalone unpacker with ``--layout stubs``.
+
 
 Generate a patch Markdown
 -------------------------

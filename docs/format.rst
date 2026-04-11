@@ -113,8 +113,8 @@ Layouts
    chooses ``full`` for best token efficiency.
 
 
-Portable unpack subset
-----------------------
+Portable unpack contract
+------------------------
 
 The initial standalone unpack flow targets a conservative subset of the pack
 format:
@@ -122,6 +122,8 @@ format:
 * unsplit markdown is the authoritative machine-readable reconstruction source
 * ``full`` portable unpack requires the Manifest plus file bodies under
   ``## Files``
+* ``stubs`` portable unpack additionally requires the Function Library plus
+  manifest ``defs`` metadata to resolve markers back into canonical bodies
 * split ``.index.md`` / ``.partN.md`` outputs are not the standalone machine
   source
 

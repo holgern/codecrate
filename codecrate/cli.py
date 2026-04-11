@@ -405,7 +405,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Write a standard-library-only <output>.unpack.py next to the pack. "
-            "Requires a manifest-enabled full-layout pack."
+            "Requires a manifest-enabled pack."
         ),
     )
 

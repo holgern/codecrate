@@ -72,6 +72,11 @@ In practice:
 * use patch/apply when you want baseline-aware edit loops instead of directly
   rewriting packed markdown
 
+The standalone unpacker itself supports both ``full`` and ``stubs`` packs.
+The distinction is that ``portable`` chooses reconstruction-first defaults,
+while an explicit ``--layout stubs --emit-standalone-unpacker`` combination
+lets you keep the token-efficient stub layout and still reconstruct offline.
+
 
 Use The Index Sidecar
 ---------------------

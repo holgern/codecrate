@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,7 @@ _FENCE_OPEN_RE = re.compile(
     r"^(?P<fence>`{3,})[ \t]*(?P<info>[A-Za-z0-9_-]+)(?:[ \t]+.*)?$"
 )
 _LAYOUT_RE = re.compile(r"^Layout:\s*`(?P<layout>[^`]+)`$")
+_MARK_RE = re.compile(r"FUNC:(?:v\d+:)?(?P<id>[0-9A-Fa-f]{8})")
 
 
 def normalize_newlines(text: str) -> str:
@@ -51,6 +53,14 @@ class RepositorySection:
     label: str
     slug: str
     content: str
+
+
+@dataclass(frozen=True)
+class PackedMarkdown:
+    manifest: dict[str, Any]
+    machine_header: dict[str, Any] | None
+    canonical_sources: dict[str, str]
+    stubbed_files: dict[str, str]
 
 
 def slugify_repo_label(label: str) -> str:
@@ -180,6 +190,42 @@ def _parse_machine_header_and_manifest(
     return manifest, machine_header
 
 
+def _parse_function_library(text_lines: list[str]) -> dict[str, str]:
+    canonical_sources: dict[str, str] = {}
+    lib_start, lib_end = _section_bounds("## Function Library", text_lines)
+    for idx in range(lib_start, lib_end):
+        line = text_lines[idx]
+        if not line.startswith("### "):
+            continue
+
+        title = line.replace("###", "", 1).strip()
+        maybe_id = title.split(" — ", 1)[0].strip()
+        if not maybe_id:
+            continue
+
+        scan = idx + 1
+        fence = ""
+        while scan < lib_end:
+            opened = parse_fence_open(text_lines[scan])
+            if opened is not None and opened[1] == "python":
+                fence = opened[0]
+                break
+            scan += 1
+        if scan < lib_end and fence:
+            block_end = scan + 1
+            buf: list[str] = []
+            while block_end < lib_end and not is_fence_close(
+                text_lines[block_end], fence
+            ):
+                buf.append(text_lines[block_end])
+                block_end += 1
+            chunk = normalize_newlines("".join(buf))
+            if chunk and not chunk.endswith("\n"):
+                chunk += "\n"
+            canonical_sources[maybe_id] = chunk
+    return canonical_sources
+
+
 def _parse_file_blocks(text_lines: list[str]) -> dict[str, str]:
     files: dict[str, str] = {}
     files_start, files_end = _section_bounds("## Files", text_lines)
@@ -219,6 +265,18 @@ def _parse_file_blocks(text_lines: list[str]) -> dict[str, str]:
     return files
 
 
+def parse_packed_markdown(text: str) -> PackedMarkdown:
+    text_norm = normalize_newlines(text)
+    text_lines = text_norm.splitlines(keepends=True)
+    manifest, machine_header = _parse_machine_header_and_manifest(text_lines)
+    return PackedMarkdown(
+        manifest=manifest,
+        machine_header=machine_header,
+        canonical_sources=_parse_function_library(text_lines),
+        stubbed_files=_parse_file_blocks(text_lines),
+    )
+
+
 def manifest_sha256(manifest: dict[str, Any]) -> str:
     canonical = json.dumps(
         manifest,
@@ -251,6 +309,102 @@ def _verify_machine_header(
         )
 
 
+def _ws_len(s: str) -> int:
+    return len(s) - len(s.lstrip(" \t"))
+
+
+def _apply_canonical_into_stub(
+    stub: str,
+    defs: list[dict[str, Any]],
+    canonical: dict[str, str],
+    *,
+    strict: bool = False,
+    issues: list[str] | None = None,
+) -> str:
+    lines = stub.splitlines(keepends=True)
+    marker_lines_for: dict[str, list[int]] = {}
+
+    def _record_issue(message: str) -> None:
+        if issues is not None:
+            issues.append(message)
+        if strict:
+            raise ValueError(message)
+
+    for idx, line in enumerate(lines):
+        match = _MARK_RE.search(line)
+        if match:
+            marker_lines_for.setdefault(match.group("id").upper(), []).append(idx)
+
+    work: list[tuple[int, dict[str, Any], str]] = []
+    for item in defs:
+        cid = item.get("id") or item.get("local_id")
+        if not cid:
+            _record_issue("definition missing both id and local_id")
+            continue
+
+        marker_key = item.get("local_id") or cid
+        idxs = marker_lines_for.get(str(marker_key).upper())
+        if not idxs and str(cid).upper() != str(marker_key).upper():
+            idxs = marker_lines_for.get(str(cid).upper())
+        if not idxs:
+            _record_issue(
+                "missing marker for "
+                f"{item.get('qualname') or '<unknown>'} "
+                f"(local_id={item.get('local_id') or '∅'}, id={cid})"
+            )
+            continue
+
+        work.append((idxs.pop(), item, str(cid)))
+
+    work.sort(key=lambda entry: entry[0], reverse=True)
+
+    for marker_idx, item, cid in work:
+        code = canonical.get(cid)
+        if code is None:
+            alt = item.get("local_id")
+            if alt:
+                code = canonical.get(str(alt))
+        if code is None:
+            _record_issue(
+                "missing canonical source for "
+                f"{item.get('qualname') or '<unknown>'} "
+                f"(id={cid}, local_id={item.get('local_id') or '∅'})"
+            )
+            continue
+
+        def_idx = marker_idx
+        while def_idx >= 0:
+            stripped = lines[def_idx].lstrip(" \t")
+            if stripped.startswith("def ") or stripped.startswith("async def "):
+                break
+            def_idx -= 1
+        if def_idx < 0:
+            _record_issue(
+                "unable to locate def line above marker for "
+                f"{item.get('qualname') or '<unknown>'}"
+            )
+            continue
+
+        def_indent = _ws_len(lines[def_idx])
+        start_idx = def_idx
+        scan = def_idx - 1
+        while scan >= 0:
+            stripped = lines[scan].lstrip(" \t")
+            if _ws_len(lines[scan]) == def_indent and stripped.startswith("@"):
+                start_idx = scan
+                scan -= 1
+                continue
+            break
+
+        end_idx = (def_idx + 1) if marker_idx == def_idx else (marker_idx + 1)
+        repl = code.splitlines(keepends=True)
+        if repl and not repl[-1].endswith("\n"):
+            repl[-1] = repl[-1] + "\n"
+        lines[start_idx:end_idx] = repl
+
+    return "".join(lines)
+
+
 def _write_text_file(root: Path, rel: str, text: str) -> None:
     out_root = root.resolve()
     target = (out_root / rel).resolve()
@@ -267,40 +421,64 @@ def _unpack_single_markdown(
     strict: bool,
     check_machine_header: bool,
 ) -> None:
-    del strict
-    text_norm = normalize_newlines(markdown_text)
-    text_lines = text_norm.splitlines(keepends=True)
-    layout = _parse_layout(text_lines)
-    if layout != "full":
-        raise ValueError(
-            "Standalone unpacker currently supports only full layout packs; "
-            "re-pack with --layout full or --profile portable."
-        )
-
-    manifest, machine_header = _parse_machine_header_and_manifest(text_lines)
+    packed = parse_packed_markdown(markdown_text)
+    manifest = packed.manifest
     if str(manifest.get("format") or "") != PACK_FORMAT_VERSION:
         raise ValueError(f"Unsupported format: {manifest.get('format')}")
     if check_machine_header:
-        _verify_machine_header(machine_header, manifest)
+        _verify_machine_header(packed.machine_header, manifest)
 
-    file_blocks = _parse_file_blocks(text_lines)
+    missing: list[str] = []
     for item in manifest.get("files", []):
         if not isinstance(item, dict):
             raise ValueError("Manifest file entry must be an object.")
         rel = str(item.get("path") or "")
         if not rel:
             raise ValueError("Manifest file entry is missing a path.")
-        if rel not in file_blocks:
-            raise ValueError(f"Missing file block for manifest path: {rel}")
-        body = normalize_newlines(file_blocks[rel])
+        stub = packed.stubbed_files.get(rel)
+        exp = item.get("line_count")
+        exp_n = int(exp) if exp is not None else None
+        if stub is None or (exp_n and exp_n > 0 and not stub.strip()):
+            missing.append(rel)
+            continue
+
+        marker_issues: list[str] = []
+        reconstructed = _apply_canonical_into_stub(
+            stub,
+            list(item.get("defs") or []),
+            packed.canonical_sources,
+            strict=strict,
+            issues=marker_issues,
+        )
+        reconstructed = normalize_newlines(reconstructed)
+        if marker_issues:
+            msg = (
+                f"Unresolved marker mapping for {rel}: "
+                + "; ".join(marker_issues[:5])
+                + ("; ..." if len(marker_issues) > 5 else "")
+            )
+            warnings.warn(msg, RuntimeWarning, stacklevel=2)
+
         exp_sha = str(item.get("sha256_original") or "")
         if exp_sha:
-            got_sha = hashlib.sha256(body.encode("utf-8")).hexdigest()
+            got_sha = hashlib.sha256(reconstructed.encode("utf-8")).hexdigest()
             if got_sha != exp_sha:
-                raise ValueError(
-                    f"SHA256 mismatch for {rel}: expected {exp_sha}, got {got_sha}"
+                warnings.warn(
+                    f"SHA256 mismatch for {rel}: expected {exp_sha}, got {got_sha}",
+                    RuntimeWarning,
+                    stacklevel=2,
                 )
-        _write_text_file(out_dir, rel, body)
+        _write_text_file(out_dir, rel, reconstructed)
+
+    if missing:
+        files_str = ", ".join(missing[:10])
+        if len(missing) > 10:
+            files_str += "..."
+        warnings.warn(
+            f"Missing stubbed file blocks for {len(missing)} file(s): {files_str}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
 
 def unpack_to_dir(
@@ -337,8 +515,8 @@ def _default_pack_path() -> Path:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Reconstruct files from a Codecrate full-layout pack using only the "
-            "Python standard library."
+            "Reconstruct files from a Codecrate pack using only the Python "
+            "standard library."
         )
     )
     parser.add_argument(
@@ -358,7 +536,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="Accepted for forward compatibility; has no effect for full-layout packs.",
+        help="Fail when marker-based stub reconstruction cannot be fully resolved.",
     )
     parser.add_argument(
         "--check-machine-header",

@@ -367,12 +367,6 @@ def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: 
                 "--emit-standalone-unpacker requires a manifest-enabled pack "
                 "(remove --no-manifest)."
             )
-        non_full = [run.label for run in pack_runs if run.effective_layout != "full"]
-        if non_full:
-            parser.error(
-                "--emit-standalone-unpacker currently supports only full-layout packs. "
-                "Re-run with --layout full or --profile portable."
-            )
     if len(pack_runs) == 1:
         md = pack_runs[0].markdown
     else:
