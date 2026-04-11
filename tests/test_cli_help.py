@@ -47,8 +47,11 @@ def test_pack_help_clarifies_explicit_file_behavior(capsys) -> None:
     assert "exclude" in captured.out
     assert "ignore files still apply" in captured.out
     assert "agent implies compact nav + minimal v2 index-json" in captured.out
+    assert "portable" in captured.out
+    assert "standalone unpack" in captured.out
     assert "Explicit" in captured.out
     assert "full mode" in captured.out
     assert "--index-json-mode" in captured.out
     assert "--index-json-lookup" in captured.out
     assert "--index-json-symbol-index-lines" in captured.out
+    assert "--emit-standalone-unpacker" in captured.out

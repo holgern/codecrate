@@ -42,6 +42,7 @@ Profiles can change output defaults without changing the underlying pack format:
 * ``human`` keeps current markdown-first behavior
 * ``agent`` implies compact navigation and minimal v2 index JSON output
 * ``hybrid`` keeps current markdown behavior and also emits index JSON output
+* ``portable`` implies manifest-enabled ``full`` layout for standalone unpack
 
 The index sidecar includes deterministic per-repository metadata for:
 
@@ -110,6 +111,22 @@ Layouts
 ``auto``
    Chooses ``stubs`` only when deduplication actually collapses something; otherwise
    chooses ``full`` for best token efficiency.
+
+
+Portable unpack subset
+----------------------
+
+The initial standalone unpack flow targets a conservative subset of the pack
+format:
+
+* unsplit markdown is the authoritative machine-readable reconstruction source
+* ``full`` portable unpack requires the Manifest plus file bodies under
+  ``## Files``
+* split ``.index.md`` / ``.partN.md`` outputs are not the standalone machine
+  source
+
+``codecrate pack --profile portable --emit-standalone-unpacker`` writes a
+standard-library-only ``<output>.unpack.py`` beside the main markdown output.
 
 
 IDs and deduplication

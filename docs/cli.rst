@@ -87,8 +87,8 @@ When using ``--repo``, omit the positional ``ROOT``. Specifying both is an error
 Useful flags:
 
 * ``--dedupe / --no-dedupe``: enable or disable deduplication
-* ``--profile human|agent|hybrid``: choose output defaults profile
-* ``--layout auto|stubs|full``: choose layout (auto selects best token efficiency)
+   * ``--profile human|agent|hybrid|portable``: choose output defaults profile
+   * ``--layout auto|stubs|full``: choose layout (auto selects best token efficiency)
 * ``--nav-mode auto|compact|full``: navigation density; auto uses compact for
   unsplit output and full when split outputs are requested
 * ``--symbol-backend auto|python|tree-sitter|none``: optional non-Python symbol
@@ -132,20 +132,40 @@ Useful flags:
 * ``--max-file-tokens N``: skip files above N tokens
 * ``--max-total-tokens N``: fail if included files exceed N tokens
 * ``--max-workers N``: cap thread pool size for IO/parsing/token counting
-* ``--manifest-json [PATH]``: write manifest JSON for tooling (default:
-  ``<output>.manifest.json``)
-* ``--index-json [PATH]``: write index JSON for agent/tooling lookup (default:
-  ``<output>.index.json``; explicit ``--index-json`` defaults to full mode)
+   * ``--manifest-json [PATH]``: write manifest JSON for tooling (default:
+     ``<output>.manifest.json``)
+   * ``--index-json [PATH]``: write index JSON for agent/tooling lookup (default:
+     ``<output>.index.json``; explicit ``--index-json`` defaults to full mode)
 * ``--index-json-mode full|compact|minimal``: choose sidecar mode and enable
   index-json output (``agent`` defaults to ``minimal``; ``hybrid`` defaults to
   ``full``)
 * ``--index-json-lookup / --no-index-json-lookup``: include or trim lookup maps
   in compact/minimal v2 sidecars
-* ``--index-json-symbol-index-lines / --no-index-json-symbol-index-lines``:
-  include or trim compact v2 symbol index line ranges
-* ``--no-index-json``: disable index JSON output, including profile-implied defaults
-* ``--encoding-errors replace|strict``: UTF-8 decode policy when reading files
-* ``-o/--output PATH``: output markdown path (defaults to config ``output`` or ``context.md``)
+   * ``--index-json-symbol-index-lines / --no-index-json-symbol-index-lines``:
+     include or trim compact v2 symbol index line ranges
+   * ``--no-index-json``: disable index JSON output, including profile-implied defaults
+   * ``--emit-standalone-unpacker``: write ``<output>.unpack.py`` for zero-install
+     reconstruction of manifest-enabled full-layout packs
+   * ``--encoding-errors replace|strict``: UTF-8 decode policy when reading files
+   * ``-o/--output PATH``: output markdown path (defaults to config ``output`` or ``context.md``)
+
+Profile defaults:
+
+* ``human``: current markdown-first behavior
+* ``agent``: compact navigation plus minimal v2 ``index-json`` output
+* ``hybrid``: current markdown behavior plus full ``index-json`` output
+* ``portable``: manifest-enabled ``full`` layout intended for standalone unpack
+
+Portable reconstruction example:
+
+.. code-block:: console
+
+   codecrate pack . -o context.md --profile portable --emit-standalone-unpacker
+   python context.unpack.py -o reconstructed/
+
+When ``--emit-standalone-unpacker`` is used together with ``--split-max-chars``,
+Codecrate still writes the unsplit markdown to the main output path because that
+unsplit pack remains the authoritative machine-readable reconstruction source.
 
 ``--stdin`` / ``--stdin0`` notes:
 

@@ -63,7 +63,7 @@ def resolve_profile(cfg: Config, cli_value: str | None) -> str:
         cli_value if cli_value is not None else str(getattr(cfg, "profile", "human"))
     )
     norm = str(value).strip().lower()
-    return norm if norm in {"human", "agent", "hybrid"} else "human"
+    return norm if norm in {"human", "agent", "hybrid", "portable"} else "human"
 
 
 def resolve_index_json_mode(
@@ -199,11 +199,13 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         if args.split_allow_cut_files is None
         else bool(args.split_allow_cut_files)
     )
-    layout = (
-        str(args.layout).strip().lower()
-        if args.layout is not None
-        else str(getattr(cfg, "layout", "auto")).strip().lower()
-    )
+    if args.layout is not None:
+        layout = str(args.layout).strip().lower()
+    else:
+        cfg_layout = str(getattr(cfg, "layout", "auto")).strip().lower()
+        layout = (
+            "full" if profile == "portable" and cfg_layout == "auto" else cfg_layout
+        )
     nav_mode = (
         str(args.nav_mode).strip().lower()
         if args.nav_mode is not None

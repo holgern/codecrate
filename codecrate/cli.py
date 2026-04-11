@@ -128,12 +128,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pack.add_argument(
         "--profile",
-        choices=["human", "agent", "hybrid"],
+        choices=["human", "agent", "hybrid", "portable"],
         default=None,
         help=(
             "Output defaults profile: human keeps current behavior, "
             "agent implies compact nav + minimal v2 index-json, "
-            "hybrid implies full index-json."
+            "hybrid implies full index-json, "
+            "portable implies full layout with manifest for standalone unpack."
         ),
     )
     pack.add_argument(
@@ -398,6 +399,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-index-json",
         action="store_true",
         help="Disable index JSON output, including profile-implied defaults.",
+    )
+    pack.add_argument(
+        "--emit-standalone-unpacker",
+        action="store_true",
+        help=(
+            "Write a standard-library-only <output>.unpack.py next to the pack. "
+            "Requires a manifest-enabled full-layout pack."
+        ),
     )
 
     # unpack
@@ -1087,6 +1096,10 @@ def _index_json_output_path(
     if index_json_arg.strip():
         return Path(index_json_arg)
     return markdown_output.with_name(f"{markdown_output.stem}.index.json")
+
+
+def _standalone_unpacker_output_path(*, markdown_output: Path) -> Path:
+    return markdown_output.with_name(f"{markdown_output.stem}.unpack.py")
 
 
 def _validation_hint(message: str) -> str | None:

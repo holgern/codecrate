@@ -11,11 +11,12 @@ retrieve, validate, diff, and apply changes safely.
 Choose A Profile
 ----------------
 
-Codecrate supports three output profiles:
+Codecrate supports four output profiles:
 
 * ``human``: keep the current markdown-first behavior
 * ``agent``: compact navigation plus minimal ``codecrate.index-json.v2``
 * ``hybrid``: current markdown richness plus full ``codecrate.index-json.v1``
+* ``portable``: manifest-enabled ``full`` layout for standalone reconstruction
 
 Example:
 
@@ -37,6 +38,12 @@ index sidecar:
 .. code-block:: console
 
    codecrate pack . -o context.md --profile agent --nav-mode full --no-index-json
+
+Use ``portable`` when reconstruction is the priority rather than retrieval:
+
+.. code-block:: console
+
+   codecrate pack . -o context.md --profile portable --emit-standalone-unpacker
 
 
 Authority Model
@@ -60,6 +67,8 @@ In practice:
 * use ``full`` packs when you want one obvious file body per source file
 * use ``stubs`` packs when token efficiency matters and your tool understands
   canonical function bodies
+* use ``portable`` profile when you want a generated ``context.unpack.py`` that
+  reconstructs the pack with stock Python only
 * use patch/apply when you want baseline-aware edit loops instead of directly
   rewriting packed markdown
 
@@ -182,7 +191,8 @@ When ``--split-max-chars`` is used, Codecrate can emit:
 * ``context.partN.md`` files
 
 Split output is intended for reading and retrieval, while the unsplit markdown
-remains the machine-readable source for unpack and validate flows.
+remains the machine-readable source for unpack, validate, and standalone
+reconstruction flows.
 
 Split policy is explicit:
 

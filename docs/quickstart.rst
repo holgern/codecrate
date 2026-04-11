@@ -73,7 +73,7 @@ Pack multiple repositories into one output root:
 Common options:
 
 * ``--dedupe``: deduplicate identical function bodies (enables stub layout when effective)
-* ``--profile {human,agent,hybrid}``: choose output defaults for human reading or agent tooling
+   * ``--profile {human,agent,hybrid,portable}``: choose output defaults for human reading, agent tooling, or portable reconstruction
 * ``--layout {auto,stubs,full}``: control output layout
 * ``--manifest/--no-manifest``: include or omit the Manifest section (omit only for LLM-only packs)
 * ``--split-max-chars N``: emit ``.index.md`` and ``.partN.md`` split outputs for LLMs
@@ -115,6 +115,20 @@ Reconstruct files from a pack into a directory:
 
    Packs created with ``--no-manifest`` are LLM-only and cannot be used for
    ``unpack``, ``patch``, or ``validate-pack``.
+
+
+Portable reconstruction without installing Codecrate
+----------------------------------------------------
+
+Generate a standalone unpacker next to a portable pack:
+
+.. code-block:: console
+
+   codecrate pack /path/to/repo -o context.md --profile portable --emit-standalone-unpacker
+   python context.unpack.py -o /tmp/reconstructed
+
+This standalone script uses only the Python standard library and reconstructs
+from the sibling unsplit markdown pack by default.
 
 
 Generate a patch Markdown

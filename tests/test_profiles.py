@@ -87,6 +87,19 @@ def test_pack_profile_agent_explicit_index_json_keeps_full_mode(tmp_path: Path) 
     assert payload["mode"] == "full"
 
 
+def test_pack_profile_portable_implies_full_layout_without_index_json(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path), "--profile", "portable"])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "Layout: `full`" in text
+    assert not (tmp_path / "context.index.json").exists()
+
+
 def test_pack_profile_from_config_is_used(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     (tmp_path / "codecrate.toml").write_text(

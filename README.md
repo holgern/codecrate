@@ -21,7 +21,8 @@
 - **Two layout modes**:
   - `stubs`: Compact file stubs with function bodies in a separate "Function Library"
   - `full`: Complete file contents (no stubbing)
-- **Output profiles**: `human`, `agent`, and `hybrid`
+- **Output profiles**: `human`, `agent`, `hybrid`, and `portable`
+- **Portable reconstruction**: Optional generated standalone unpacker script using only the Python standard library
 - **Round-trip support**: Reconstruct original files exactly from Markdown packs
 - **Diff generation**: Create minimal patch Markdown files showing only changed code
 - **Baseline-aware patches**: Patch metadata binds diffs to baseline file hashes; `apply` refuses mismatched baselines
@@ -93,6 +94,16 @@ See `docs/index_json.rst` for the sidecar contract and lookup model.
 ```
 
 This keeps the full v1-compatible sidecar.
+
+Pack for zero-install reconstruction workflows:
+
+```bash
+codecrate pack . -o context.md --profile portable --emit-standalone-unpacker
+python context.unpack.py -o reconstructed/
+```
+
+This keeps the unsplit markdown as the authoritative reconstruction source and
+does not require `index-json`.
 
 Pack with specific output file and write the sidecars explicitly:
 
@@ -168,7 +179,7 @@ include_preset = "python+docs"
 # File patterns to exclude
 exclude = ["**/test_*.py", "**/tests/**"]
 
-# Output profile: "human", "agent", or "hybrid"
+# Output profile: "human" | "agent" | "hybrid" | "portable"
 profile = "human"
 
 # Retrieval sidecar mode: "full" | "compact" | "minimal"

@@ -101,6 +101,22 @@ def test_resolve_pack_options_index_json_mode_enables_sidecar(tmp_path: Path) ->
     assert options.index_json_mode == "minimal"
 
 
+def test_resolve_pack_options_portable_profile_defaults_to_full_without_index_json(
+    tmp_path: Path,
+) -> None:
+    cfg = Config()
+
+    options = resolve_pack_options(
+        cfg,
+        _parse_pack_args(tmp_path, "--profile", "portable"),
+    )
+
+    assert options.profile == "portable"
+    assert options.layout == "full"
+    assert options.include_manifest is True
+    assert options.index_json_enabled is False
+
+
 def test_resolve_pack_options_config_index_json_mode_enables_sidecar(
     tmp_path: Path,
 ) -> None:

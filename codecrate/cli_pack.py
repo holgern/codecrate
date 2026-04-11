@@ -16,6 +16,7 @@ from .options import resolve_pack_options
 from .output_model import PackRun
 from .packer import pack_repo
 from .security import SafetyFinding, apply_safety_filters, build_ruleset
+from .standalone_unpacker import render_standalone_unpacker
 from .token_budget import Part, split_by_max_chars
 from .tokens import (
     TokenCounter,
@@ -356,12 +357,29 @@ def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: 
         )
 
     out_path = args.output if args.output is not None else pack_runs[0].default_output
+    emit_standalone_unpacker = bool(getattr(args, "emit_standalone_unpacker", False))
+    if emit_standalone_unpacker:
+        manifestless = [
+            run.label for run in pack_runs if not run.options.include_manifest
+        ]
+        if manifestless:
+            parser.error(
+                "--emit-standalone-unpacker requires a manifest-enabled pack "
+                "(remove --no-manifest)."
+            )
+        non_full = [run.label for run in pack_runs if run.effective_layout != "full"]
+        if non_full:
+            parser.error(
+                "--emit-standalone-unpacker currently supports only full-layout packs. "
+                "Re-run with --layout full or --profile portable."
+            )
     if len(pack_runs) == 1:
         md = pack_runs[0].markdown
     else:
         md = cli_impl._combine_pack_markdown(pack_runs)
 
     wrote_split_outputs = False
+    wrote_unsplit_markdown = False
     split_files_written: list[Path] = []
     repo_output_parts: dict[str, list[Part]] = {}
     if len(pack_runs) == 1:
@@ -378,6 +396,7 @@ def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: 
             raise SystemExit(f"pack: {e}") from e
         if len(parts) == 1 and parts[0].path == out_path:
             out_path.write_text(md, encoding="utf-8")
+            wrote_unsplit_markdown = True
             repo_output_parts[pack_runs[0].slug] = [Part(path=out_path, content=md)]
         else:
             renamed = cli_impl._rename_split_parts(parts, out_path)
@@ -392,6 +411,9 @@ def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: 
                 part.path.write_text(part.content, encoding="utf-8")
                 split_files_written.append(part.path)
             wrote_split_outputs = True
+            if emit_standalone_unpacker:
+                out_path.write_text(md, encoding="utf-8")
+                wrote_unsplit_markdown = True
             repo_output_parts[pack_runs[0].slug] = list(renamed)
             cli_impl._warn_oversized_split_outputs(
                 label=pack_runs[0].label,
@@ -458,8 +480,12 @@ def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: 
                     paths=oversized_parts,
                     max_chars=run_pack.options.split_max_chars,
                 )
+            if emit_standalone_unpacker:
+                out_path.write_text(md, encoding="utf-8")
+                wrote_unsplit_markdown = True
         else:
             out_path.write_text(md, encoding="utf-8")
+            wrote_unsplit_markdown = True
             for run_pack in pack_runs:
                 repo_output_parts[run_pack.slug] = [Part(path=out_path, content=md)]
 
@@ -554,12 +580,24 @@ def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: 
                     f"{out_path.stem}.index{out_path.suffix}"
                 )
                 part_count = max(0, len(split_files_written) - 1)
-                print(f"Wrote {index_path} and {part_count} split part file(s).")
+                if wrote_unsplit_markdown:
+                    print(
+                        f"Wrote {out_path}, {index_path}, and {part_count} split part "
+                        "file(s)."
+                    )
+                else:
+                    print(f"Wrote {index_path} and {part_count} split part file(s).")
             else:
-                print(
-                    f"Wrote split outputs for {len(pack_runs)} repos "
-                    f"({len(split_files_written)} file(s))."
-                )
+                if wrote_unsplit_markdown:
+                    print(
+                        f"Wrote {out_path} plus split outputs for {len(pack_runs)} "
+                        f"repos ({len(split_files_written)} file(s))."
+                    )
+                else:
+                    print(
+                        f"Wrote split outputs for {len(pack_runs)} repos "
+                        f"({len(split_files_written)} file(s))."
+                    )
         else:
             if len(pack_runs) == 1:
                 print(f"Wrote {out_path}.")
@@ -569,3 +607,17 @@ def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: 
             print(f"Wrote {manifest_json_path}.")
         if index_json_path is not None:
             print(f"Wrote {index_json_path}.")
+
+    standalone_unpacker_path = None
+    if emit_standalone_unpacker:
+        standalone_unpacker_path = cli_impl._standalone_unpacker_output_path(
+            markdown_output=out_path
+        )
+        standalone_unpacker_path.write_text(
+            render_standalone_unpacker(
+                pack_format_version=pack_runs[0].manifest.get("format", ""),
+                default_pack_filename=out_path.name,
+            ),
+            encoding="utf-8",
+        )
+        print(f"Wrote {standalone_unpacker_path}.")

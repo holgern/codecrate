@@ -66,7 +66,8 @@ class Config:
     # - "human": preserve current markdown-first behavior
     # - "agent": emit compact navigation and minimal v2 sidecar defaults
     # - "hybrid": preserve current markdown behavior but emit index-json by default
-    profile: Literal["human", "agent", "hybrid"] = "human"
+    # - "portable": prefer manifest-enabled full-layout output for standalone unpack
+    profile: Literal["human", "agent", "hybrid", "portable"] = "human"
     # Output layout:
     # - "stubs": always emit stubbed files + Function Library (current format)
     # - "full":  emit full file contents (no Function Library)
@@ -183,7 +184,7 @@ def load_config(root: Path) -> Config:  # noqa: C901
     profile = section.get("profile", cfg.profile)
     if isinstance(profile, str):
         profile = profile.strip().lower()
-        if profile in {"human", "agent", "hybrid"}:
+        if profile in {"human", "agent", "hybrid", "portable"}:
             cfg.profile = profile  # type: ignore[assignment]
     layout = section.get("layout", cfg.layout)
     if isinstance(layout, str):
