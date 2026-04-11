@@ -41,6 +41,8 @@ def test_config_defaults() -> None:
     assert isinstance(cfg.security_content_patterns, list)
     assert cfg.security_content_patterns
     assert cfg.nav_mode == "auto"
+    assert cfg.index_json_include_lookup is True
+    assert cfg.index_json_include_symbol_index_lines is True
     assert cfg.symbol_backend == "auto"
     assert cfg.encoding_errors == "replace"
     assert cfg.include_preset == "python+docs"
@@ -177,6 +179,8 @@ security_path_patterns_add = ["*.vault"]
 security_path_patterns_remove = ["*.pem"]
 security_content_patterns = ["api-key=(?i)api[_-]?key[:=][A-Za-z0-9]{8,}"]
 nav_mode = "compact"
+index_json_include_lookup = false
+index_json_include_symbol_index_lines = false
 symbol_backend = "tree-sitter"
 encoding_errors = "strict"
 """,
@@ -205,6 +209,8 @@ encoding_errors = "strict"
         "api-key=(?i)api[_-]?key[:=][A-Za-z0-9]{8,}"
     ]
     assert cfg.nav_mode == "compact"
+    assert cfg.index_json_include_lookup is False
+    assert cfg.index_json_include_symbol_index_lines is False
     assert cfg.symbol_backend == "tree-sitter"
     assert cfg.encoding_errors == "strict"
 

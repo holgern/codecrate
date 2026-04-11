@@ -64,7 +64,7 @@ class Config:
     manifest: bool = True
     # Output defaults profile.
     # - "human": preserve current markdown-first behavior
-    # - "agent": emit agent-sidecar defaults and compact navigation
+    # - "agent": emit compact navigation and minimal v2 sidecar defaults
     # - "hybrid": preserve current markdown behavior but emit index-json by default
     profile: Literal["human", "agent", "hybrid"] = "human"
     # Output layout:
@@ -110,6 +110,11 @@ class Config:
     # - "compact": slimmer v2 retrieval sidecar
     # - "minimal": smallest practical v2 retrieval sidecar
     index_json_mode: Literal["full", "compact", "minimal"] | None = None
+    # Optional v2 payload trimming controls.
+    # - index_json_include_lookup: include lookup maps in v2 sidecars
+    # - index_json_include_symbol_index_lines: include unsplit symbol index lines
+    index_json_include_lookup: bool = True
+    index_json_include_symbol_index_lines: bool = True
     # Optional symbol extraction backend for non-Python files.
     # Python files always use the built-in AST parser.
     symbol_backend: Literal["auto", "python", "tree-sitter", "none"] = "auto"
@@ -312,6 +317,15 @@ def load_config(root: Path) -> Config:  # noqa: C901
         index_json_mode = index_json_mode.strip().lower()
         if index_json_mode in {"full", "compact", "minimal"}:
             cfg.index_json_mode = index_json_mode  # type: ignore[assignment]
+    cfg.index_json_include_lookup = bool(
+        section.get("index_json_include_lookup", cfg.index_json_include_lookup)
+    )
+    cfg.index_json_include_symbol_index_lines = bool(
+        section.get(
+            "index_json_include_symbol_index_lines",
+            cfg.index_json_include_symbol_index_lines,
+        )
+    )
 
     backend = section.get("symbol_backend", cfg.symbol_backend)
     if isinstance(backend, str):

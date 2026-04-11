@@ -48,14 +48,16 @@ def _assert_href_targets_exist(base_dir: Path, payload: dict[str, Any]) -> None:
                 canonical_path, canonical_anchor = canonical_href.split("#", 1)
                 assert canonical_anchor in anchors[canonical_path]
 
-        if "symbols_by_file" in repo["lookup"]:
-            for path, symbol_ids in repo["lookup"]["symbols_by_file"].items():
+        lookup = repo.get("lookup", {})
+
+        if "symbols_by_file" in lookup:
+            for path, symbol_ids in lookup["symbols_by_file"].items():
                 assert path in files_by_path
                 for symbol_id in symbol_ids:
                     assert symbols_by_id[symbol_id]["path"] == path
 
-        if "display_symbols_by_file" in repo["lookup"]:
-            for path, symbol_ids in repo["lookup"]["display_symbols_by_file"].items():
+        if "display_symbols_by_file" in lookup:
+            for path, symbol_ids in lookup["display_symbols_by_file"].items():
                 assert path in files_by_path
                 for symbol_id in symbol_ids:
                     assert display_symbols_by_id[symbol_id]["path"] == path
@@ -100,8 +102,8 @@ def test_index_json_compact_v2_hrefs_and_validation(tmp_path: Path) -> None:
             str(tmp_path),
             "-o",
             str(tmp_path / "context.md"),
-            "--profile",
-            "agent",
+            "--index-json-mode",
+            "compact",
         ]
     )
 
@@ -129,6 +131,84 @@ def test_index_json_minimal_v2_hrefs_and_validation(tmp_path: Path) -> None:
     payload = _load_payload(tmp_path)
     assert payload["format"] == "codecrate.index-json.v2"
     assert payload["mode"] == "minimal"
+    _assert_href_targets_exist(tmp_path, payload)
+    assert validate_index_payload(payload, base_dir=tmp_path) == []
+
+
+def test_index_json_compact_v2_without_lookup_hrefs_and_validation(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--index-json-mode",
+            "compact",
+            "--no-index-json-lookup",
+        ]
+    )
+
+    payload = _load_payload(tmp_path)
+    assert payload["repositories"][0]["index_json_features"] == {
+        "lookup": False,
+        "symbol_index_lines": True,
+    }
+    _assert_href_targets_exist(tmp_path, payload)
+    assert validate_index_payload(payload, base_dir=tmp_path) == []
+
+
+def test_index_json_compact_v2_without_symbol_lines_hrefs_and_validation(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--index-json-mode",
+            "compact",
+            "--no-index-json-symbol-index-lines",
+        ]
+    )
+
+    payload = _load_payload(tmp_path)
+    assert payload["repositories"][0]["index_json_features"] == {
+        "lookup": True,
+        "symbol_index_lines": False,
+    }
+    _assert_href_targets_exist(tmp_path, payload)
+    assert validate_index_payload(payload, base_dir=tmp_path) == []
+
+
+def test_index_json_minimal_v2_without_lookup_hrefs_and_validation(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--index-json-mode",
+            "minimal",
+            "--no-index-json-lookup",
+        ]
+    )
+
+    payload = _load_payload(tmp_path)
+    assert payload["repositories"][0]["index_json_features"] == {
+        "lookup": False,
+        "symbol_index_lines": False,
+    }
     _assert_href_targets_exist(tmp_path, payload)
     assert validate_index_payload(payload, base_dir=tmp_path) == []
 

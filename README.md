@@ -54,6 +54,18 @@ Or for development:
 pip install -e ".[dev]"
 ```
 
+## Release Check
+
+Before publishing, run:
+
+```bash
+python -m pip install build
+./scripts/release-check.sh
+```
+
+This runs the lint, format, test, and build gate in one command. CI also smoke
+installs the built wheel from `dist/`.
+
 ## Quick Start
 
 ### Pack a Repository
@@ -70,7 +82,7 @@ Pack for agent-oriented retrieval workflows:
 codecrate pack . -o context.md --profile agent
 ```
 
-This uses the compact v2 sidecar by default.
+This uses the minimal v2 sidecar by default.
 
 Pack with rich markdown plus an agent sidecar:
 
@@ -87,6 +99,10 @@ Pack with specific output file and write the sidecars explicitly:
 ```bash
 codecrate pack . -o my_project.md --manifest-json --index-json
 ```
+
+Explicit `--index-json` defaults to the full v1-compatible sidecar. Use
+`--index-json-mode compact` or `--index-json-mode minimal` when you want the
+leaner v2 machine-first sidecars.
 
 Generate the smallest practical retrieval sidecar:
 
@@ -157,9 +173,13 @@ profile = "human"
 
 # Retrieval sidecar mode: "full" | "compact" | "minimal"
 # - explicit mode also enables index-json output
-# - agent defaults to "compact"
+# - agent defaults to "minimal"
 # - hybrid defaults to "full"
-index_json_mode = "compact"
+index_json_mode = "minimal"
+
+# Optional v2 sidecar trimming knobs
+index_json_include_lookup = true
+index_json_include_symbol_index_lines = true
 
 # Deduplicate identical function bodies (default: false)
 dedupe = true
@@ -241,7 +261,7 @@ codecrate pack <root> [OPTIONS]
 
 - `-o, --output PATH`: Output markdown path (default: `context.md`)
 - `--dedupe` / `--no-dedupe`: Enable or disable deduplication
-- `--profile {human,agent,hybrid}`: Output defaults profile
+- `--profile {human,agent,hybrid}`: Output defaults profile (`agent` implies compact nav + minimal v2 index-json)
 - `--layout {auto,stubs,full}`: Output layout mode
 - `--nav-mode {auto,compact,full}`: Navigation density mode
 - `--symbol-backend {auto,python,tree-sitter,none}`: Non-Python symbol backend
@@ -283,8 +303,10 @@ codecrate pack <root> [OPTIONS]
 - `--max-total-tokens N`: Fail if included files exceed this token limit
 - `--max-workers N`: Max worker threads for IO/parsing/token counting
 - `--manifest-json [PATH]`: Write manifest JSON for tooling
-- `--index-json [PATH]`: Write retrieval-oriented index JSON for agents and tools
-- `--index-json-mode {full,compact,minimal}`: Select sidecar mode and enable index-json output
+- `--index-json [PATH]`: Write retrieval-oriented index JSON for agents and tools (`--index-json` alone defaults to full v1 compatibility mode)
+- `--index-json-mode {full,compact,minimal}`: Select sidecar mode and enable index-json output (`agent` defaults to `minimal`, `hybrid` defaults to `full`)
+- `--index-json-lookup` / `--no-index-json-lookup`: Include or trim v2 lookup maps
+- `--index-json-symbol-index-lines` / `--no-index-json-symbol-index-lines`: Include or trim compact v2 symbol index line ranges
 - `--no-index-json`: Disable index JSON output, including profile-implied defaults
 - `--encoding-errors {replace,strict}`: UTF-8 decode policy for input files
 

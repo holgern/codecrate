@@ -308,6 +308,20 @@ def _validate_lookup(
             )
 
 
+def _v2_features(repo: dict[str, Any], *, mode: Any) -> dict[str, bool]:
+    defaults = {
+        "lookup": mode in {"compact", "minimal"},
+        "symbol_index_lines": mode == "compact",
+    }
+    raw = repo.get("index_json_features")
+    if not isinstance(raw, dict):
+        return defaults
+    return {
+        key: bool(raw.get(key, defaults[key]))
+        for key in ("lookup", "symbol_index_lines")
+    }
+
+
 def validate_index_payload(
     payload: dict[str, Any],
     *,
@@ -347,9 +361,22 @@ def validate_index_payload(
         symbols = repo.get("symbols", [])
         parts = repo.get("parts", [])
         files_by_path = {entry.get("path"): entry for entry in files}
+        features = _v2_features(repo, mode=mode)
 
         if len(files_by_path) != len(files):
             _append_error(errors, repo_label, "duplicate file paths in files array")
+        if format_version == INDEX_JSON_FORMAT_VERSION_V2 and not isinstance(
+            repo.get("index_json_features"), dict
+        ):
+            _append_error(
+                errors, repo_label, "missing index_json_features for v2 payload"
+            )
+        if features["lookup"] and not isinstance(repo.get("lookup"), dict):
+            _append_error(
+                errors,
+                repo_label,
+                "index_json_features.lookup=true but lookup payload is missing",
+            )
 
         parts_by_path = _validate_parts(
             errors,

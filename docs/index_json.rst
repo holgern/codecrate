@@ -23,12 +23,19 @@ Or let the profile enable it:
    codecrate pack . -o context.md --profile agent
    codecrate pack . -o context.md --profile hybrid
 
+``--profile agent`` resolves to the minimal v2 sidecar by default, while
+``--profile hybrid`` keeps the full v1-compatible sidecar.
+
 Or choose a specific sidecar mode:
 
 .. code-block:: console
 
    codecrate pack . -o context.md --index-json-mode compact
    codecrate pack . -o context.md --index-json-mode minimal
+
+``--index-json`` alone defaults to the full compatibility surface. Use
+``--index-json-mode compact`` or ``--index-json-mode minimal`` when you want a
+v2 machine-first sidecar explicitly.
 
 By default, the sidecar is written next to the markdown output as
 ``<output>.index.json``.
@@ -67,7 +74,7 @@ The payload has this high-level structure:
 
     {
       "format": "codecrate.index-json.v2",
-      "mode": "compact",
+      "mode": "minimal",
       "pack": { ... },
       "repositories": [ ... ]
     }
@@ -140,8 +147,12 @@ Useful fields include:
 ``parts``
    Metadata for the emitted markdown files belonging to the repository.
 
+``index_json_features``
+   Declares optional v2 retrieval families such as lookup-map emission and
+   compact symbol index lines.
+
 ``files``
-   File-level retrieval, integrity, language, and location metadata.
+    File-level retrieval, integrity, language, and location metadata.
 
 ``symbols``
    Symbol-level occurrence and canonical-body metadata.
@@ -160,7 +171,7 @@ Mode summary
 ``compact`` (v2)
    Keeps machine-first retrieval with direct file and symbol navigation while
    dropping display-oriented duplication and heavyweight membership metadata.
-   The guaranteed lookup maps are:
+   When ``index_json_features.lookup`` is true, the lookup maps are:
 
    * ``file_by_path``
    * ``part_by_file``
@@ -169,7 +180,7 @@ Mode summary
 
 ``minimal`` (v2)
    Starts from compact mode and removes additional convenience duplication.
-   The guaranteed lookup maps are:
+   When ``index_json_features.lookup`` is true, the lookup maps are:
 
    * ``file_by_path``
    * ``symbol_by_local_id``
@@ -300,6 +311,12 @@ Useful maps include:
 
 ``symbols_by_canonical_id`` / ``symbols_by_display_id``
    Grouped symbol entries for canonical-body lookups.
+
+In v2 payloads, check ``repositories[].index_json_features`` first. If
+``lookup`` is false, consumers should scan ``files[]`` and ``symbols[]``
+directly instead of assuming ``lookup`` is present. If
+``symbol_index_lines`` is false, compact payloads intentionally omit
+``index_markdown_lines`` even for unsplit packs.
 
 
 Locator semantics

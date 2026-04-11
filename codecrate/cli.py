@@ -132,7 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Output defaults profile: human keeps current behavior, "
-            "agent implies compact nav + compact v2 index-json, "
+            "agent implies compact nav + minimal v2 index-json, "
             "hybrid implies full index-json."
         ),
     )
@@ -374,6 +374,24 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Index JSON mode: full (v1-compatible), compact (v2), or minimal (v2). "
             "Specifying a mode enables index-json output."
+        ),
+    )
+    pack.add_argument(
+        "--index-json-lookup",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Include lookup maps in compact/minimal v2 sidecars "
+            "(default: on via config)."
+        ),
+    )
+    pack.add_argument(
+        "--index-json-symbol-index-lines",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Include unsplit symbol index line ranges in compact v2 sidecars "
+            "(default: on via config)."
         ),
     )
     pack.add_argument(

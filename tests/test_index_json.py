@@ -8,6 +8,25 @@ from codecrate.model import DefRef
 from codecrate.symbol_backend import SymbolExtractionResult
 
 
+def _make_ratio_guardrail_module(
+    prefix: str, *, symbol_count: int, filler_lines: int
+) -> str:
+    body = ['"""Module docs.\\n' + ("Extra context.\\n" * filler_lines) + '"""\\n\\n']
+    for i in range(symbol_count):
+        body.append(
+            f"class {prefix.title()}Class{i}:\\n"
+            f"    def method_{i}(self, value: int) -> int:\\n"
+            "        total = value\\n"
+            + "".join(f"        total += {j}\\n" for j in range(filler_lines))
+            + "        return total\\n\\n"
+            f"def {prefix}_func_{i}(value: int) -> int:\\n"
+            "    total = value\\n"
+            + "".join(f"    total += {j}\\n" for j in range(filler_lines))
+            + "    return total\\n\\n"
+        )
+    return "".join(body)
+
+
 def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     out_path = tmp_path / "context.md"
@@ -184,7 +203,16 @@ def test_pack_index_json_compact_v2_shape(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     out_path = tmp_path / "context.md"
 
-    main(["pack", str(tmp_path), "-o", str(out_path), "--profile", "agent"])
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(out_path),
+            "--index-json-mode",
+            "compact",
+        ]
+    )
 
     payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
     repo = payload["repositories"][0]
@@ -194,6 +222,10 @@ def test_pack_index_json_compact_v2_shape(tmp_path: Path) -> None:
     assert payload["format"] == "codecrate.index-json.v2"
     assert payload["mode"] == "compact"
     assert payload["pack"]["index_json_mode"] == "compact"
+    assert repo["index_json_features"] == {
+        "lookup": True,
+        "symbol_index_lines": True,
+    }
     assert set(repo["lookup"]) == {
         "file_by_path",
         "file_by_symbol",
@@ -237,10 +269,69 @@ def test_pack_index_json_minimal_v2_shape(tmp_path: Path) -> None:
     assert payload["format"] == "codecrate.index-json.v2"
     assert payload["mode"] == "minimal"
     assert payload["pack"]["index_json_mode"] == "minimal"
+    assert repo["index_json_features"] == {
+        "lookup": True,
+        "symbol_index_lines": False,
+    }
     assert set(repo["lookup"]) == {"file_by_path", "symbol_by_local_id"}
     assert "language_family" not in file_entry
     assert "index_markdown_lines" not in symbol_entry
     assert "canonical_id" not in symbol_entry
+
+
+def test_pack_index_json_compact_without_lookup_shape(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(out_path),
+            "--index-json-mode",
+            "compact",
+            "--no-index-json-lookup",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo = payload["repositories"][0]
+
+    assert repo["index_json_features"] == {
+        "lookup": False,
+        "symbol_index_lines": True,
+    }
+    assert "lookup" not in repo
+
+
+def test_pack_index_json_compact_without_symbol_index_lines_shape(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(out_path),
+            "--index-json-mode",
+            "compact",
+            "--no-index-json-symbol-index-lines",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo = payload["repositories"][0]
+    symbol_entry = repo["symbols"][0]
+
+    assert repo["index_json_features"] == {
+        "lookup": True,
+        "symbol_index_lines": False,
+    }
+    assert "index_markdown_lines" not in symbol_entry
 
 
 def test_pack_index_json_compact_and_minimal_are_smaller_than_full(
@@ -264,8 +355,8 @@ def test_pack_index_json_compact_and_minimal_are_smaller_than_full(
             str(tmp_path),
             "-o",
             str(tmp_path / "compact.md"),
-            "--profile",
-            "agent",
+            "--index-json-mode",
+            "compact",
         ]
     )
     compact_payload = json.loads(
@@ -292,6 +383,58 @@ def test_pack_index_json_compact_and_minimal_are_smaller_than_full(
 
     assert len(compact_text) < len(full_text)
     assert len(minimal_text) < len(compact_text)
+
+
+def test_pack_profile_agent_minimal_sidecar_stays_below_markdown_ratio(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "README.md").write_text(
+        "# Demo\\n\\n" + ("Readme context line.\\n" * 400),
+        encoding="utf-8",
+    )
+    (tmp_path / "docs" / "guide.rst").write_text(
+        "Guide\\n=====\\n\\n" + ("Guide context line.\\n" * 500),
+        encoding="utf-8",
+    )
+    (tmp_path / "pkg" / "a.py").write_text(
+        _make_ratio_guardrail_module("alpha", symbol_count=8, filler_lines=220),
+        encoding="utf-8",
+    )
+    (tmp_path / "pkg" / "b.py").write_text(
+        _make_ratio_guardrail_module("beta", symbol_count=8, filler_lines=220),
+        encoding="utf-8",
+    )
+    (tmp_path / "tests" / "test_pkg.py").write_text(
+        "".join(
+            f"def test_case_{i}() -> None:\\n    assert {i} == {i}\\n\\n"
+            for i in range(40)
+        ),
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(out_path),
+            "--profile",
+            "agent",
+            "--include-preset",
+            "everything",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    markdown_bytes = len(out_path.read_bytes())
+    index_json_bytes = len((tmp_path / "context.index.json").read_bytes())
+
+    assert payload["mode"] == "minimal"
+    assert index_json_bytes * 100 <= markdown_bytes * 60
 
 
 def test_pack_index_json_explicit_path_multi_repo(tmp_path: Path) -> None:

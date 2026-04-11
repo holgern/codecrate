@@ -16,6 +16,8 @@ class PackOptions:
     include_manifest: bool
     index_json_enabled: bool
     index_json_mode: str | None
+    index_json_include_lookup: bool
+    index_json_include_symbol_index_lines: bool
     respect_gitignore: bool
     security_check: bool
     security_content_sniff: bool
@@ -81,7 +83,7 @@ def resolve_index_json_mode(
     if args.index_json is not None:
         return "full"
     if profile == "agent":
-        return "compact"
+        return "minimal"
     if profile == "hybrid":
         return "full"
     return None
@@ -126,6 +128,16 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         index_json_enabled = True
     else:
         index_json_enabled = profile in {"agent", "hybrid"}
+    index_json_include_lookup = (
+        bool(getattr(cfg, "index_json_include_lookup", True))
+        if getattr(args, "index_json_lookup", None) is None
+        else bool(args.index_json_lookup)
+    )
+    index_json_include_symbol_index_lines = (
+        bool(getattr(cfg, "index_json_include_symbol_index_lines", True))
+        if getattr(args, "index_json_symbol_index_lines", None) is None
+        else bool(args.index_json_symbol_index_lines)
+    )
     respect_gitignore = (
         cfg.respect_gitignore
         if args.respect_gitignore is None
@@ -279,6 +291,8 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         include_manifest=include_manifest,
         index_json_enabled=index_json_enabled,
         index_json_mode=index_json_mode,
+        index_json_include_lookup=index_json_include_lookup,
+        index_json_include_symbol_index_lines=index_json_include_symbol_index_lines,
         respect_gitignore=respect_gitignore,
         security_check=security_check,
         security_content_sniff=security_content_sniff,

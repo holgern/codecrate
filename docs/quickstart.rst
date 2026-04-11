@@ -86,7 +86,10 @@ Common options:
 * ``--safety-report``: include a Safety Report section with reasons
 * ``--index-json [PATH]``: emit the full v1-compatible retrieval sidecar for tooling and agents
 * ``--index-json-mode full|compact|minimal``: choose full v1 or compact/minimal v2 sidecars;
-  ``agent`` defaults to ``compact`` and ``hybrid`` defaults to ``full``
+  ``agent`` defaults to ``minimal`` and ``hybrid`` defaults to ``full``
+* ``--index-json-lookup`` / ``--no-index-json-lookup``: include or trim v2 lookup maps
+* ``--index-json-symbol-index-lines`` / ``--no-index-json-symbol-index-lines``:
+  include or trim compact v2 symbol index line ranges
 * ``--symbol-backend auto|tree-sitter|none``: control non-Python symbol extraction
   and record requested/used backend metadata in ``index-json`` output
   The sidecar includes short display IDs for markdown references and stronger

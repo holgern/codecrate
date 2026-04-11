@@ -25,7 +25,9 @@ def test_resolve_pack_options_uses_profile_defaults(tmp_path: Path) -> None:
     assert options.profile == "agent"
     assert options.nav_mode == "compact"
     assert options.index_json_enabled is True
-    assert options.index_json_mode == "compact"
+    assert options.index_json_mode == "minimal"
+    assert options.index_json_include_lookup is True
+    assert options.index_json_include_symbol_index_lines is True
     assert options.include_manifest is True
 
 
@@ -108,6 +110,37 @@ def test_resolve_pack_options_config_index_json_mode_enables_sidecar(
 
     assert options.index_json_enabled is True
     assert options.index_json_mode == "compact"
+
+
+def test_resolve_pack_options_v2_trimming_flags_from_cli(tmp_path: Path) -> None:
+    cfg = Config()
+
+    options = resolve_pack_options(
+        cfg,
+        _parse_pack_args(
+            tmp_path,
+            "--index-json-mode",
+            "compact",
+            "--no-index-json-lookup",
+            "--no-index-json-symbol-index-lines",
+        ),
+    )
+
+    assert options.index_json_include_lookup is False
+    assert options.index_json_include_symbol_index_lines is False
+
+
+def test_resolve_pack_options_v2_trimming_flags_from_config(tmp_path: Path) -> None:
+    cfg = Config(
+        index_json_mode="compact",
+        index_json_include_lookup=False,
+        index_json_include_symbol_index_lines=False,
+    )
+
+    options = resolve_pack_options(cfg, _parse_pack_args(tmp_path))
+
+    assert options.index_json_include_lookup is False
+    assert options.index_json_include_symbol_index_lines is False
 
 
 def test_resolve_pack_options_rejects_conflicting_index_json_flags(

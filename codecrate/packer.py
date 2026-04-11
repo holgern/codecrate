@@ -53,11 +53,7 @@ def _pack_one_file(
     str,
     str,
 ]:
-    text = (
-        file_texts[path]
-        if file_texts is not None and path in file_texts
-        else ""
-    )
+    text = file_texts[path] if file_texts is not None and path in file_texts else ""
     if file_texts is None or path not in file_texts:
         try:
             text = path.read_text(encoding="utf-8", errors=encoding_errors)

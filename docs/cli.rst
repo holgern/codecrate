@@ -137,7 +137,12 @@ Useful flags:
 * ``--index-json [PATH]``: write index JSON for agent/tooling lookup (default:
   ``<output>.index.json``; explicit ``--index-json`` defaults to full mode)
 * ``--index-json-mode full|compact|minimal``: choose sidecar mode and enable
-  index-json output
+  index-json output (``agent`` defaults to ``minimal``; ``hybrid`` defaults to
+  ``full``)
+* ``--index-json-lookup / --no-index-json-lookup``: include or trim lookup maps
+  in compact/minimal v2 sidecars
+* ``--index-json-symbol-index-lines / --no-index-json-symbol-index-lines``:
+  include or trim compact v2 symbol index line ranges
 * ``--no-index-json``: disable index JSON output, including profile-implied defaults
 * ``--encoding-errors replace|strict``: UTF-8 decode policy when reading files
 * ``-o/--output PATH``: output markdown path (defaults to config ``output`` or ``context.md``)

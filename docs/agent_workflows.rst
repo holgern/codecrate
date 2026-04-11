@@ -14,7 +14,7 @@ Choose A Profile
 Codecrate supports three output profiles:
 
 * ``human``: keep the current markdown-first behavior
-* ``agent``: compact navigation plus compact ``codecrate.index-json.v2``
+* ``agent``: compact navigation plus minimal ``codecrate.index-json.v2``
 * ``hybrid``: current markdown richness plus full ``codecrate.index-json.v1``
 
 Example:
@@ -22,6 +22,13 @@ Example:
 .. code-block:: console
 
    codecrate pack . -o context.md --profile agent
+
+If you relied on compact-only lookup convenience fields, request them
+explicitly:
+
+.. code-block:: console
+
+   codecrate pack . -o context.md --profile agent --index-json-mode compact
 
 Explicit CLI flags still override profile defaults. For example, this keeps the
 ``agent`` profile but turns file-level navigation back on and disables the
@@ -74,6 +81,18 @@ Generate it directly:
 
    codecrate pack . -o context.md --index-json
    codecrate pack . -o context.md --index-json-mode minimal
+
+``--index-json`` alone keeps the full v1-compatible sidecar. Use
+``--index-json-mode compact|minimal`` when you want the v2 machine-first
+sidecar surface.
+
+If you need to trim the v2 payload further, you can also disable the lookup maps
+or compact-only symbol index line ranges:
+
+.. code-block:: console
+
+   codecrate pack . -o context.md --profile agent --no-index-json-lookup
+   codecrate pack . -o context.md --index-json-mode compact --no-index-json-symbol-index-lines
 
 Or let the profile imply it:
 

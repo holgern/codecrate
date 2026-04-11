@@ -32,6 +32,13 @@ jobs:
         pip install build
     - name: Build package
       run: python -m build
+    - name: Smoke test wheel
+      run: |
+        python -m venv .venv-wheel
+        . .venv-wheel/bin/activate
+        pip install --upgrade pip
+        pip install dist/*.whl
+        python -c "import codecrate; import codecrate.cli"
     - name: Publish package
       uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
       with:

@@ -892,6 +892,7 @@ def _compact_symbol_payload(
     symbol_index_ranges: dict[str, dict[str, int]],
     canonical_markdown_ranges: dict[str, dict[str, int]],
     index_json_mode: str,
+    include_symbol_index_lines: bool,
 ) -> list[dict[str, Any]]:
     local_machine_ids, canonical_machine_ids = _strong_id_maps(run)
     include_canonical_ids = _should_include_canonical_ids(run)
@@ -918,7 +919,11 @@ def _compact_symbol_payload(
         }
         if include_canonical_ids:
             symbol_entry["canonical_id"] = canonical_machine_ids[defn.id]
-        if index_json_mode == "compact" and markdown_path is not None:
+        if (
+            index_json_mode == "compact"
+            and include_symbol_index_lines
+            and markdown_path is not None
+        ):
             if defn.local_id in symbol_index_ranges:
                 symbol_entry["index_markdown_lines"] = symbol_index_ranges[
                     defn.local_id
@@ -1000,6 +1005,16 @@ def _compact_lookup_indexes(
         lookup["part_by_file"] = part_by_file
         lookup["file_by_symbol"] = file_by_symbol
     return lookup
+
+
+def _v2_feature_payload(run: PackRun, *, index_json_mode: str) -> dict[str, bool]:
+    return {
+        "lookup": bool(run.options.index_json_include_lookup),
+        "symbol_index_lines": bool(
+            index_json_mode == "compact"
+            and run.options.index_json_include_symbol_index_lines
+        ),
+    }
 
 
 def _repository_common_payload(
@@ -1089,6 +1104,7 @@ def build_index_payload(
                 "lookup": _full_lookup_indexes(files_payload, symbols_payload),
             }
         else:
+            features = _v2_feature_payload(run, index_json_mode=index_json_mode)
             files_payload = _compact_file_payload(
                 run,
                 file_to_part=file_to_part,
@@ -1105,6 +1121,7 @@ def build_index_payload(
                 symbol_index_ranges=symbol_index_ranges,
                 canonical_markdown_ranges=canonical_markdown_ranges,
                 index_json_mode=index_json_mode,
+                include_symbol_index_lines=features["symbol_index_lines"],
             )
             repository = {
                 **_repository_common_payload(
@@ -1112,14 +1129,16 @@ def build_index_payload(
                     repo_markdown_path=repo_markdown_path,
                     parts=parts,
                 ),
+                "index_json_features": features,
                 "files": files_payload,
                 "symbols": symbols_payload,
-                "lookup": _compact_lookup_indexes(
+            }
+            if features["lookup"]:
+                repository["lookup"] = _compact_lookup_indexes(
                     files_payload,
                     symbols_payload,
                     index_json_mode=index_json_mode,
-                ),
-            }
+                )
         repositories.append(repository)
 
     return {

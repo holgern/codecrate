@@ -40,7 +40,7 @@ See :doc:`index_json` for the detailed sidecar contract.
 Profiles can change output defaults without changing the underlying pack format:
 
 * ``human`` keeps current markdown-first behavior
-* ``agent`` implies compact navigation and index JSON output
+* ``agent`` implies compact navigation and minimal v2 index JSON output
 * ``hybrid`` keeps current markdown behavior and also emits index JSON output
 
 The index sidecar includes deterministic per-repository metadata for:
