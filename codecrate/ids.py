@@ -5,6 +5,7 @@ from pathlib import Path
 
 ID_FORMAT_VERSION = "sha1-8-upper:v1"
 MACHINE_ID_FORMAT_VERSION = "sha256-64-lower:v1"
+SEMANTIC_ID_FORMAT_VERSION = "sha256-64-lower:v1"
 MARKER_NAMESPACE = "FUNC"
 MARKER_FORMAT_VERSION = "v1"
 
@@ -24,6 +25,17 @@ def stable_location_id(path: Path, qualname: str, lineno: int) -> str:
 
 def stable_machine_location_id(path: Path, qualname: str, lineno: int) -> str:
     payload = _stable_location_payload(path, qualname, lineno)
+    return hashlib.sha256(payload).hexdigest()
+
+
+def stable_semantic_id(
+    path: Path,
+    *,
+    kind: str,
+    qualname: str,
+    signature_hint: str | None = None,
+) -> str:
+    payload = f"{path.as_posix()}::{kind}::{qualname}::{signature_hint or ''}".encode()
     return hashlib.sha256(payload).hexdigest()
 
 

@@ -84,7 +84,7 @@ Pack for agent-oriented retrieval workflows:
 codecrate pack . -o context.md --profile agent
 ```
 
-This uses the minimal v2 sidecar by default.
+This uses the normalized v3 sidecar by default.
 
 Pack with rich markdown plus an agent sidecar:
 
@@ -117,7 +117,7 @@ reconstructed locators automatically:
 
 ```bash
 codecrate pack . -o context.md --profile portable \
-  --emit-standalone-unpacker --index-json-mode minimal
+  --emit-standalone-unpacker --index-json-mode normalized
 ```
 
 Pack with specific output file and write the sidecars explicitly:
@@ -208,9 +208,9 @@ profile = "human"
 
 # Retrieval sidecar mode: "full" | "compact" | "minimal" | "normalized"
 # - explicit mode also enables index-json output
-# - agent defaults to "minimal"
+# - agent defaults to "normalized"
 # - hybrid defaults to "full"
-index_json_mode = "minimal"
+index_json_mode = "normalized"
 
 # Write a standard-library-only <output>.unpack.py next to the pack
 emit_standalone_unpacker = false
@@ -222,6 +222,13 @@ locator_space = "auto"
 
 # Include or omit analysis-oriented sidecar/markdown metadata
 analysis_metadata = true
+index_json_include_graph = true
+index_json_include_test_links = true
+index_json_include_guide = true
+index_json_include_file_imports = true
+index_json_include_classes = true
+index_json_include_exports = true
+index_json_include_module_docstrings = true
 
 # Optional v2 sidecar trimming knobs
 index_json_include_lookup = true
@@ -231,6 +238,9 @@ index_json_include_symbol_index_lines = true
 focus_file = ["codecrate/cli.py"]
 focus_symbol = ["codecrate.cli:main"]
 include_import_neighbors = 1
+include_reverse_import_neighbors = 1
+include_same_package = true
+include_entrypoints = true
 include_tests = true
 
 # Deduplicate identical function bodies (default: false)
@@ -313,7 +323,7 @@ codecrate pack <root> [OPTIONS]
 
 - `-o, --output PATH`: Output markdown path (default: `context.md`)
 - `--dedupe` / `--no-dedupe`: Enable or disable deduplication
-- `--profile {human,agent,hybrid,portable}`: Output defaults profile (`agent` implies compact nav + minimal v2 index-json)
+- `--profile {human,agent,hybrid,portable}`: Output defaults profile (`agent` implies compact nav + normalized v3 index-json)
 - `--layout {auto,stubs,full}`: Output layout mode
 - `--nav-mode {auto,compact,full}`: Navigation density mode
 - `--symbol-backend {auto,python,tree-sitter,none}`: Non-Python symbol backend
@@ -361,9 +371,10 @@ codecrate pack <root> [OPTIONS]
 - `--max-workers N`: Max worker threads for IO/parsing/token counting
 - `--manifest-json [PATH]`: Write manifest JSON for tooling
 - `--index-json [PATH]`: Write retrieval-oriented index JSON for agents and tools (`--index-json` alone defaults to full v1 compatibility mode)
-- `--index-json-mode {full,compact,minimal,normalized}`: Select sidecar mode and enable index-json output (`agent` defaults to `minimal`, `hybrid` defaults to `full`)
+- `--index-json-mode {full,compact,minimal,normalized}`: Select sidecar mode and enable index-json output (`agent` defaults to `normalized`, `hybrid` defaults to `full`)
 - `--index-json-lookup` / `--no-index-json-lookup`: Include or trim v2 lookup maps
 - `--index-json-symbol-index-lines` / `--no-index-json-symbol-index-lines`: Include or trim compact v2 symbol index line ranges
+- `--index-json-graph`, `--index-json-test-links`, `--index-json-guide`, `--index-json-file-imports`, `--index-json-classes`, `--index-json-exports`, `--index-json-module-docstrings`: Independently include or trim analysis sections
 - `--no-index-json`: Disable index JSON output, including profile-implied defaults
 - `--emit-standalone-unpacker`: Write `<output>.unpack.py` for zero-install reconstruction
 - `--locator-space {auto,markdown,reconstructed,dual}`: Choose whether sidecar locators point into the markdown pack, the reconstructed file tree, or both (`auto` switches to reconstructed when `--emit-standalone-unpacker` is enabled)

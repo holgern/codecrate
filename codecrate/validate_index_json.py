@@ -144,6 +144,190 @@ def _validate_repository_locator_metadata(
             _append_error(errors, repo_label, "invalid reconstructed_root")
 
 
+def _validate_string_list(
+    errors: list[str],
+    *,
+    repo_label: str,
+    values: Any,
+    detail: str,
+) -> None:
+    if not isinstance(values, list) or not all(
+        isinstance(value, str) for value in values
+    ):
+        _append_error(errors, repo_label, f"invalid {detail}")
+
+
+def _validate_parameter_payload(
+    errors: list[str],
+    *,
+    repo_label: str,
+    parameters: Any,
+    detail: str,
+) -> None:
+    if not isinstance(parameters, list):
+        _append_error(errors, repo_label, f"invalid {detail}")
+        return
+    for parameter in parameters:
+        if not isinstance(parameter, dict):
+            _append_error(errors, repo_label, f"invalid {detail}")
+            return
+        if not isinstance(parameter.get("name"), str) or not isinstance(
+            parameter.get("kind"), str
+        ):
+            _append_error(errors, repo_label, f"invalid {detail}")
+            return
+
+
+def _validate_file_summary(
+    errors: list[str],
+    *,
+    repo_label: str,
+    summary: Any,
+    detail: str,
+) -> None:
+    if summary is None:
+        return
+    if not isinstance(summary, dict):
+        _append_error(errors, repo_label, f"invalid {detail}")
+        return
+    primary_symbols = summary.get("primary_symbols")
+    if primary_symbols is not None:
+        _validate_string_list(
+            errors,
+            repo_label=repo_label,
+            values=primary_symbols,
+            detail=f"{detail} primary_symbols",
+        )
+    exports = summary.get("exports")
+    if exports is not None:
+        _validate_string_list(
+            errors,
+            repo_label=repo_label,
+            values=exports,
+            detail=f"{detail} exports",
+        )
+    for key in ("imports_local", "imports_external"):
+        value = summary.get(key)
+        if value is not None and (not isinstance(value, int) or value < 0):
+            _append_error(errors, repo_label, f"invalid {detail} {key}")
+
+
+def _validate_relationships(
+    errors: list[str],
+    *,
+    repo_label: str,
+    relationships: Any,
+    detail: str,
+) -> None:
+    if relationships is None:
+        return
+    if not isinstance(relationships, dict):
+        _append_error(errors, repo_label, f"invalid {detail}")
+        return
+    for key in (
+        "depends_on",
+        "used_by",
+        "related_tests",
+        "same_package_neighbors",
+        "entrypoint_reachability",
+    ):
+        values = relationships.get(key)
+        if values is not None:
+            _validate_string_list(
+                errors,
+                repo_label=repo_label,
+                values=values,
+                detail=f"{detail} {key}",
+            )
+
+
+def _validate_semantic_symbol_payload(
+    errors: list[str],
+    *,
+    repo_label: str,
+    semantic: Any,
+    detail: str,
+) -> None:
+    if semantic is None:
+        return
+    if not isinstance(semantic, dict):
+        _append_error(errors, repo_label, f"invalid {detail}")
+        return
+    if semantic.get("parameters") is not None:
+        _validate_parameter_payload(
+            errors,
+            repo_label=repo_label,
+            parameters=semantic.get("parameters"),
+            detail=f"{detail} parameters",
+        )
+
+
+def _validate_normalized_summary_payload(
+    errors: list[str],
+    *,
+    repo_label: str,
+    summary: Any,
+    qualnames: list[Any],
+    strings: list[Any],
+) -> None:
+    if summary is None:
+        return
+    if not isinstance(summary, dict):
+        _append_error(errors, repo_label, "invalid normalized file summary")
+        return
+    if summary.get("r") is not None:
+        _validate_table_index(
+            errors,
+            repo_label=repo_label,
+            index=summary.get("r"),
+            table_name="strings",
+            table_size=len(strings),
+            detail="normalized file summary role",
+        )
+    for qualname_index in summary.get("p", []):
+        _validate_table_index(
+            errors,
+            repo_label=repo_label,
+            index=qualname_index,
+            table_name="qualnames",
+            table_size=len(qualnames),
+            detail="normalized file summary primary symbol",
+        )
+    for string_index in summary.get("e", []):
+        _validate_table_index(
+            errors,
+            repo_label=repo_label,
+            index=string_index,
+            table_name="strings",
+            table_size=len(strings),
+            detail="normalized file summary export",
+        )
+
+
+def _validate_normalized_relationships_payload(
+    errors: list[str],
+    *,
+    repo_label: str,
+    relationships: Any,
+    paths: list[Any],
+) -> None:
+    if relationships is None:
+        return
+    if not isinstance(relationships, dict):
+        _append_error(errors, repo_label, "invalid normalized file relationships")
+        return
+    for key in ("d", "u", "t", "n", "e"):
+        for path_index in relationships.get(key, []):
+            _validate_table_index(
+                errors,
+                repo_label=repo_label,
+                index=path_index,
+                table_name="paths",
+                table_size=len(paths),
+                detail=f"normalized file relationships {key}",
+            )
+
+
 def _validate_parts(
     errors: list[str],
     *,
@@ -226,6 +410,18 @@ def _validate_files(
                     )
         locators = file_entry.get("locators")
         if not isinstance(locators, dict):
+            _validate_file_summary(
+                errors,
+                repo_label=repo_label,
+                summary=file_entry.get("summary"),
+                detail=f"file summary for {path}",
+            )
+            _validate_relationships(
+                errors,
+                repo_label=repo_label,
+                relationships=file_entry.get("relationships"),
+                detail=f"file relationships for {path}",
+            )
             continue
         markdown_locator = locators.get("markdown")
         if markdown_locator is not None:
@@ -288,6 +484,18 @@ def _validate_files(
                             repo_label,
                             f"file reconstructed locator exceeds line count for {path}",
                         )
+        _validate_file_summary(
+            errors,
+            repo_label=repo_label,
+            summary=file_entry.get("summary"),
+            detail=f"file summary for {path}",
+        )
+        _validate_relationships(
+            errors,
+            repo_label=repo_label,
+            relationships=file_entry.get("relationships"),
+            detail=f"file relationships for {path}",
+        )
 
 
 def _validate_symbols(
@@ -354,6 +562,19 @@ def _validate_symbols(
                 check_anchors=check_anchors,
             )
         locators = symbol_entry.get("locators")
+        semantic_id = symbol_entry.get("semantic_id")
+        if semantic_id is not None and not isinstance(semantic_id, str):
+            _append_error(
+                errors,
+                repo_label,
+                f"invalid semantic_id for {symbol_entry.get('local_id')}",
+            )
+        _validate_semantic_symbol_payload(
+            errors,
+            repo_label=repo_label,
+            semantic=symbol_entry.get("semantic"),
+            detail=f"symbol semantic payload for {symbol_entry.get('local_id')}",
+        )
         if not isinstance(locators, dict):
             continue
         markdown_locator = locators.get("markdown")
@@ -610,6 +831,7 @@ def _validate_normalized_file_entries(
     files: list[dict[str, Any]],
     paths: list[Any],
     parts_table: list[Any],
+    qualnames: list[Any],
     strings: list[Any],
 ) -> dict[str, dict[str, Any]]:
     files_by_path: dict[str, dict[str, Any]] = {}
@@ -692,6 +914,19 @@ def _validate_normalized_file_entries(
                 line_range=locators.get("r"),
                 detail=f"normalized file reconstructed locator for {path}",
             )
+        _validate_normalized_summary_payload(
+            errors,
+            repo_label=repo_label,
+            summary=file_entry.get("sum"),
+            qualnames=qualnames,
+            strings=strings,
+        )
+        _validate_normalized_relationships_payload(
+            errors,
+            repo_label=repo_label,
+            relationships=file_entry.get("rel"),
+            paths=paths,
+        )
     return files_by_path
 
 
@@ -710,6 +945,9 @@ def _validate_normalized_symbol_entries(
 ) -> None:
     class_ids = {entry.get("i") for entry in classes if isinstance(entry, dict)}
     for symbol_entry in symbols:
+        semantic_id = symbol_entry.get("sid")
+        if semantic_id is not None and not isinstance(semantic_id, str):
+            _append_error(errors, repo_label, "invalid normalized symbol semantic_id")
         for key, table_name, table_size, detail in (
             ("p", "paths", len(paths), "symbol path"),
             ("q", "qualnames", len(qualnames), "symbol qualname"),
@@ -748,6 +986,42 @@ def _validate_normalized_symbol_entries(
                 table_size=len(strings),
                 detail="symbol decorator",
             )
+        if symbol_entry.get("sig") is not None:
+            _validate_table_index(
+                errors,
+                repo_label=repo_label,
+                index=symbol_entry.get("sig"),
+                table_name="strings",
+                table_size=len(strings),
+                detail="symbol signature",
+            )
+        if symbol_entry.get("ret") is not None:
+            _validate_table_index(
+                errors,
+                repo_label=repo_label,
+                index=symbol_entry.get("ret"),
+                table_name="strings",
+                table_size=len(strings),
+                detail="symbol return annotation",
+            )
+        for parameter in symbol_entry.get("params", []):
+            if not isinstance(parameter, dict):
+                _append_error(
+                    errors,
+                    repo_label,
+                    "invalid normalized symbol parameters entry",
+                )
+                continue
+            for key in ("n", "k", "a"):
+                if parameter.get(key) is not None:
+                    _validate_table_index(
+                        errors,
+                        repo_label=repo_label,
+                        index=parameter.get(key),
+                        table_name="strings",
+                        table_size=len(strings),
+                        detail=f"normalized symbol parameter {key}",
+                    )
         path_index = symbol_entry.get("p")
         if isinstance(path_index, int) and 0 <= path_index < len(paths):
             if paths[path_index] not in files_by_path:
@@ -811,6 +1085,9 @@ def _validate_normalized_class_entries(
     strings: list[Any],
 ) -> None:
     for class_entry in classes:
+        semantic_id = class_entry.get("sid")
+        if semantic_id is not None and not isinstance(semantic_id, str):
+            _append_error(errors, repo_label, "invalid normalized class semantic_id")
         _validate_table_index(
             errors,
             repo_label=repo_label,
@@ -889,15 +1166,18 @@ def _validate_normalized_analysis_sections(
                     table_size=len(paths),
                     detail=f"test link {key}",
                 )
-        if link.get("r") is not None:
-            _validate_table_index(
-                errors,
-                repo_label=repo_label,
-                index=link.get("r"),
-                table_name="strings",
-                table_size=len(strings),
-                detail="test link reason",
-            )
+        for key in ("r", "k"):
+            if link.get(key) is not None:
+                _validate_table_index(
+                    errors,
+                    repo_label=repo_label,
+                    index=link.get(key),
+                    table_name="strings",
+                    table_size=len(strings),
+                    detail=f"test link {key}",
+                )
+        if link.get("score") is not None and not isinstance(link.get("score"), int):
+            _append_error(errors, repo_label, "invalid normalized test link score")
 
     for key, values in (repo.get("guide") or {}).items():
         table_name = "strings" if key == "main_workflows" else "paths"
@@ -910,6 +1190,17 @@ def _validate_normalized_analysis_sections(
                 table_name=table_name,
                 table_size=table_size,
                 detail=f"guide {key}",
+            )
+
+    for key, values in (repo.get("architecture") or {}).items():
+        for value in values:
+            _validate_table_index(
+                errors,
+                repo_label=repo_label,
+                index=value,
+                table_name="paths",
+                table_size=len(paths),
+                detail=f"architecture {key}",
             )
 
 
@@ -935,6 +1226,7 @@ def _validate_normalized_repo(
         files=files,
         paths=paths,
         parts_table=parts_table,
+        qualnames=qualnames,
         strings=strings,
     )
 

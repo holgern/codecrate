@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
-from .ids import stable_location_id
+from .ids import stable_location_id, stable_semantic_id
 from .model import DefRef, ImportRef
 
 _LANG_BY_SUFFIX: dict[str, str] = {
@@ -230,6 +230,12 @@ def _collect_defs_with_tree_sitter(
                 doc_start=None,
                 doc_end=None,
                 is_single_line=start_row == end_row,
+                semantic_id=stable_semantic_id(
+                    rel_path,
+                    kind=f"symbol_{kind}",
+                    qualname=name,
+                ),
+                is_public=not name.startswith("_"),
             )
         )
 

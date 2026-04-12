@@ -1,5 +1,5 @@
 from __future__ import annotations
 
-from ._index_json import build_index_payload, write_index_json
+from .build import build_index_payload, write_index_json
 
 __all__ = ["build_index_payload", "write_index_json"]

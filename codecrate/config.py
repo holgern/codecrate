@@ -64,7 +64,7 @@ class Config:
     manifest: bool = True
     # Output defaults profile.
     # - "human": preserve current markdown-first behavior
-    # - "agent": emit compact navigation and minimal v2 sidecar defaults
+    # - "agent": emit compact navigation and normalized v3 sidecar defaults
     # - "hybrid": preserve current markdown behavior but emit index-json by default
     # - "portable": prefer manifest-enabled full-layout output for standalone unpack
     profile: Literal["human", "agent", "hybrid", "portable"] = "human"
@@ -124,11 +124,21 @@ class Config:
     # - index_json_include_symbol_index_lines: include unsplit symbol index lines
     index_json_include_lookup: bool = True
     index_json_include_symbol_index_lines: bool = True
+    index_json_include_graph: bool | None = None
+    index_json_include_test_links: bool | None = None
+    index_json_include_guide: bool | None = None
+    index_json_include_file_imports: bool | None = None
+    index_json_include_classes: bool | None = None
+    index_json_include_exports: bool | None = None
+    index_json_include_module_docstrings: bool | None = None
     # Analysis metadata and focused packing controls.
     analysis_metadata: bool = True
     focus_file: list[str] = field(default_factory=list)
     focus_symbol: list[str] = field(default_factory=list)
     include_import_neighbors: int = 0
+    include_reverse_import_neighbors: int = 0
+    include_same_package: bool = False
+    include_entrypoints: bool = False
     include_tests: bool = False
     # Optional symbol extraction backend for non-Python files.
     # Python files always use the built-in AST parser.
@@ -382,6 +392,18 @@ def load_config_with_warnings(root: Path) -> tuple[Config, list[ConfigWarning]]:
             cfg.index_json_include_symbol_index_lines,
         )
     )
+    for key in (
+        "index_json_include_graph",
+        "index_json_include_test_links",
+        "index_json_include_guide",
+        "index_json_include_file_imports",
+        "index_json_include_classes",
+        "index_json_include_exports",
+        "index_json_include_module_docstrings",
+    ):
+        value = section.get(key)
+        if value is not None:
+            setattr(cfg, key, bool(value))
     cfg.analysis_metadata = bool(
         section.get("analysis_metadata", cfg.analysis_metadata)
     )
@@ -400,6 +422,18 @@ def load_config_with_warnings(root: Path) -> tuple[Config, list[ConfigWarning]]:
         "include_import_neighbors",
         cfg.include_import_neighbors,
         warnings=warnings,
+    )
+    cfg.include_reverse_import_neighbors = _load_int_value(
+        section,
+        "include_reverse_import_neighbors",
+        cfg.include_reverse_import_neighbors,
+        warnings=warnings,
+    )
+    cfg.include_same_package = bool(
+        section.get("include_same_package", cfg.include_same_package)
+    )
+    cfg.include_entrypoints = bool(
+        section.get("include_entrypoints", cfg.include_entrypoints)
     )
     cfg.include_tests = bool(section.get("include_tests", cfg.include_tests))
 

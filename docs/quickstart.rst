@@ -61,7 +61,7 @@ Pack a repository into ``context.md``:
    codecrate pack /path/to/repo -o context.md --profile hybrid
    codecrate pack /path/to/repo -o context.md --manifest-json
    codecrate pack /path/to/repo -o context.md --index-json
-   codecrate pack /path/to/repo -o context.md --index-json-mode minimal
+   codecrate pack /path/to/repo -o context.md --index-json-mode normalized
    codecrate pack /path/to/repo -o context.md --include "*.java" --symbol-backend tree-sitter --index-json
 
 Pack multiple repositories into one output root:
@@ -85,8 +85,9 @@ Common options:
 * ``--security-redaction``: mask flagged files instead of skipping
 * ``--safety-report``: include a Safety Report section with reasons
 * ``--index-json [PATH]``: emit the full v1-compatible retrieval sidecar for tooling and agents
-* ``--index-json-mode full|compact|minimal``: choose full v1 or compact/minimal v2 sidecars;
-  ``agent`` defaults to ``minimal`` and ``hybrid`` defaults to ``full``
+* ``--index-json-mode full|compact|minimal|normalized``: choose full v1, compact/minimal v2,
+  or normalized v3 sidecars; ``agent`` defaults to ``normalized`` and ``hybrid`` defaults to
+  ``full``
 * ``--index-json-lookup`` / ``--no-index-json-lookup``: include or trim v2 lookup maps
 * ``--index-json-symbol-index-lines`` / ``--no-index-json-symbol-index-lines``:
   include or trim compact v2 symbol index line ranges

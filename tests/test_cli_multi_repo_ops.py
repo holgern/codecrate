@@ -128,14 +128,10 @@ def test_combined_pack_index_json_reconstructed_locators_use_slug_prefixes(
 
     assert repo_entries["repo1"]["locator_space"] == "reconstructed"
     assert repo_entries["repo1"]["reconstructed_root"] == "repo1"
-    assert repo_entries["repo1"]["files"][0]["locators"]["reconstructed"]["path"] == (
-        "repo1/a.py"
-    )
+    assert repo_entries["repo1"]["files"][0]["loc"]["r"] == [1, 3]
     assert repo_entries["repo2"]["locator_space"] == "reconstructed"
     assert repo_entries["repo2"]["reconstructed_root"] == "repo2"
-    assert repo_entries["repo2"]["files"][0]["locators"]["reconstructed"]["path"] == (
-        "repo2/b.py"
-    )
+    assert repo_entries["repo2"]["files"][0]["loc"]["r"] == [1, 3]
 
 
 def test_patch_combined_requires_repo(tmp_path: Path) -> None:

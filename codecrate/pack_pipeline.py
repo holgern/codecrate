@@ -6,8 +6,23 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import cli as cli_impl
-from .analysis_metadata import build_import_edges, build_test_links
+from .analysis_metadata import build_entrypoints, build_import_edges, build_test_links
+from .cli_pack_helpers import (
+    _count_tokens_parallel,
+    _emit_binary_skip_warning,
+    _emit_budget_skip_warning,
+    _emit_safety_warning,
+    _measure_files,
+    _MeasuredFile,
+    _pack_has_effective_dedupe,
+    _print_effective_rules,
+    _print_selected_files,
+    _print_skipped_files,
+    _resolve_effective_nav_mode,
+    _resolve_output_path,
+    _unique_label,
+    _unique_slug,
+)
 from .config import load_config
 from .discover import Discovery, discover_files
 from .manifest import manifest_sha256, to_manifest
@@ -43,7 +58,7 @@ class _DiscoveryState:
 
 @dataclass(frozen=True)
 class _PreparedPackFiles:
-    kept_measured: list[cli_impl._MeasuredFile]
+    kept_measured: list[_MeasuredFile]
     skipped: list[SafetyFinding]
     safety_findings: list[SafetyFinding]
     skipped_for_budget: list[tuple[str, str]]
@@ -62,6 +77,15 @@ def _resolve_pack_roots_and_stdin(
     )
     has_focus_options = has_focus_options or bool(
         getattr(args, "include_import_neighbors", None)
+    )
+    has_focus_options = has_focus_options or bool(
+        getattr(args, "include_reverse_import_neighbors", None)
+    )
+    has_focus_options = has_focus_options or bool(
+        getattr(args, "include_same_package", None)
+    )
+    has_focus_options = has_focus_options or bool(
+        getattr(args, "include_entrypoints", None)
     )
     has_focus_options = has_focus_options or bool(getattr(args, "include_tests", False))
     if args.repo:
@@ -189,7 +213,7 @@ def _measure_and_apply_budgets(
 ) -> _PreparedPackFiles:
     token_backend, count_tokens = _build_token_counter(options)
     try:
-        measured_files = cli_impl._measure_files(
+        measured_files = _measure_files(
             files=discovery_state.safe_files,
             root=discovery_state.discovery.root,
             max_workers=options.max_workers,
@@ -209,13 +233,13 @@ def _measure_and_apply_budgets(
         ]
         skipped.extend(binary_skipped)
         safety_findings.extend(binary_skipped)
-        cli_impl._emit_binary_skip_warning(
+        _emit_binary_skip_warning(
             label=label,
             skipped=[m.rel for m in binary_measured],
         )
     measured_files = [m for m in measured_files if not m.is_binary]
 
-    cli_impl._emit_safety_warning(
+    _emit_safety_warning(
         label=label,
         root=discovery_state.discovery.root,
         findings=safety_findings,
@@ -223,7 +247,7 @@ def _measure_and_apply_budgets(
 
     raw_token_counts: dict[str, int] = {}
     if options.max_file_tokens > 0 or options.max_total_tokens > 0:
-        raw_token_counts = cli_impl._count_tokens_parallel(
+        raw_token_counts = _count_tokens_parallel(
             files=measured_files,
             count_fn=count_tokens,
             max_workers=options.max_workers,
@@ -244,7 +268,7 @@ def _measure_and_apply_budgets(
                 continue
         kept_measured.append(measured)
 
-    cli_impl._emit_budget_skip_warning(label=label, skipped=skipped_for_budget)
+    _emit_budget_skip_warning(label=label, skipped=skipped_for_budget)
 
     total_bytes = sum(m.size_bytes for m in kept_measured)
     if options.max_total_bytes > 0 and total_bytes > options.max_total_bytes:
@@ -360,6 +384,96 @@ def _expand_import_neighbors(
     return selected
 
 
+def _expand_reverse_import_neighbors(
+    seed_paths: set[str],
+    *,
+    pack: PackResult,
+    depth: int,
+) -> set[str]:
+    if depth <= 0 or not seed_paths:
+        return set(seed_paths)
+
+    reverse_adjacency: dict[str, set[str]] = {}
+    for edge in build_import_edges(pack):
+        if edge.target_path is None:
+            continue
+        reverse_adjacency.setdefault(edge.target_path, set()).add(edge.source_path)
+
+    selected = set(seed_paths)
+    frontier = set(seed_paths)
+    for _hop in range(depth):
+        next_frontier: set[str] = set()
+        for path in frontier:
+            next_frontier.update(reverse_adjacency.get(path, set()))
+        next_frontier -= selected
+        if not next_frontier:
+            break
+        selected.update(next_frontier)
+        frontier = next_frontier
+    return selected
+
+
+def _include_same_package_neighbors(
+    selected_paths: set[str],
+    *,
+    pack: PackResult,
+) -> set[str]:
+    if not selected_paths:
+        return set(selected_paths)
+
+    package_by_path: dict[str, str] = {}
+    groups: dict[str, set[str]] = {}
+    for file_pack in pack.files:
+        rel = file_pack.path.relative_to(pack.root).as_posix()
+        package = file_pack.module.rsplit(".", 1)[0] if "." in file_pack.module else ""
+        if file_pack.path.name == "__init__.py":
+            package = file_pack.module
+        package_by_path[rel] = package
+        groups.setdefault(package, set()).add(rel)
+
+    expanded = set(selected_paths)
+    for path in list(selected_paths):
+        expanded.update(groups.get(package_by_path.get(path, ""), set()))
+    return expanded
+
+
+def _include_entrypoint_context(
+    selected_paths: set[str],
+    *,
+    root: Path,
+    pack: PackResult,
+) -> set[str]:
+    if not selected_paths:
+        return set(selected_paths)
+
+    adjacency: dict[str, set[str]] = {}
+    for edge in build_import_edges(pack):
+        if edge.target_path is None:
+            continue
+        adjacency.setdefault(edge.source_path, set()).add(edge.target_path)
+
+    entrypoints = build_entrypoints(root=root, pack=pack)
+    expanded = set(selected_paths)
+    targets = set(selected_paths)
+    for entrypoint in entrypoints:
+        frontier = [entrypoint]
+        seen = {entrypoint}
+        found = False
+        while frontier and not found:
+            current = frontier.pop()
+            if current in targets:
+                found = True
+                break
+            for target in sorted(adjacency.get(current, set())):
+                if target in seen:
+                    continue
+                seen.add(target)
+                frontier.append(target)
+        if found:
+            expanded.add(entrypoint)
+    return expanded
+
+
 def _include_related_tests(
     selected_paths: set[str],
     *,
@@ -394,18 +508,20 @@ def _apply_focus_selection(
     root: Path,
     options: PackOptions,
     prepared_files: _PreparedPackFiles,
-) -> list[cli_impl._MeasuredFile]:
+) -> list[_MeasuredFile]:
     if (
         not options.focus_file
         and not options.focus_symbol
         and options.include_import_neighbors <= 0
+        and options.include_reverse_import_neighbors <= 0
+        and not options.include_same_package
+        and not options.include_entrypoints
         and not options.include_tests
     ):
         return prepared_files.kept_measured
     if not options.focus_file and not options.focus_symbol:
         parser.error(
-            "pack: --include-import-neighbors/--include-tests require "
-            "--focus-file or --focus-symbol"
+            "pack: focus expansion options require --focus-file or --focus-symbol"
         )
 
     analysis_files = [item.path for item in prepared_files.kept_measured]
@@ -430,6 +546,21 @@ def _apply_focus_selection(
         pack=analysis_pack,
         depth=options.include_import_neighbors,
     )
+    selected_paths = _expand_reverse_import_neighbors(
+        selected_paths,
+        pack=analysis_pack,
+        depth=options.include_reverse_import_neighbors,
+    )
+    if options.include_same_package:
+        selected_paths = _include_same_package_neighbors(
+            selected_paths, pack=analysis_pack
+        )
+    if options.include_entrypoints:
+        selected_paths = _include_entrypoint_context(
+            selected_paths,
+            root=root,
+            pack=analysis_pack,
+        )
     if options.include_tests:
         selected_paths = _include_related_tests(selected_paths, pack=analysis_pack)
 
@@ -462,11 +593,11 @@ def _build_single_pack_run(
         options = resolve_pack_options(cfg, args)
     except ValueError as e:
         parser.error(f"pack: {e}")
-    label = cli_impl._unique_label(root, used_labels)
-    slug = cli_impl._unique_slug(label, used_slugs)
+    label = _unique_label(root, used_labels)
+    slug = _unique_slug(label, used_slugs)
 
     if args.print_rules:
-        cli_impl._print_effective_rules(label=label, root=root, options=options)
+        _print_effective_rules(label=label, root=root, options=options)
 
     discovery_state = _discover_and_filter_files(
         parser,
@@ -490,7 +621,7 @@ def _build_single_pack_run(
     )
     files_for_pack = [m.path for m in selected_measured]
     if args.print_files:
-        cli_impl._print_selected_files(
+        _print_selected_files(
             label=label,
             root=discovery_state.discovery.root,
             selected=files_for_pack,
@@ -507,7 +638,7 @@ def _build_single_pack_run(
         )
         skipped_details.extend(prepared_files.skipped_for_budget)
         skipped_details = sorted(set(skipped_details))
-        cli_impl._print_skipped_files(label=label, skipped=skipped_details)
+        _print_skipped_files(label=label, skipped=skipped_details)
 
     pack, canonical = pack_repo(
         discovery_state.discovery.root,
@@ -520,7 +651,7 @@ def _build_single_pack_run(
         encoding_errors=options.encoding_errors,
     )
     use_stubs = options.layout == "stubs" or (
-        options.layout == "auto" and cli_impl._pack_has_effective_dedupe(pack)
+        options.layout == "auto" and _pack_has_effective_dedupe(pack)
     )
     effective_layout = "stubs" if use_stubs else "full"
     manifest_obj = to_manifest(pack, minimal=not use_stubs)
@@ -549,7 +680,7 @@ def _build_single_pack_run(
             ),
         )
     ]
-    effective_nav_mode = cli_impl._resolve_effective_nav_mode(
+    effective_nav_mode = _resolve_effective_nav_mode(
         options.nav_mode,
         options.split_max_chars,
     )
@@ -564,7 +695,7 @@ def _build_single_pack_run(
         include_safety_report=options.safety_report,
         safety_report_entries=safety_entries,
         include_manifest=options.include_manifest,
-        include_repository_guide=options.analysis_metadata,
+        include_repository_guide=options.index_json_include_guide,
         manifest_data=manifest_obj,
         repo_label=label,
         repo_slug=slug,
@@ -577,7 +708,7 @@ def _build_single_pack_run(
     if options.token_report:
         output_tokens = prepared_files.count_tokens(md)
         diag_files = [
-            cli_impl._MeasuredFile(
+            _MeasuredFile(
                 path=fp.path,
                 rel=fp.path.relative_to(pack.root).as_posix(),
                 text=(
@@ -590,14 +721,14 @@ def _build_single_pack_run(
             )
             for fp in pack.files
         ]
-        file_tokens = cli_impl._count_tokens_parallel(
+        file_tokens = _count_tokens_parallel(
             files=diag_files,
             count_fn=prepared_files.count_tokens,
             max_workers=options.max_workers,
         )
         total_file_tokens = sum(file_tokens.values())
 
-    default_output = cli_impl._resolve_output_path(cfg, args, root)
+    default_output = _resolve_output_path(cfg, args, root)
     return PackRun(
         root=root,
         label=label,

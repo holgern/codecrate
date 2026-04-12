@@ -4,8 +4,8 @@ import ast
 from collections.abc import Sequence
 from pathlib import Path
 
-from .ids import stable_location_id
-from .model import ClassRef, DefRef, ImportRef, ParseResult
+from .ids import stable_location_id, stable_semantic_id
+from .model import ClassRef, DefRef, ImportRef, ParameterRef, ParseResult
 
 
 def module_name_for(path: Path, root: Path) -> str:
@@ -131,6 +131,12 @@ class _Visitor(ast.NodeVisitor):
                 end_line=end_line,
                 base_classes=_names_for_nodes(node.bases),
                 decorators=_names_for_nodes(node.decorator_list),
+                semantic_id=stable_semantic_id(
+                    rel_path,
+                    kind="class",
+                    qualname=qual,
+                ),
+                is_public=_is_public_name(node.name),
             )
         )
 
@@ -164,6 +170,14 @@ class _Visitor(ast.NodeVisitor):
         rel_path = self.path.resolve().relative_to(self.root.resolve())
         local_id = stable_location_id(rel_path, qual, def_line)
         canonical_id = local_id
+        decorators = _names_for_nodes(getattr(node, "decorator_list", []))
+        owner_class = ".".join(self.class_stack) if self.class_stack else None
+        parameters = (
+            _parameter_refs(node.args)
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+            else []
+        )
+        is_coroutine = kind == "async_function"
 
         self.defs.append(
             DefRef(
@@ -180,8 +194,30 @@ class _Visitor(ast.NodeVisitor):
                 doc_start=doc_start,
                 doc_end=doc_end,
                 is_single_line=is_single_line,
-                decorators=_names_for_nodes(getattr(node, "decorator_list", [])),
-                owner_class=(".".join(self.class_stack) if self.class_stack else None),
+                decorators=decorators,
+                owner_class=owner_class,
+                semantic_id=stable_semantic_id(
+                    rel_path,
+                    kind=kind,
+                    qualname=qual,
+                    signature_hint=_parameter_signature_key(
+                        parameters, is_coroutine=is_coroutine
+                    ),
+                ),
+                signature_text=_function_signature_text(node),
+                parameters=parameters,
+                return_annotation=_return_annotation_text(node),
+                is_method=owner_class is not None,
+                is_property=_has_decorator(
+                    decorators, {"property", "setter", "getter", "deleter"}
+                ),
+                is_classmethod=_has_decorator(decorators, {"classmethod"}),
+                is_staticmethod=_has_decorator(decorators, {"staticmethod"}),
+                is_generator=_has_yield(node),
+                is_coroutine=is_coroutine,
+                is_public=_is_public_name(name),
+                is_overload=_has_decorator(decorators, {"overload"}),
+                is_abstractmethod=_has_decorator(decorators, {"abstractmethod"}),
             )
         )
 
@@ -195,6 +231,150 @@ def _unparse_name(node: ast.AST) -> str:
 
 def _names_for_nodes(nodes: Sequence[ast.AST]) -> list[str]:
     return [name for node in nodes if (name := _unparse_name(node))]
+
+
+def _is_public_name(name: str) -> bool:
+    return bool(name) and not name.startswith("_")
+
+
+def _decorator_basename(name: str) -> str:
+    return name.rsplit(".", 1)[-1]
+
+
+def _has_decorator(decorators: Sequence[str], names: set[str]) -> bool:
+    return any(_decorator_basename(name) in names for name in decorators)
+
+
+def _parameter_refs(arguments: ast.arguments) -> list[ParameterRef]:
+    positional = list(arguments.posonlyargs) + list(arguments.args)
+    positional_default_start = len(positional) - len(arguments.defaults)
+    parameters: list[ParameterRef] = []
+    for index, arg in enumerate(arguments.posonlyargs):
+        parameters.append(
+            ParameterRef(
+                name=arg.arg,
+                kind="positional-only",
+                has_default=index >= positional_default_start,
+                annotation=(
+                    _unparse_name(arg.annotation) or None
+                    if arg.annotation is not None
+                    else None
+                ),
+            )
+        )
+    for index, arg in enumerate(arguments.args, start=len(arguments.posonlyargs)):
+        parameters.append(
+            ParameterRef(
+                name=arg.arg,
+                kind="positional-or-keyword",
+                has_default=index >= positional_default_start,
+                annotation=(
+                    _unparse_name(arg.annotation) or None
+                    if arg.annotation is not None
+                    else None
+                ),
+            )
+        )
+    if arguments.vararg is not None:
+        parameters.append(
+            ParameterRef(
+                name=arguments.vararg.arg,
+                kind="var-positional",
+                annotation=(
+                    _unparse_name(arguments.vararg.annotation) or None
+                    if arguments.vararg.annotation is not None
+                    else None
+                ),
+            )
+        )
+    for arg, default in zip(arguments.kwonlyargs, arguments.kw_defaults, strict=False):
+        parameters.append(
+            ParameterRef(
+                name=arg.arg,
+                kind="keyword-only",
+                has_default=default is not None,
+                annotation=(
+                    _unparse_name(arg.annotation) or None
+                    if arg.annotation is not None
+                    else None
+                ),
+            )
+        )
+    if arguments.kwarg is not None:
+        parameters.append(
+            ParameterRef(
+                name=arguments.kwarg.arg,
+                kind="var-keyword",
+                annotation=(
+                    _unparse_name(arguments.kwarg.annotation) or None
+                    if arguments.kwarg.annotation is not None
+                    else None
+                ),
+            )
+        )
+    return parameters
+
+
+def _parameter_signature_key(
+    parameters: Sequence[ParameterRef], *, is_coroutine: bool
+) -> str:
+    parts = ["async" if is_coroutine else "sync"]
+    parts.extend(
+        f"{param.kind}:{param.name}:{int(param.has_default)}" for param in parameters
+    )
+    return "|".join(parts)
+
+
+def _function_signature_text(node: ast.AST) -> str | None:
+    if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        return None
+    prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
+    signature = f"{prefix} {node.name}({ast.unparse(node.args).strip()})"
+    if node.returns is not None:
+        return_annotation = _unparse_name(node.returns)
+        if return_annotation:
+            signature += f" -> {return_annotation}"
+    return signature
+
+
+def _return_annotation_text(node: ast.AST) -> str | None:
+    if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        return None
+    return _unparse_name(node.returns) or None if node.returns is not None else None
+
+
+def _has_yield(node: ast.AST) -> bool:
+    class _YieldVisitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.found = False
+
+        def visit_Yield(self, node: ast.Yield) -> None:  # noqa: ARG002
+            self.found = True
+
+        def visit_YieldFrom(self, node: ast.YieldFrom) -> None:  # noqa: ARG002
+            self.found = True
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: ARG002
+            return None
+
+        def visit_AsyncFunctionDef(
+            self,
+            node: ast.AsyncFunctionDef,  # noqa: ARG002
+        ) -> None:
+            return None
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: ARG002
+            return None
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:  # noqa: ARG002
+            return None
+
+    visitor = _YieldVisitor()
+    for child in getattr(node, "body", []) or []:
+        visitor.visit(child)
+        if visitor.found:
+            return True
+    return False
 
 
 def _module_docstring_range(tree: ast.Module) -> tuple[int, int] | None:

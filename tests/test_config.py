@@ -50,10 +50,20 @@ def test_config_defaults() -> None:
     assert cfg.locator_space == "auto"
     assert cfg.index_json_include_lookup is True
     assert cfg.index_json_include_symbol_index_lines is True
+    assert cfg.index_json_include_graph is None
+    assert cfg.index_json_include_test_links is None
+    assert cfg.index_json_include_guide is None
+    assert cfg.index_json_include_file_imports is None
+    assert cfg.index_json_include_classes is None
+    assert cfg.index_json_include_exports is None
+    assert cfg.index_json_include_module_docstrings is None
     assert cfg.analysis_metadata is True
     assert cfg.focus_file == []
     assert cfg.focus_symbol == []
     assert cfg.include_import_neighbors == 0
+    assert cfg.include_reverse_import_neighbors == 0
+    assert cfg.include_same_package is False
+    assert cfg.include_entrypoints is False
     assert cfg.include_tests is False
     assert cfg.symbol_backend == "auto"
     assert cfg.encoding_errors == "replace"
@@ -193,6 +203,13 @@ security_content_patterns = ["api-key=(?i)api[_-]?key[:=][A-Za-z0-9]{8,}"]
 nav_mode = "compact"
 index_json_include_lookup = false
 index_json_include_symbol_index_lines = false
+index_json_include_graph = false
+index_json_include_test_links = true
+index_json_include_guide = false
+index_json_include_file_imports = true
+index_json_include_classes = false
+index_json_include_exports = true
+index_json_include_module_docstrings = false
 emit_standalone_unpacker = true
 locator_space = "dual"
 symbol_backend = "tree-sitter"
@@ -227,6 +244,13 @@ encoding_errors = "strict"
     assert cfg.locator_space == "dual"
     assert cfg.index_json_include_lookup is False
     assert cfg.index_json_include_symbol_index_lines is False
+    assert cfg.index_json_include_graph is False
+    assert cfg.index_json_include_test_links is True
+    assert cfg.index_json_include_guide is False
+    assert cfg.index_json_include_file_imports is True
+    assert cfg.index_json_include_classes is False
+    assert cfg.index_json_include_exports is True
+    assert cfg.index_json_include_module_docstrings is False
     assert cfg.symbol_backend == "tree-sitter"
     assert cfg.encoding_errors == "strict"
 
@@ -255,6 +279,9 @@ analysis_metadata = false
 focus_file = ["pkg/a.py"]
 focus_symbol = ["pkg.mod:run"]
 include_import_neighbors = 2
+include_reverse_import_neighbors = 1
+include_same_package = true
+include_entrypoints = true
 include_tests = true
 """,
         encoding="utf-8",
@@ -266,6 +293,9 @@ include_tests = true
     assert cfg.focus_file == ["pkg/a.py"]
     assert cfg.focus_symbol == ["pkg.mod:run"]
     assert cfg.include_import_neighbors == 2
+    assert cfg.include_reverse_import_neighbors == 1
+    assert cfg.include_same_package is True
+    assert cfg.include_entrypoints is True
     assert cfg.include_tests is True
 
 

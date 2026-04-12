@@ -3,7 +3,14 @@ from __future__ import annotations
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 
-from . import cli as cli_impl
+from .cli_shared import (
+    _is_no_manifest_error,
+    _print_grouped_validation_report,
+    _raise_no_manifest_error,
+    _read_text_with_policy,
+    _validation_policy_errors,
+    _validation_report_json_with_policy,
+)
 from .config import load_config
 from .options import resolve_encoding_errors
 from .validate import validate_pack_markdown
@@ -19,7 +26,7 @@ def run_validate_pack_command(parser: ArgumentParser, args: Namespace) -> None:
         args.encoding_errors,
     )
     try:
-        md_text = cli_impl._read_text_with_policy(
+        md_text = _read_text_with_policy(
             args.markdown,
             encoding_errors=validate_encoding_errors,
         )
@@ -33,14 +40,14 @@ def run_validate_pack_command(parser: ArgumentParser, args: Namespace) -> None:
             encoding_errors=validate_encoding_errors,
         )
     except ValueError as e:
-        if cli_impl._is_no_manifest_error(e):
-            cli_impl._raise_no_manifest_error(parser, command_name="validate-pack")
+        if _is_no_manifest_error(e):
+            _raise_no_manifest_error(parser, command_name="validate-pack")
         raise
-    policy_errors = cli_impl._validation_policy_errors(report, args)
+    policy_errors = _validation_policy_errors(report, args)
     if args.json:
-        print(cli_impl._validation_report_json_with_policy(report, policy_errors))
+        print(_validation_report_json_with_policy(report, policy_errors))
     else:
-        cli_impl._print_grouped_validation_report(report)
+        _print_grouped_validation_report(report)
         if policy_errors:
             print("Policy Errors:")
             for msg in policy_errors:

@@ -43,6 +43,7 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     assert payload["pack"]["is_split"] is False
     assert payload["pack"]["display_id_format_version"] == "sha1-8-upper:v1"
     assert payload["pack"]["canonical_id_format_version"] == "sha256-64-lower:v1"
+    assert payload["pack"]["semantic_id_format_version"] == "sha256-64-lower:v1"
     assert payload["pack"]["output_files"] == ["context.md"]
     assert payload["pack"]["capabilities"] == {
         "has_manifest": True,
@@ -137,6 +138,14 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
         files[0]["markdown_lines"]["start_line"]
         < files[0]["markdown_lines"]["end_line"]
     )
+    assert files[0]["summary"]["primary_symbols"] == ["alpha"]
+    assert files[0]["relationships"] == {
+        "depends_on": [],
+        "used_by": [],
+        "related_tests": [],
+        "same_package_neighbors": [],
+        "entrypoint_reachability": [],
+    }
 
     symbols = repo["symbols"]
     assert len(symbols) == 1
@@ -144,11 +153,13 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     assert symbols[0]["canonical_id"] == files[0]["symbol_canonical_ids"][0]
     assert symbols[0]["display_local_id"] == files[0]["display_symbol_ids"][0]
     assert symbols[0]["local_id"] == files[0]["symbol_ids"][0]
+    assert len(symbols[0]["semantic_id"]) == 64
     assert symbols[0]["ids"] == {
         "display_canonical_id": symbols[0]["display_id"],
         "display_occurrence_id": symbols[0]["display_local_id"],
         "machine_canonical_id": symbols[0]["canonical_id"],
         "machine_occurrence_id": symbols[0]["local_id"],
+        "semantic_id": symbols[0]["semantic_id"],
     }
     assert symbols[0]["qualname"] == "alpha"
     assert symbols[0]["path"] == "a.py"
@@ -272,12 +283,20 @@ def test_pack_index_json_includes_analysis_metadata(tmp_path: Path) -> None:
     assert repo["classes"][0]["qualname"] == "Service"
     assert repo["classes"][0]["base_classes"] == ["Base"]
     assert repo["classes"][0]["decorators"] == ["decorator"]
+    assert repo["classes"][0]["semantic_id"]
 
     method_symbol = next(
         symbol for symbol in repo["symbols"] if symbol["qualname"] == "Service.run"
     )
     assert method_symbol["owner_class"] == repo["classes"][0]["local_id"]
     assert method_symbol["decorators"] == ["staticmethod"]
+    assert method_symbol["semantic"]["is_method"] is True
+    assert method_symbol["semantic"]["is_staticmethod"] is True
+    assert method_symbol["semantic"]["return_annotation"] == "int"
+    assert method_symbol["semantic"]["parameters"] == []
+    assert service_file["summary"]["primary_symbols"][:2] == ["Service", "Service.run"]
+    assert "pkg/helpers.py" in service_file["relationships"]["depends_on"]
+    assert "tests/test_service.py" in service_file["relationships"]["related_tests"]
 
     assert repo["graph"]["import_edges"]
     assert {
@@ -293,8 +312,36 @@ def test_pack_index_json_includes_analysis_metadata(tmp_path: Path) -> None:
             "source_path": "pkg/service.py",
             "test_path": "tests/test_service.py",
             "match_reason": "import-heuristic",
+            "score": 120,
+            "link_kind": "import",
+            "evidence": [
+                "import-edge",
+                "imported-name:Service",
+                "resolved-module:pkg.service",
+            ],
         }
     ]
+
+
+def test_pack_index_json_includes_architecture_map_when_detectable(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "cli.py").write_text(
+        "def main() -> int:\n    return 0\n", encoding="utf-8"
+    )
+    (tmp_path / "index_json.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "parse.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "security.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+    main(["pack", str(tmp_path), "-o", str(tmp_path / "context.md"), "--index-json"])
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    architecture = payload["repositories"][0]["architecture"]
+
+    assert "cli_frontends" in architecture
+    assert "format_schema_layer" in architecture
+    assert "parsing_symbol_extraction_layer" in architecture
+    assert "security_layer" in architecture
 
 
 def test_pack_index_json_compact_v2_shape(tmp_path: Path) -> None:
@@ -538,13 +585,11 @@ def test_pack_index_json_auto_locator_space_uses_reconstructed_with_unpacker(
     payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
     repo = payload["repositories"][0]
 
+    assert payload["mode"] == "normalized"
     assert repo["locator_space"] == "reconstructed"
     assert "secondary_locator_space" not in repo
-    assert repo["files"][0]["locators"]["reconstructed"]["path"] == "a.py"
-    assert repo["symbols"][0]["locators"]["reconstructed"]["lines"] == {
-        "start": 1,
-        "end": 2,
-    }
+    assert repo["files"][0]["loc"]["r"] == [1, 3]
+    assert repo["symbols"][0]["loc"]["r"]["l"] == [1, 2]
 
 
 def test_pack_index_json_portable_with_unpacker_and_sidecar_uses_reconstructed_locators(
@@ -694,7 +739,7 @@ def test_pack_index_json_compact_minimal_and_normalized_are_smaller_than_full(
     assert len(normalized_text) < len(minimal_text)
 
 
-def test_pack_profile_agent_minimal_sidecar_stays_below_markdown_ratio(
+def test_pack_profile_agent_normalized_sidecar_stays_below_markdown_ratio(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "pkg").mkdir()
@@ -742,7 +787,7 @@ def test_pack_profile_agent_minimal_sidecar_stays_below_markdown_ratio(
     markdown_bytes = len(out_path.read_bytes())
     index_json_bytes = len((tmp_path / "context.index.json").read_bytes())
 
-    assert payload["mode"] == "minimal"
+    assert payload["mode"] == "normalized"
     assert index_json_bytes * 100 <= markdown_bytes * 60
 
 

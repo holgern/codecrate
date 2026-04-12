@@ -27,13 +27,23 @@ def test_resolve_pack_options_uses_profile_defaults(tmp_path: Path) -> None:
     assert options.locator_space == "markdown"
     assert options.nav_mode == "compact"
     assert options.index_json_enabled is True
-    assert options.index_json_mode == "minimal"
+    assert options.index_json_mode == "normalized"
     assert options.index_json_include_lookup is True
     assert options.index_json_include_symbol_index_lines is True
     assert options.analysis_metadata is True
+    assert options.index_json_include_graph is True
+    assert options.index_json_include_test_links is True
+    assert options.index_json_include_guide is True
+    assert options.index_json_include_file_imports is True
+    assert options.index_json_include_classes is True
+    assert options.index_json_include_exports is True
+    assert options.index_json_include_module_docstrings is True
     assert options.focus_file == []
     assert options.focus_symbol == []
     assert options.include_import_neighbors == 0
+    assert options.include_reverse_import_neighbors == 0
+    assert options.include_same_package is False
+    assert options.include_entrypoints is False
     assert options.include_tests is False
     assert options.include_manifest is True
 
@@ -313,6 +323,10 @@ def test_resolve_pack_options_focus_controls_from_cli(tmp_path: Path) -> None:
             "pkg.mod:run",
             "--include-import-neighbors",
             "2",
+            "--include-reverse-import-neighbors",
+            "1",
+            "--include-same-package",
+            "--include-entrypoints",
             "--include-tests",
             "--no-analysis-metadata",
         ),
@@ -322,6 +336,9 @@ def test_resolve_pack_options_focus_controls_from_cli(tmp_path: Path) -> None:
     assert options.focus_file == ["a.py", "b.py"]
     assert options.focus_symbol == ["pkg.mod:run"]
     assert options.include_import_neighbors == 2
+    assert options.include_reverse_import_neighbors == 1
+    assert options.include_same_package is True
+    assert options.include_entrypoints is True
     assert options.include_tests is True
 
 
@@ -331,6 +348,9 @@ def test_resolve_pack_options_focus_controls_from_config(tmp_path: Path) -> None
         focus_file=["a.py"],
         focus_symbol=["pkg.mod:run"],
         include_import_neighbors=1,
+        include_reverse_import_neighbors=2,
+        include_same_package=True,
+        include_entrypoints=True,
         include_tests=True,
     )
 
@@ -340,4 +360,27 @@ def test_resolve_pack_options_focus_controls_from_config(tmp_path: Path) -> None
     assert options.focus_file == ["a.py"]
     assert options.focus_symbol == ["pkg.mod:run"]
     assert options.include_import_neighbors == 1
+    assert options.include_reverse_import_neighbors == 2
+    assert options.include_same_package is True
+    assert options.include_entrypoints is True
     assert options.include_tests is True
+
+
+def test_resolve_pack_options_analysis_subsection_overrides(tmp_path: Path) -> None:
+    cfg = Config(analysis_metadata=False)
+
+    options = resolve_pack_options(
+        cfg,
+        _parse_pack_args(
+            tmp_path,
+            "--index-json-graph",
+            "--index-json-file-imports",
+            "--no-index-json-guide",
+        ),
+    )
+
+    assert options.analysis_metadata is False
+    assert options.index_json_include_graph is True
+    assert options.index_json_include_file_imports is True
+    assert options.index_json_include_guide is False
+    assert options.index_json_include_test_links is False

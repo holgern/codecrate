@@ -23,7 +23,7 @@ def test_pack_profile_hybrid_implies_index_json(tmp_path: Path) -> None:
     assert payload["repositories"][0]["profile"] == "hybrid"
 
 
-def test_pack_profile_agent_implies_compact_nav_and_minimal_index_json(
+def test_pack_profile_agent_implies_compact_nav_and_normalized_index_json(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
@@ -37,9 +37,9 @@ def test_pack_profile_agent_implies_compact_nav_and_minimal_index_json(
     assert "— [jump](#src-" not in text
     assert "[jump to index](#file-" not in text
     payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
-    assert payload["format"] == "codecrate.index-json.v2"
-    assert payload["mode"] == "minimal"
-    assert payload["pack"]["index_json_mode"] == "minimal"
+    assert payload["format"] == "codecrate.index-json.v3"
+    assert payload["mode"] == "normalized"
+    assert payload["pack"]["index_json_mode"] == "normalized"
     assert payload["repositories"][0]["locator_space"] == "markdown"
 
 
@@ -112,5 +112,5 @@ def test_pack_profile_from_config_is_used(tmp_path: Path) -> None:
     main(["pack", str(tmp_path), "-o", str(out_path)])
 
     payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
-    assert payload["mode"] == "minimal"
+    assert payload["mode"] == "normalized"
     assert payload["repositories"][0]["locator_space"] == "markdown"

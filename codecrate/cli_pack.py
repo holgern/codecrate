@@ -6,7 +6,18 @@ from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import cli as cli_impl
+from .cli_pack_helpers import (
+    _combine_pack_markdown,
+    _index_json_output_path,
+    _manifest_json_output_path,
+    _oversized_split_parts,
+    _print_pack_summary,
+    _rename_split_parts,
+    _standalone_unpacker_output_path,
+    _warn_oversized_split_outputs,
+)
+from .cli_parser import _codecrate_version
+from .cli_shared import _prefix_repo_header
 from .formats import MANIFEST_JSON_FORMAT_VERSION
 from .index_json import build_index_payload, write_index_json
 from .output_model import PackRun
@@ -76,8 +87,8 @@ def _write_single_repo_outputs(
             repo_output_parts={pack_run.slug: [Part(path=out_path, content=md)]},
         )
 
-    renamed = cli_impl._rename_split_parts(parts, out_path)
-    oversized_parts = cli_impl._oversized_split_parts(renamed, split_max_chars)
+    renamed = _rename_split_parts(parts, out_path)
+    oversized_parts = _oversized_split_parts(renamed, split_max_chars)
     if pack_run.options.split_strict and oversized_parts:
         raise SystemExit(
             "pack: split_strict requires all non-index parts to fit "
@@ -94,7 +105,7 @@ def _write_single_repo_outputs(
     if emit_standalone_unpacker:
         out_path.write_text(md, encoding="utf-8")
         wrote_unsplit_markdown = True
-    cli_impl._warn_oversized_split_outputs(
+    _warn_oversized_split_outputs(
         label=pack_run.label,
         paths=oversized_parts,
         max_chars=split_max_chars,
@@ -137,8 +148,8 @@ def _write_multi_repo_outputs(
         if len(parts) == 1 and parts[0].path == repo_base:
             all_repo_split = False
             break
-        renamed = cli_impl._rename_split_parts(parts, repo_base)
-        oversized_parts = cli_impl._oversized_split_parts(renamed, split_max_chars)
+        renamed = _rename_split_parts(parts, repo_base)
+        oversized_parts = _oversized_split_parts(renamed, split_max_chars)
         if run_pack.options.split_strict and oversized_parts:
             raise SystemExit(
                 "pack: split_strict requires all non-index parts to fit "
@@ -165,9 +176,7 @@ def _write_multi_repo_outputs(
     for run_pack, renamed, oversized_parts in split_candidates:
         written_parts = []
         for part in renamed:
-            content_with_header = cli_impl._prefix_repo_header(
-                part.content, run_pack.label
-            )
+            content_with_header = _prefix_repo_header(part.content, run_pack.label)
             final_part = Part(
                 path=part.path,
                 content=content_with_header,
@@ -180,7 +189,7 @@ def _write_multi_repo_outputs(
             split_files_written.append(final_part.path)
             written_parts.append(final_part)
         repo_output_parts[run_pack.slug] = written_parts
-        cli_impl._warn_oversized_split_outputs(
+        _warn_oversized_split_outputs(
             label=run_pack.label,
             paths=oversized_parts,
             max_chars=run_pack.options.split_max_chars,
@@ -204,7 +213,7 @@ def _write_manifest_json_if_requested(
     out_path: Path,
     pack_runs: list[PackRun],
 ) -> Path | None:
-    manifest_json_path = cli_impl._manifest_json_output_path(
+    manifest_json_path = _manifest_json_output_path(
         manifest_json_arg=manifest_json_arg,
         markdown_output=out_path,
     )
@@ -239,14 +248,14 @@ def _write_index_json_if_requested(
 ) -> Path | None:
     if not any(run.options.index_json_enabled for run in pack_runs):
         return None
-    index_json_path = cli_impl._index_json_output_path(
+    index_json_path = _index_json_output_path(
         index_json_arg=index_json_arg or "",
         markdown_output=out_path,
     )
     if index_json_path is None:
         return None
     payload = build_index_payload(
-        codecrate_version=cli_impl._codecrate_version(),
+        codecrate_version=_codecrate_version(),
         index_output_path=index_json_path,
         pack_runs=pack_runs,
         repo_output_parts=repo_output_parts,
@@ -306,7 +315,7 @@ def _print_pack_output_summary(
         except ValueError:
             rel_out_path = out_path
         summary_encoding = summary_run.options.token_count_encoding
-        cli_impl._print_pack_summary(
+        _print_pack_summary(
             out_path=rel_out_path,
             markdown=md,
             total_files=sum(run.file_count for run in pack_runs),
@@ -354,7 +363,7 @@ def _write_standalone_unpacker_if_requested(
 ) -> None:
     if not emit_standalone_unpacker:
         return
-    standalone_unpacker_path = cli_impl._standalone_unpacker_output_path(
+    standalone_unpacker_path = _standalone_unpacker_output_path(
         markdown_output=out_path
     )
     standalone_unpacker_path.write_text(
@@ -385,7 +394,7 @@ def _write_pack_outputs(
     if len(pack_runs) == 1:
         md = pack_runs[0].markdown
     else:
-        md = cli_impl._combine_pack_markdown(pack_runs)
+        md = _combine_pack_markdown(pack_runs)
     outputs = (
         _write_single_repo_outputs(
             out_path=out_path,

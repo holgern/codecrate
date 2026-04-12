@@ -31,7 +31,7 @@ Supported keys include (non-exhaustive):
    profile = "human"
    layout = "auto"
    nav_mode = "auto"
-   index_json_mode = "minimal"
+   index_json_mode = "normalized"
    emit_standalone_unpacker = false
    locator_space = "auto"
    split_max_chars = 0
@@ -140,12 +140,19 @@ Useful flags:
 * ``--index-json [PATH]``: write index JSON for agent/tooling lookup (default:
   ``<output>.index.json``; explicit ``--index-json`` defaults to full mode)
 * ``--index-json-mode full|compact|minimal|normalized``: choose sidecar mode and enable
-   index-json output (``agent`` defaults to ``minimal``; ``hybrid`` defaults to
-   ``full``)
+    index-json output (``agent`` defaults to ``normalized``; ``hybrid`` defaults to
+    ``full``)
 * ``--index-json-lookup / --no-index-json-lookup``: include or trim lookup maps
-   in compact/minimal v2 sidecars
+    in compact/minimal v2 sidecars
 * ``--index-json-symbol-index-lines / --no-index-json-symbol-index-lines``:
-   include or trim compact v2 symbol index line ranges
+    include or trim compact v2 symbol index line ranges
+* ``--index-json-graph / --no-index-json-graph``, ``--index-json-test-links /
+  --no-index-json-test-links``, ``--index-json-guide / --no-index-json-guide``,
+  ``--index-json-file-imports / --no-index-json-file-imports``,
+  ``--index-json-classes / --no-index-json-classes``,
+  ``--index-json-exports / --no-index-json-exports``,
+  ``--index-json-module-docstrings / --no-index-json-module-docstrings``:
+  independently trim analysis sections
 * ``--no-index-json``: disable index JSON output, including profile-implied defaults
 * ``--emit-standalone-unpacker``: write ``<output>.unpack.py`` for zero-install
    reconstruction of manifest-enabled packs
@@ -159,7 +166,7 @@ Useful flags:
 Profile defaults:
 
 * ``human``: current markdown-first behavior
-* ``agent``: compact navigation plus minimal v2 ``index-json`` output
+* ``agent``: compact navigation plus normalized v3 ``index-json`` output
 * ``hybrid``: current markdown behavior plus full ``index-json`` output
 * ``portable``: manifest-enabled ``full`` layout intended for standalone unpack
 

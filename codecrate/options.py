@@ -21,9 +21,19 @@ class PackOptions:
     index_json_include_lookup: bool
     index_json_include_symbol_index_lines: bool
     analysis_metadata: bool
+    index_json_include_graph: bool
+    index_json_include_test_links: bool
+    index_json_include_guide: bool
+    index_json_include_file_imports: bool
+    index_json_include_classes: bool
+    index_json_include_exports: bool
+    index_json_include_module_docstrings: bool
     focus_file: list[str]
     focus_symbol: list[str]
     include_import_neighbors: int
+    include_reverse_import_neighbors: int
+    include_same_package: bool
+    include_entrypoints: bool
     include_tests: bool
     respect_gitignore: bool
     security_check: bool
@@ -90,7 +100,7 @@ def resolve_index_json_mode(
     if args.index_json is not None:
         return "full"
     if profile == "agent":
-        return "minimal"
+        return "normalized"
     if profile == "hybrid":
         return "full"
     return None
@@ -181,6 +191,38 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         if getattr(args, "analysis_metadata", None) is None
         else bool(args.analysis_metadata)
     )
+
+    def _resolve_analysis_toggle(name: str, arg_name: str) -> bool:
+        cli_value = getattr(args, arg_name, None)
+        if cli_value is not None:
+            return bool(cli_value)
+        cfg_value = getattr(cfg, name, None)
+        if cfg_value is not None:
+            return bool(cfg_value)
+        return analysis_metadata
+
+    index_json_include_graph = _resolve_analysis_toggle(
+        "index_json_include_graph", "index_json_graph"
+    )
+    index_json_include_test_links = _resolve_analysis_toggle(
+        "index_json_include_test_links", "index_json_test_links"
+    )
+    index_json_include_guide = _resolve_analysis_toggle(
+        "index_json_include_guide", "index_json_guide"
+    )
+    index_json_include_file_imports = _resolve_analysis_toggle(
+        "index_json_include_file_imports", "index_json_file_imports"
+    )
+    index_json_include_classes = _resolve_analysis_toggle(
+        "index_json_include_classes", "index_json_classes"
+    )
+    index_json_include_exports = _resolve_analysis_toggle(
+        "index_json_include_exports", "index_json_exports"
+    )
+    index_json_include_module_docstrings = _resolve_analysis_toggle(
+        "index_json_include_module_docstrings",
+        "index_json_module_docstrings",
+    )
     focus_file = (
         list(getattr(cfg, "focus_file", []))
         if getattr(args, "focus_file", None) is None
@@ -197,6 +239,22 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         else int(args.include_import_neighbors or 0)
     )
     include_import_neighbors = max(0, include_import_neighbors)
+    include_reverse_import_neighbors = (
+        int(getattr(cfg, "include_reverse_import_neighbors", 0) or 0)
+        if getattr(args, "include_reverse_import_neighbors", None) is None
+        else int(args.include_reverse_import_neighbors or 0)
+    )
+    include_reverse_import_neighbors = max(0, include_reverse_import_neighbors)
+    include_same_package = (
+        bool(getattr(cfg, "include_same_package", False))
+        if getattr(args, "include_same_package", None) is None
+        else bool(args.include_same_package)
+    )
+    include_entrypoints = (
+        bool(getattr(cfg, "include_entrypoints", False))
+        if getattr(args, "include_entrypoints", None) is None
+        else bool(args.include_entrypoints)
+    )
     include_tests = (
         bool(getattr(cfg, "include_tests", False))
         if getattr(args, "include_tests", None) is None
@@ -362,9 +420,19 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         index_json_include_lookup=index_json_include_lookup,
         index_json_include_symbol_index_lines=index_json_include_symbol_index_lines,
         analysis_metadata=analysis_metadata,
+        index_json_include_graph=index_json_include_graph,
+        index_json_include_test_links=index_json_include_test_links,
+        index_json_include_guide=index_json_include_guide,
+        index_json_include_file_imports=index_json_include_file_imports,
+        index_json_include_classes=index_json_include_classes,
+        index_json_include_exports=index_json_include_exports,
+        index_json_include_module_docstrings=index_json_include_module_docstrings,
         focus_file=focus_file,
         focus_symbol=focus_symbol,
         include_import_neighbors=include_import_neighbors,
+        include_reverse_import_neighbors=include_reverse_import_neighbors,
+        include_same_package=include_same_package,
+        include_entrypoints=include_entrypoints,
         include_tests=include_tests,
         respect_gitignore=respect_gitignore,
         security_check=security_check,

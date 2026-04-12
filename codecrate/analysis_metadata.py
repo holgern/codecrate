@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,16 @@ _CONFIG_FILES = {
     "requirements-test.txt",
     ".pre-commit-config.yaml",
 }
+_IO_IMPORT_HINTS = {
+    "io",
+    "json",
+    "os",
+    "pathlib",
+    "shutil",
+    "subprocess",
+    "tempfile",
+}
+_SUMMARY_LIMIT = 5
 
 
 @dataclass(frozen=True)
@@ -41,6 +52,9 @@ class TestLink:
     source_path: str
     test_path: str
     match_reason: str
+    score: int = 0
+    link_kind: str = "heuristic"
+    evidence: tuple[str, ...] = ()
 
 
 def _rel_path(pack: PackResult, file_pack: FilePack) -> str:
@@ -60,6 +74,7 @@ def role_hint_for_file(path: str) -> str | None:
     rel = Path(path)
     parts = rel.parts
     name = rel.name
+    stem = rel.stem.lower()
     suffix = rel.suffix.lower()
 
     if name == "__main__.py":
@@ -68,7 +83,11 @@ def role_hint_for_file(path: str) -> str | None:
         return "package-init"
     if parts[:1] == (".github",) or path in _CONFIG_FILES:
         return "config"
-    if parts[:1] == ("docs",) or suffix in {".md", ".rst"}:
+    if parts[:1] == ("docs",):
+        if name == "conf.py":
+            return "docs-config"
+        return "docs"
+    if suffix in {".md", ".rst"}:
         return "docs"
     if (
         parts[:1] == ("tests",)
@@ -76,9 +95,27 @@ def role_hint_for_file(path: str) -> str | None:
         or name.startswith("test_")
         or name.endswith("_test.py")
     ):
+        if "fixtures" in parts or "fixture" in stem:
+            return "test-fixture"
         return "test"
     if name.startswith("cli") and suffix == ".py":
-        return "entrypoint"
+        return "cli-front-end"
+    if stem in {"formats", "format"} or "format" in stem or "index_json" in stem:
+        return "format-definition"
+    if stem.startswith("validate") or "validator" in stem or "schema" in stem:
+        return "schema-validator"
+    if "serial" in stem or stem in {"manifest"}:
+        return "serializer"
+    if stem in {"unpack", "parse"} or "deserial" in stem:
+        return "deserializer"
+    if "pipeline" in stem or stem in {"packer"}:
+        return "pipeline-orchestrator"
+    if "security" in stem or "safety" in stem:
+        return "security-layer"
+    if "token" in stem or "budget" in stem:
+        return "token-budgeting"
+    if "diff" in stem or "patch" in stem or "apply" in stem:
+        return "diff-engine"
     return None
 
 
@@ -180,6 +217,81 @@ def build_import_edges(pack: PackResult) -> list[ImportEdge]:
     return edges
 
 
+def _normalized_test_tokens(path: str) -> tuple[str, ...]:
+    rel = Path(path)
+    tokens: list[str] = []
+    for part in rel.with_suffix("").parts:
+        token = part.lower()
+        if token in {"tests", "test"}:
+            continue
+        if token == "__init__":
+            continue
+        if token.startswith("test_"):
+            token = token[5:]
+        if token.endswith("_test"):
+            token = token[:-5]
+        if token:
+            tokens.append(token)
+    return tuple(tokens)
+
+
+def _shared_package_depth(source_path: str, test_path: str) -> int:
+    source_parts = [
+        part
+        for part in Path(source_path).with_suffix("").parts[:-1]
+        if part not in {"tests", "test"}
+    ]
+    test_parts = [
+        part
+        for part in Path(test_path).with_suffix("").parts[:-1]
+        if part not in {"tests", "test"}
+    ]
+    depth = 0
+    for left, right in zip(source_parts, test_parts, strict=False):
+        if left != right:
+            break
+        depth += 1
+    return depth
+
+
+def _store_test_link(
+    links: dict[tuple[str, str], TestLink],
+    *,
+    source_path: str,
+    test_path: str,
+    match_reason: str,
+    score: int,
+    link_kind: str,
+    evidence: list[str],
+) -> None:
+    key = (source_path, test_path)
+    evidence_tuple = tuple(sorted(set(item for item in evidence if item)))
+    candidate = TestLink(
+        source_path=source_path,
+        test_path=test_path,
+        match_reason=match_reason,
+        score=score,
+        link_kind=link_kind,
+        evidence=evidence_tuple,
+    )
+    existing = links.get(key)
+    if existing is None:
+        links[key] = candidate
+        return
+    if candidate.score > existing.score:
+        links[key] = candidate
+        return
+    if candidate.score == existing.score:
+        links[key] = TestLink(
+            source_path=existing.source_path,
+            test_path=existing.test_path,
+            match_reason=existing.match_reason,
+            score=existing.score,
+            link_kind=existing.link_kind,
+            evidence=tuple(sorted(set(existing.evidence) | set(candidate.evidence))),
+        )
+
+
 def build_test_links(pack: PackResult) -> list[TestLink]:
     role_hints = {
         _rel_path(pack, file_pack): role_hint_for_file(_rel_path(pack, file_pack))
@@ -195,14 +307,21 @@ def build_test_links(pack: PackResult) -> list[TestLink]:
     for edge in edges:
         if edge.source_path not in test_paths or edge.target_path is None:
             continue
-        key = (edge.target_path, edge.source_path)
-        links.setdefault(
-            key,
-            TestLink(
-                source_path=edge.target_path,
-                test_path=edge.source_path,
-                match_reason="import-heuristic",
-            ),
+        bonus = 20 if edge.imported_name and edge.imported_name != "*" else 0
+        bonus += _shared_package_depth(edge.target_path, edge.source_path) * 5
+        evidence = ["import-edge"]
+        if edge.imported_name and edge.imported_name != "*":
+            evidence.append(f"imported-name:{edge.imported_name}")
+        if edge.resolved_module:
+            evidence.append(f"resolved-module:{edge.resolved_module}")
+        _store_test_link(
+            links,
+            source_path=edge.target_path,
+            test_path=edge.source_path,
+            match_reason="import-heuristic",
+            score=100 + bonus,
+            link_kind="import",
+            evidence=evidence,
         )
 
     for test_path in test_paths:
@@ -212,29 +331,58 @@ def build_test_links(pack: PackResult) -> list[TestLink]:
             candidates.add(test_stem[5:])
         if test_stem.endswith("_test"):
             candidates.add(test_stem[:-5])
+        normalized_test = _normalized_test_tokens(test_path)
 
         for source_path in source_paths:
             source_stem = Path(source_path).stem
+            proximity_bonus = _shared_package_depth(source_path, test_path) * 5
             if source_stem in candidates:
-                links.setdefault(
-                    (source_path, test_path),
-                    TestLink(
-                        source_path=source_path,
-                        test_path=test_path,
-                        match_reason="filename-heuristic",
-                    ),
+                _store_test_link(
+                    links,
+                    source_path=source_path,
+                    test_path=test_path,
+                    match_reason="filename-heuristic",
+                    score=70 + proximity_bonus,
+                    link_kind="filename",
+                    evidence=[f"stem:{source_stem}"],
+                )
+                continue
+            normalized_source = _normalized_test_tokens(source_path)
+            if (
+                normalized_source
+                and normalized_test
+                and len(normalized_test) >= len(normalized_source)
+                and normalized_test[-len(normalized_source) :] == normalized_source
+            ):
+                _store_test_link(
+                    links,
+                    source_path=source_path,
+                    test_path=test_path,
+                    match_reason="module-name-heuristic",
+                    score=60 + proximity_bonus,
+                    link_kind="module-name",
+                    evidence=["normalized-module-match"],
                 )
                 continue
             if source_stem and source_stem in test_path:
-                links.setdefault(
-                    (source_path, test_path),
-                    TestLink(
-                        source_path=source_path,
-                        test_path=test_path,
-                        match_reason="string-heuristic",
-                    ),
+                _store_test_link(
+                    links,
+                    source_path=source_path,
+                    test_path=test_path,
+                    match_reason="string-heuristic",
+                    score=50 + proximity_bonus,
+                    link_kind="string",
+                    evidence=[f"path-contains:{source_stem}"],
                 )
-    return sorted(links.values(), key=lambda item: (item.source_path, item.test_path))
+    return sorted(
+        links.values(),
+        key=lambda item: (
+            item.source_path,
+            -item.score,
+            item.test_path,
+            item.link_kind,
+        ),
+    )
 
 
 def _entrypoints_from_pyproject(
@@ -267,6 +415,18 @@ def _entrypoints_from_pyproject(
     return sorted(set(out))
 
 
+def build_entrypoints(*, root: Path, pack: PackResult) -> list[str]:
+    module_to_path = _module_to_path(pack)
+    role_hints = {
+        _rel_path(pack, file_pack): role_hint_for_file(_rel_path(pack, file_pack))
+        for file_pack in pack.files
+    }
+    return sorted(
+        {path for path, hint in role_hints.items() if hint == "entrypoint"}
+        | set(_entrypoints_from_pyproject(root, module_to_path))
+    )
+
+
 def build_repository_guide(
     *,
     root: Path,
@@ -274,7 +434,6 @@ def build_repository_guide(
     file_bytes: dict[str, int] | None = None,
 ) -> dict[str, list[str]]:
     file_bytes = file_bytes or {}
-    module_to_path = _module_to_path(pack)
     role_hints = {
         _rel_path(pack, file_pack): role_hint_for_file(_rel_path(pack, file_pack))
         for file_pack in pack.files
@@ -287,10 +446,6 @@ def build_repository_guide(
                 incoming_counts.get(edge.target_path, 0) + 1
             )
 
-    entrypoints = sorted(
-        {path for path, hint in role_hints.items() if hint == "entrypoint"}
-        | set(_entrypoints_from_pyproject(root, module_to_path))
-    )
     key_configs = sorted(path for path, hint in role_hints.items() if hint == "config")
     central_modules = [
         _rel_path(pack, file_pack)
@@ -313,7 +468,7 @@ def build_repository_guide(
         workflows.append("pack")
     if any("unpack" in path for path in rel_paths):
         workflows.append("unpack")
-    if any("patch" in path for path in rel_paths):
+    if any("patch" in path or "apply" in path for path in rel_paths):
         workflows.append("patch/apply")
     if any("validate" in path for path in rel_paths):
         workflows.append("validate")
@@ -330,12 +485,152 @@ def build_repository_guide(
     )[:5]
 
     return {
-        "entrypoints": entrypoints,
+        "entrypoints": build_entrypoints(root=root, pack=pack),
         "main_workflows": workflows,
         "key_config_files": key_configs,
         "central_modules": central_modules,
         "test_clusters": test_clusters,
     }
+
+
+def build_architecture_map(*, root: Path, pack: PackResult) -> dict[str, list[str]]:
+    categories: dict[str, list[str]] = defaultdict(list)
+    for file_pack in pack.files:
+        rel = _rel_path(pack, file_pack)
+        role = role_hint_for_file(rel)
+        stem = Path(rel).stem.lower()
+        if role == "cli-front-end" or stem.startswith("cli"):
+            categories["cli_frontends"].append(rel)
+        if role in {"format-definition", "serializer", "deserializer"} or stem in {
+            "formats",
+            "index_json",
+            "manifest",
+            "locators",
+        }:
+            categories["format_schema_layer"].append(rel)
+        if stem in {"parse", "model", "symbol_backend"}:
+            categories["parsing_symbol_extraction_layer"].append(rel)
+        if stem in {"markdown", "render"}:
+            categories["rendering_layer"].append(rel)
+        if role == "pipeline-orchestrator" or stem in {"pack_pipeline", "packer"}:
+            categories["pipeline_orchestrators"].append(rel)
+        if role == "diff-engine":
+            categories["patch_apply_layer"].append(rel)
+        if role in {"schema-validator", "config"} or "validate" in stem:
+            categories["validation_layer"].append(rel)
+        if role == "security-layer":
+            categories["security_layer"].append(rel)
+        if role == "token-budgeting":
+            categories["token_budgeting_layer"].append(rel)
+        if role == "docs-config":
+            categories["docs_config"].append(rel)
+    return {
+        key: sorted(set(values)) for key, values in sorted(categories.items()) if values
+    }
+
+
+def build_file_relationships(
+    *,
+    root: Path,
+    pack: PackResult,
+) -> dict[str, dict[str, list[str]]]:
+    edges = build_import_edges(pack)
+    outgoing: dict[str, set[str]] = defaultdict(set)
+    incoming: dict[str, set[str]] = defaultdict(set)
+    for edge in edges:
+        if edge.target_path is None:
+            continue
+        outgoing[edge.source_path].add(edge.target_path)
+        incoming[edge.target_path].add(edge.source_path)
+
+    entrypoints = build_entrypoints(root=root, pack=pack)
+    reachability: dict[str, set[str]] = defaultdict(set)
+    for entrypoint in entrypoints:
+        queue = deque([entrypoint])
+        seen = {entrypoint}
+        while queue:
+            current = queue.popleft()
+            reachability[current].add(entrypoint)
+            for target in sorted(outgoing.get(current, set())):
+                if target in seen:
+                    continue
+                seen.add(target)
+                queue.append(target)
+
+    related_tests: dict[str, list[str]] = defaultdict(list)
+    for link in build_test_links(pack):
+        related_tests[link.source_path].append(link.test_path)
+
+    package_groups: dict[str, set[str]] = defaultdict(set)
+    for file_pack in pack.files:
+        rel = _rel_path(pack, file_pack)
+        package_groups[_package_context(file_pack)].add(rel)
+
+    relationships: dict[str, dict[str, list[str]]] = {}
+    for file_pack in pack.files:
+        rel = _rel_path(pack, file_pack)
+        package_key = _package_context(file_pack)
+        neighbors = sorted(package_groups.get(package_key, set()) - {rel})[
+            :_SUMMARY_LIMIT
+        ]
+        relationships[rel] = {
+            "depends_on": sorted(outgoing.get(rel, set()))[:_SUMMARY_LIMIT],
+            "used_by": sorted(incoming.get(rel, set()))[:_SUMMARY_LIMIT],
+            "related_tests": sorted(set(related_tests.get(rel, [])))[:_SUMMARY_LIMIT],
+            "same_package_neighbors": neighbors,
+            "entrypoint_reachability": sorted(reachability.get(rel, set()))[
+                :_SUMMARY_LIMIT
+            ],
+        }
+    return relationships
+
+
+def build_file_summaries(
+    *,
+    pack: PackResult,
+) -> dict[str, dict[str, Any]]:
+    edges = build_import_edges(pack)
+    imports_local: dict[str, int] = defaultdict(int)
+    imports_external: dict[str, int] = defaultdict(int)
+    for edge in edges:
+        if edge.target_path is None:
+            imports_external[edge.source_path] += 1
+        else:
+            imports_local[edge.source_path] += 1
+
+    summaries: dict[str, dict[str, Any]] = {}
+    for file_pack in pack.files:
+        rel = _rel_path(pack, file_pack)
+        role = role_hint_for_file(rel)
+        imports_roots = {
+            import_ref.module.lstrip(".").split(".", 1)[0]
+            for import_ref in file_pack.imports
+            if import_ref.module
+        }
+        primary_symbols = [
+            *(
+                class_ref.qualname
+                for class_ref in sorted(
+                    file_pack.classes, key=lambda item: (item.class_line, item.qualname)
+                )
+            ),
+            *(
+                defn.qualname
+                for defn in sorted(
+                    file_pack.defs, key=lambda item: (item.def_line, item.qualname)
+                )
+            ),
+        ][:_SUMMARY_LIMIT]
+        summaries[rel] = {
+            "role": role,
+            "primary_symbols": primary_symbols,
+            "imports_local": imports_local.get(rel, 0),
+            "imports_external": imports_external.get(rel, 0),
+            "exports": list(file_pack.exports[:_SUMMARY_LIMIT]),
+            "touches_io": bool(imports_roots & _IO_IMPORT_HINTS),
+            "is_test": role in {"test", "test-fixture"},
+        }
+    return summaries
 
 
 def import_edges_payload(pack: PackResult) -> list[dict[str, Any]]:
@@ -355,12 +650,15 @@ def import_edges_payload(pack: PackResult) -> list[dict[str, Any]]:
     ]
 
 
-def test_links_payload(pack: PackResult) -> list[dict[str, str]]:
+def test_links_payload(pack: PackResult) -> list[dict[str, Any]]:
     return [
         {
             "source_path": link.source_path,
             "test_path": link.test_path,
             "match_reason": link.match_reason,
+            "score": link.score,
+            "link_kind": link.link_kind,
+            "evidence": list(link.evidence),
         }
         for link in build_test_links(pack)
     ]

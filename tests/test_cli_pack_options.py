@@ -638,6 +638,113 @@ def test_pack_no_analysis_metadata_omits_guide_and_sidecar_analysis(
     assert "owner_class" not in repo["symbols"][0]
 
 
+def test_pack_index_json_section_toggles_trim_selected_analysis_payloads(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "pkg" / "service.py").write_text(
+        '"""docs"""\n__all__ = ["run"]\ndef run() -> int:\n    return 1\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "tests" / "test_service.py").write_text(
+        "from pkg.service import run\n\n"
+        "def test_run() -> None:\n"
+        "    assert run() == 1\n",
+        encoding="utf-8",
+    )
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--index-json",
+            "--no-index-json-graph",
+            "--no-index-json-test-links",
+            "--no-index-json-guide",
+            "--no-index-json-file-imports",
+            "--no-index-json-classes",
+            "--no-index-json-exports",
+            "--no-index-json-module-docstrings",
+            "-o",
+            str(tmp_path / "context.md"),
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo = payload["repositories"][0]
+    file_entry = next(
+        entry for entry in repo["files"] if entry["path"] == "pkg/service.py"
+    )
+
+    assert "graph" not in repo
+    assert "test_links" not in repo
+    assert "guide" not in repo
+    assert "architecture" not in repo
+    assert "classes" not in repo
+    assert "imports" not in file_entry
+    assert "exports" not in file_entry
+    assert "module_docstring_lines" not in file_entry
+    assert file_entry["summary"]["primary_symbols"] == ["run"]
+    assert "semantic" in repo["symbols"][0]
+
+
+def test_pack_focus_reverse_neighbors_same_package_and_entrypoints(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "pkg" / "leaf.py").write_text(
+        "def leaf() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pkg" / "parent.py").write_text(
+        "from .leaf import leaf\n\ndef parent() -> int:\n    return leaf()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pkg" / "sibling.py").write_text(
+        "def sibling() -> int:\n    return 2\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "app.py").write_text(
+        "from pkg.parent import parent\n\ndef main() -> int:\n    return parent()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        """[project]
+name = "demo"
+version = "0.1.0"
+
+[project.scripts]
+demo = "app:main"
+""",
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--focus-file",
+            "pkg/leaf.py",
+            "--include-reverse-import-neighbors",
+            "2",
+            "--include-same-package",
+            "--include-entrypoints",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `pkg/leaf.py`" in text
+    assert "### `pkg/parent.py`" in text
+    assert "### `pkg/sibling.py`" in text
+    assert "### `app.py`" in text
+
+
 def test_pack_max_file_tokens_skips_large_token_files(tmp_path: Path, capsys) -> None:
     (tmp_path / "small.py").write_text("x = 1\n", encoding="utf-8")
     (tmp_path / "big.py").write_text("x = 1\n" * 600, encoding="utf-8")

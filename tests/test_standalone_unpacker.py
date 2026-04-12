@@ -269,12 +269,10 @@ def test_standalone_enabled_agent_sidecar_defaults_to_reconstructed_locators(
     payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
     repo_entry = payload["repositories"][0]
 
+    assert payload["mode"] == "normalized"
     assert repo_entry["locator_space"] == "reconstructed"
-    assert repo_entry["files"][0]["locators"]["reconstructed"]["path"] == "a.py"
-    assert repo_entry["symbols"][0]["locators"]["reconstructed"]["lines"] == {
-        "start": 1,
-        "end": 2,
-    }
+    assert repo_entry["files"][0]["loc"]["r"] == [1, 3]
+    assert repo_entry["symbols"][0]["loc"]["r"]["l"] == [1, 2]
 
 
 def test_standalone_unpacker_matches_codecrate_unpack_for_full_packs(

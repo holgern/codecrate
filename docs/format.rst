@@ -40,7 +40,7 @@ See :doc:`index_json` for the detailed sidecar contract.
 Profiles can change output defaults without changing the underlying pack format:
 
 * ``human`` keeps current markdown-first behavior
-* ``agent`` implies compact navigation and minimal v2 index JSON output
+* ``agent`` implies compact navigation and normalized v3 index JSON output
 * ``hybrid`` keeps current markdown behavior and also emits index JSON output
 * ``portable`` implies manifest-enabled ``full`` layout for standalone unpack
 

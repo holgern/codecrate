@@ -5,6 +5,14 @@ from pathlib import Path
 
 
 @dataclass(frozen=True)
+class ParameterRef:
+    name: str
+    kind: str
+    has_default: bool = False
+    annotation: str | None = None
+
+
+@dataclass(frozen=True)
 class ImportRef:
     module: str
     imported_name: str | None
@@ -30,6 +38,19 @@ class DefRef:
     is_single_line: bool = False
     decorators: list[str] = field(default_factory=list)
     owner_class: str | None = None
+    semantic_id: str = ""
+    signature_text: str | None = None
+    parameters: list[ParameterRef] = field(default_factory=list)
+    return_annotation: str | None = None
+    is_method: bool = False
+    is_property: bool = False
+    is_classmethod: bool = False
+    is_staticmethod: bool = False
+    is_generator: bool = False
+    is_coroutine: bool = False
+    is_public: bool = True
+    is_overload: bool = False
+    is_abstractmethod: bool = False
 
 
 @dataclass(frozen=True)
@@ -43,6 +64,8 @@ class ClassRef:
     end_line: int
     base_classes: list[str] = field(default_factory=list)
     decorators: list[str] = field(default_factory=list)
+    semantic_id: str = ""
+    is_public: bool = True
 
 
 @dataclass(frozen=True)

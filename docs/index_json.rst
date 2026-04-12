@@ -23,7 +23,7 @@ Or let the profile enable it:
    codecrate pack . -o context.md --profile agent
    codecrate pack . -o context.md --profile hybrid
 
-``--profile agent`` resolves to the minimal v2 sidecar by default, while
+``--profile agent`` resolves to the normalized v3 sidecar by default, while
 ``--profile hybrid`` keeps the full v1-compatible sidecar.
 
 Or choose a specific sidecar mode:

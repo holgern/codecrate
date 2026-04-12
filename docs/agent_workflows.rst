@@ -14,7 +14,7 @@ Choose A Profile
 Codecrate supports four output profiles:
 
 * ``human``: keep the current markdown-first behavior
-* ``agent``: compact navigation plus minimal ``codecrate.index-json.v2``
+* ``agent``: compact navigation plus normalized ``codecrate.index-json.v3``
 * ``hybrid``: current markdown richness plus full ``codecrate.index-json.v1``
 * ``portable``: manifest-enabled ``full`` layout for standalone reconstruction
 
@@ -51,7 +51,7 @@ tree, keep the default ``--locator-space auto`` and add a sidecar mode:
 .. code-block:: console
 
    codecrate pack . -o context.md --profile portable \
-     --emit-standalone-unpacker --index-json-mode minimal
+     --emit-standalone-unpacker --index-json-mode normalized
 
 
 Authority Model
@@ -94,6 +94,8 @@ Codecrate now exposes three sidecar modes:
 * ``full``: current v1-compatible retrieval surface
 * ``compact``: machine-first v2 retrieval surface
 * ``minimal``: smallest practical v2 retrieval surface
+* ``normalized``: table-interned v3 retrieval surface with the best default
+  token efficiency for agent workflows
 
 See :doc:`index_json` for the contract and field guide.
 
@@ -103,10 +105,11 @@ Generate it directly:
 
    codecrate pack . -o context.md --index-json
    codecrate pack . -o context.md --index-json-mode minimal
+   codecrate pack . -o context.md --index-json-mode normalized
 
 ``--index-json`` alone keeps the full v1-compatible sidecar. Use
-``--index-json-mode compact|minimal`` when you want the v2 machine-first
-sidecar surface.
+``--index-json-mode compact|minimal|normalized`` when you want the leanest
+machine-first sidecar surface.
 
 If you need to trim the v2 payload further, you can also disable the lookup maps
 or compact-only symbol index line ranges:

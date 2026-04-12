@@ -3,7 +3,15 @@ from __future__ import annotations
 from argparse import ArgumentParser, Namespace
 from typing import Literal
 
-from . import cli as cli_impl
+from .cli_shared import (
+    _extract_diff_blocks,
+    _extract_patch_metadata,
+    _is_no_manifest_error,
+    _prefix_repo_header,
+    _raise_no_manifest_error,
+    _read_text_with_policy,
+    _verify_patch_baseline,
+)
 from .config import load_config
 from .diffgen import generate_patch_markdown
 from .options import resolve_encoding_errors
@@ -15,7 +23,7 @@ def run_patch_command(parser: ArgumentParser, args: Namespace) -> None:
     cfg = load_config(args.root)
     patch_encoding_errors = resolve_encoding_errors(cfg, args.encoding_errors)
     try:
-        old_md = cli_impl._read_text_with_policy(
+        old_md = _read_text_with_policy(
             args.old_markdown,
             encoding_errors=patch_encoding_errors,
         )
@@ -49,11 +57,11 @@ def run_patch_command(parser: ArgumentParser, args: Namespace) -> None:
             encoding_errors=patch_encoding_errors,
         )
     except ValueError as e:
-        if cli_impl._is_no_manifest_error(e):
-            cli_impl._raise_no_manifest_error(parser, command_name="patch")
+        if _is_no_manifest_error(e):
+            _raise_no_manifest_error(parser, command_name="patch")
         raise
     if old_sections and selected_label is not None:
-        patch_md = cli_impl._prefix_repo_header(
+        patch_md = _prefix_repo_header(
             patch_md.rstrip() + "\n",
             selected_label,
         )
@@ -65,7 +73,7 @@ def run_apply_command(parser: ArgumentParser, args: Namespace) -> None:
     cfg = load_config(args.root)
     apply_encoding_errors = resolve_encoding_errors(cfg, args.encoding_errors)
     try:
-        md_text = cli_impl._read_text_with_policy(
+        md_text = _read_text_with_policy(
             args.patch_markdown,
             encoding_errors=apply_encoding_errors,
         )
@@ -88,16 +96,16 @@ def run_apply_command(parser: ArgumentParser, args: Namespace) -> None:
             "# Repository sections"
         )
 
-    diff_text = cli_impl._extract_diff_blocks(md_text)
+    diff_text = _extract_diff_blocks(md_text)
     diffs = parse_unified_diff(diff_text)
-    patch_meta = cli_impl._extract_patch_metadata(md_text)
+    patch_meta = _extract_patch_metadata(md_text)
     baseline_policy: Literal["auto", "require", "ignore"] = "auto"
     if args.check_baseline:
         baseline_policy = "require"
     elif args.ignore_baseline:
         baseline_policy = "ignore"
     try:
-        cli_impl._verify_patch_baseline(
+        _verify_patch_baseline(
             root=args.root,
             diffs=diffs,
             patch_meta=patch_meta,
