@@ -1280,12 +1280,9 @@ def _validate_normalized_repo(
     )
 
 
-def validate_index_payload(
-    payload: dict[str, Any],
-    *,
-    base_dir: Path | None = None,
-) -> list[str]:
-    errors: list[str] = []
+def _validate_payload_mode(
+    errors: list[str], payload: dict[str, Any]
+) -> tuple[str, Any, set[str]]:
     format_version = str(payload.get("format") or "")
     mode = payload.get("mode")
     if format_version == INDEX_JSON_FORMAT_VERSION_V1:
@@ -1304,86 +1301,145 @@ def validate_index_payload(
         errors.append(
             f"pack.index_json_mode does not match payload mode: {pack_mode} != {mode}"
         )
-
     output_files = set(payload.get("pack", {}).get("output_files", []))
+    return format_version, mode, output_files
+
+
+def _collect_output_file_anchors(
+    errors: list[str], output_files: set[str], *, base_dir: Path | None
+) -> tuple[dict[str, set[str]], bool]:
     anchors_by_path: dict[str, set[str]] = {}
     check_anchors = base_dir is not None
-
     if base_dir is not None:
         for rel_path in output_files:
             try:
                 anchors_by_path[rel_path] = _read_anchors(base_dir, rel_path)
             except FileNotFoundError:
                 errors.append(f"missing output file: {rel_path}")
+    return anchors_by_path, check_anchors
+
+
+def _validate_legacy_repo(
+    errors: list[str],
+    *,
+    repo: dict[str, Any],
+    repo_label: str,
+    format_version: str,
+    mode: Any,
+    output_files: set[str],
+    anchors_by_path: dict[str, set[str]],
+    check_anchors: bool,
+) -> None:
+    files = repo.get("files", [])
+    symbols = repo.get("symbols", [])
+    parts = repo.get("parts", [])
+    files_by_path = {entry.get("path"): entry for entry in files}
+    features = _v2_features(repo, mode=mode)
+    if len(files_by_path) != len(files):
+        _append_error(errors, repo_label, "duplicate file paths in files array")
+    if format_version == INDEX_JSON_FORMAT_VERSION_V2 and not isinstance(
+        repo.get("index_json_features"), dict
+    ):
+        _append_error(errors, repo_label, "missing index_json_features for v2 payload")
+    if features["lookup"] and not isinstance(repo.get("lookup"), dict):
+        _append_error(
+            errors,
+            repo_label,
+            "index_json_features.lookup=true but lookup payload is missing",
+        )
+    parts_by_path = _validate_parts(
+        errors,
+        repo_label=repo_label,
+        output_files=output_files,
+        parts=parts,
+        files_by_path=files_by_path,
+    )
+    symbols_by_local_id = _validate_symbols(
+        errors,
+        repo=repo,
+        repo_label=repo_label,
+        output_files=output_files,
+        anchors_by_path=anchors_by_path,
+        check_anchors=check_anchors,
+        symbols=symbols,
+        files_by_path=files_by_path,
+        parts_by_path=parts_by_path,
+    )
+    _validate_files(
+        errors,
+        repo=repo,
+        repo_label=repo_label,
+        output_files=output_files,
+        anchors_by_path=anchors_by_path,
+        check_anchors=check_anchors,
+        files=files,
+        parts_by_path=parts_by_path,
+        symbols_by_local_id=symbols_by_local_id,
+        check_symbol_membership=format_version == INDEX_JSON_FORMAT_VERSION_V1,
+    )
+    _validate_lookup(
+        errors,
+        repo_label=repo_label,
+        lookup=repo.get("lookup", {}),
+        files_by_path=files_by_path,
+        symbols_by_local_id=symbols_by_local_id,
+    )
+
+
+def _validate_repository_entry(
+    errors: list[str],
+    *,
+    repo: dict[str, Any],
+    format_version: str,
+    mode: Any,
+    output_files: set[str],
+    anchors_by_path: dict[str, set[str]],
+    check_anchors: bool,
+) -> None:
+    repo_label = str(repo.get("label") or repo.get("slug") or "repo")
+    _validate_repository_locator_metadata(errors, repo=repo, repo_label=repo_label)
+    if format_version == INDEX_JSON_FORMAT_VERSION_V3:
+        _validate_normalized_repo(
+            errors,
+            repo=repo,
+            repo_label=repo_label,
+            output_files=output_files,
+        )
+        return
+    _validate_legacy_repo(
+        errors,
+        repo=repo,
+        repo_label=repo_label,
+        format_version=format_version,
+        mode=mode,
+        output_files=output_files,
+        anchors_by_path=anchors_by_path,
+        check_anchors=check_anchors,
+    )
+
+
+def validate_index_payload(
+    payload: dict[str, Any],
+    *,
+    base_dir: Path | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    format_version, mode, output_files = _validate_payload_mode(errors, payload)
+    anchors_by_path, check_anchors = _collect_output_file_anchors(
+        errors,
+        output_files,
+        base_dir=base_dir,
+    )
 
     for repo in payload.get("repositories", []):
-        repo_label = str(repo.get("label") or repo.get("slug") or "repo")
-        _validate_repository_locator_metadata(errors, repo=repo, repo_label=repo_label)
-        if format_version == INDEX_JSON_FORMAT_VERSION_V3:
-            _validate_normalized_repo(
-                errors,
-                repo=repo,
-                repo_label=repo_label,
-                output_files=output_files,
-            )
-            continue
-        files = repo.get("files", [])
-        symbols = repo.get("symbols", [])
-        parts = repo.get("parts", [])
-        files_by_path = {entry.get("path"): entry for entry in files}
-        features = _v2_features(repo, mode=mode)
-
-        if len(files_by_path) != len(files):
-            _append_error(errors, repo_label, "duplicate file paths in files array")
-        if format_version == INDEX_JSON_FORMAT_VERSION_V2 and not isinstance(
-            repo.get("index_json_features"), dict
-        ):
-            _append_error(
-                errors, repo_label, "missing index_json_features for v2 payload"
-            )
-        if features["lookup"] and not isinstance(repo.get("lookup"), dict):
-            _append_error(
-                errors,
-                repo_label,
-                "index_json_features.lookup=true but lookup payload is missing",
-            )
-
-        parts_by_path = _validate_parts(
-            errors,
-            repo_label=repo_label,
-            output_files=output_files,
-            parts=parts,
-            files_by_path=files_by_path,
-        )
-        symbols_by_local_id = _validate_symbols(
+        _validate_repository_entry(
             errors,
             repo=repo,
-            repo_label=repo_label,
+            format_version=format_version,
+            mode=mode,
             output_files=output_files,
             anchors_by_path=anchors_by_path,
             check_anchors=check_anchors,
-            symbols=symbols,
-            files_by_path=files_by_path,
-            parts_by_path=parts_by_path,
-        )
-        _validate_files(
-            errors,
-            repo=repo,
-            repo_label=repo_label,
-            output_files=output_files,
-            anchors_by_path=anchors_by_path,
-            check_anchors=check_anchors,
-            files=files,
-            parts_by_path=parts_by_path,
-            symbols_by_local_id=symbols_by_local_id,
-            check_symbol_membership=format_version == INDEX_JSON_FORMAT_VERSION_V1,
-        )
-        _validate_lookup(
-            errors,
-            repo_label=repo_label,
-            lookup=repo.get("lookup", {}),
-            files_by_path=files_by_path,
-            symbols_by_local_id=symbols_by_local_id,
         )
 
     return errors

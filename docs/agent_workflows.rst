@@ -66,6 +66,10 @@ in one preset:
 
    codecrate pack . -o context.md --profile portable-agent
 
+``portable-agent`` keeps the reconstructable ``full`` markdown layout, but now
+minifies the normalized sidecar and trims graph/reference-heavy payloads by
+default. Re-enable those sections explicitly when you need them.
+
 
 Authority Model
 ---------------
@@ -120,9 +124,10 @@ Generate it directly:
    codecrate pack . -o context.md --index-json-mode minimal
    codecrate pack . -o context.md --index-json-mode normalized
 
-``--index-json`` alone keeps the full v1-compatible sidecar. Use
-``--index-json-mode compact|minimal|normalized`` when you want the leanest
-machine-first sidecar surface.
+``--index-json`` alone preserves the profile/config sidecar default. For plain
+markdown-first runs without a sidecar profile, that falls back to the full
+v1-compatible sidecar. Use ``--index-json-mode compact|minimal|normalized``
+when you want the leanest machine-first sidecar surface.
 
 Use ``--profile lean-agent`` when you want those lean defaults without spelling
 out the individual toggles.
@@ -150,6 +155,13 @@ The sidecar includes:
 * symbol-to-file lookup
 * symbol-to-canonical-body lookup in stub layout
 * direct href-style navigation fields
+
+To compare profile/mode size tradeoffs on a real repository, use the bundled
+benchmark helper:
+
+.. code-block:: console
+
+   python scripts/benchmark_packs.py --profile portable-agent --index-json-mode normalized
 * reverse lookup indexes appropriate to the chosen mode
 * unsplit markdown line ranges for review-oriented jumps
 * locator-space metadata describing whether the primary machine-facing locators

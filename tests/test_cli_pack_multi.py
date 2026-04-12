@@ -28,6 +28,22 @@ def test_pack_multi_repos(tmp_path: Path) -> None:
     assert "def beta()" in text
 
 
+def test_pack_multi_repos_from_positional_roots(tmp_path: Path) -> None:
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    _write_repo(repo1, "a.py", "def alpha():\n    return 1\n")
+    _write_repo(repo2, "b.py", "def beta():\n    return 2\n")
+
+    out_path = tmp_path / "multi.md"
+    main(["pack", str(repo1), str(repo2), "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "# Repository: repo1" in text
+    assert "# Repository: repo2" in text
+    assert "def alpha()" in text
+    assert "def beta()" in text
+
+
 def test_pack_rejects_root_and_repo(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _write_repo(repo, "a.py", "def alpha():\n    return 1\n")
@@ -37,3 +53,16 @@ def test_pack_rejects_root_and_repo(tmp_path: Path) -> None:
         main(["pack", str(repo), "--repo", str(repo), "-o", str(out_path)])
 
     assert excinfo.value.code == 2
+
+
+def test_pack_root_and_repo_error_suggests_one_style(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo, "a.py", "def alpha():\n    return 1\n")
+
+    with pytest.raises(SystemExit):
+        main(["pack", str(repo), "--repo", str(repo)])
+
+    captured = capsys.readouterr()
+    assert "specify either positional ROOTs or --repo" in captured.err

@@ -147,10 +147,32 @@ def test_resolve_pack_options_cli_overrides_config(tmp_path: Path) -> None:
     assert options.include_source == "cli --include-preset=everything"
 
 
-def test_resolve_pack_options_explicit_index_json_defaults_to_full(
+def test_resolve_pack_options_explicit_index_json_preserves_profile_mode(
     tmp_path: Path,
 ) -> None:
     cfg = Config(profile="agent")
+
+    options = resolve_pack_options(cfg, _parse_pack_args(tmp_path, "--index-json"))
+
+    assert options.index_json_enabled is True
+    assert options.index_json_mode == "normalized"
+
+
+def test_resolve_pack_options_explicit_index_json_uses_config_mode(
+    tmp_path: Path,
+) -> None:
+    cfg = Config(profile="human", index_json_mode="compact")
+
+    options = resolve_pack_options(cfg, _parse_pack_args(tmp_path, "--index-json"))
+
+    assert options.index_json_enabled is True
+    assert options.index_json_mode == "compact"
+
+
+def test_resolve_pack_options_explicit_index_json_defaults_to_full_for_human(
+    tmp_path: Path,
+) -> None:
+    cfg = Config(profile="human")
 
     options = resolve_pack_options(cfg, _parse_pack_args(tmp_path, "--index-json"))
 
@@ -230,8 +252,10 @@ def test_resolve_pack_options_portable_agent_profile_defaults(
     assert options.include_manifest is True
     assert options.index_json_enabled is True
     assert options.index_json_mode == "normalized"
+    assert options.index_json_pretty is False
+    assert options.index_json_include_graph is False
     assert options.index_json_include_symbol_locators is True
-    assert options.index_json_include_symbol_references is True
+    assert options.index_json_include_symbol_references is False
 
 
 def test_resolve_pack_options_config_index_json_mode_enables_sidecar(

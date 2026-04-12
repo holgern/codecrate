@@ -103,7 +103,9 @@ def test_pack_profile_agent_explicit_overrides_win(tmp_path: Path) -> None:
     assert not (tmp_path / "context.index.json").exists()
 
 
-def test_pack_profile_agent_explicit_index_json_keeps_full_mode(tmp_path: Path) -> None:
+def test_pack_profile_agent_explicit_index_json_preserves_normalized_mode(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     out_path = tmp_path / "context.md"
 
@@ -118,6 +120,19 @@ def test_pack_profile_agent_explicit_index_json_keeps_full_mode(tmp_path: Path) 
             "--index-json",
         ]
     )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    assert payload["format"] == "codecrate.index-json.v3"
+    assert payload["mode"] == "normalized"
+
+
+def test_pack_profile_human_explicit_index_json_defaults_to_full(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path), "--index-json"])
 
     payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
     assert payload["format"] == "codecrate.index-json.v1"
@@ -152,6 +167,9 @@ def test_pack_profile_portable_agent_emits_unpacker_and_normalized_sidecar(
     assert payload["mode"] == "normalized"
     assert payload["repositories"][0]["locator_space"] == "reconstructed"
     assert payload["repositories"][0]["secondary_locator_space"] == "markdown"
+    assert "graph" not in payload["repositories"][0]
+    assert "reference_graph" not in payload["repositories"][0]
+    assert "\n  " not in (tmp_path / "context.index.json").read_text(encoding="utf-8")
     assert (tmp_path / "context.unpack.py").exists()
 
 

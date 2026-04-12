@@ -119,6 +119,7 @@ def _resolve_optional_bool(
 def resolve_index_json_mode(
     cfg: Config, args: argparse.Namespace, profile: str
 ) -> str | None:
+    index_json_requested = args.index_json is not None
     cli_value = getattr(args, "index_json_mode", None)
     if cli_value is not None:
         value = str(cli_value).strip().lower()
@@ -130,11 +131,11 @@ def resolve_index_json_mode(
         if value in {"full", "compact", "minimal", "normalized"}:
             return value
 
-    if args.index_json is not None:
-        return "full"
     if profile in {"agent", "lean-agent", "portable-agent"}:
         return "normalized"
     if profile == "hybrid":
+        return "full"
+    if index_json_requested:
         return "full"
     return None
 
@@ -173,7 +174,7 @@ def resolve_locator_space(
     return value
 
 
-def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
+def _validate_index_json_args(args: argparse.Namespace) -> None:
     if args.index_json is not None and bool(getattr(args, "no_index_json", False)):
         raise ValueError("cannot combine --index-json with --no-index-json")
     if getattr(args, "index_json_mode", None) is not None and bool(
@@ -181,15 +182,10 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
     ):
         raise ValueError("cannot combine --index-json-mode with --no-index-json")
 
-    profile = resolve_profile(cfg, args.profile)
-    emit_standalone_unpacker = resolve_emit_standalone_unpacker(cfg, args, profile)
-    locator_space = resolve_locator_space(
-        cfg,
-        args,
-        profile=profile,
-        emit_standalone_unpacker=emit_standalone_unpacker,
-    )
-    index_json_mode = resolve_index_json_mode(cfg, args, profile)
+
+def _resolve_selection_options(
+    cfg: Config, args: argparse.Namespace
+) -> dict[str, object]:
     if args.include is not None:
         include = args.include
         include_source = "cli --include"
@@ -199,12 +195,26 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
     else:
         include = cfg.include
         include_source = f"config include/include_preset={cfg.include_preset}"
-    exclude = args.exclude if args.exclude is not None else cfg.exclude
     keep_docstrings = (
         cfg.keep_docstrings
         if args.keep_docstrings is None
         else bool(args.keep_docstrings)
     )
+    return {
+        "include": include,
+        "include_source": include_source,
+        "exclude": args.exclude if args.exclude is not None else cfg.exclude,
+        "keep_docstrings": keep_docstrings,
+    }
+
+
+def _resolve_output_targets(
+    cfg: Config,
+    args: argparse.Namespace,
+    *,
+    profile: str,
+    index_json_mode: str | None,
+) -> dict[str, object]:
     if args.manifest is None:
         include_manifest = cfg.manifest if profile == "human" else True
     else:
@@ -231,22 +241,41 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
             "hybrid",
             "portable-agent",
         }
+    return {
+        "include_manifest": include_manifest,
+        "manifest_json_output": manifest_json_output,
+        "index_json_output": index_json_output,
+        "standalone_unpacker_output": standalone_unpacker_output,
+        "index_json_enabled": index_json_enabled,
+        "index_json_mode": index_json_mode,
+    }
 
+
+def _resolve_sidecar_and_markdown_options(
+    cfg: Config,
+    args: argparse.Namespace,
+    *,
+    profile: str,
+    index_json_mode: str | None,
+) -> dict[str, object]:
     default_analysis_metadata = not (
         index_json_mode == "minimal" or profile == "lean-agent"
     )
+    portable_agent_trimmed = profile == "portable-agent"
     analysis_metadata = _resolve_optional_bool(
         getattr(args, "analysis_metadata", None),
         getattr(cfg, "analysis_metadata", None),
         default=default_analysis_metadata,
     )
-
     index_json_pretty = _resolve_optional_bool(
         getattr(args, "index_json_pretty", None),
         getattr(cfg, "index_json_pretty", None),
-        default=not (index_json_mode == "minimal" or profile == "lean-agent"),
+        default=not (
+            index_json_mode == "minimal"
+            or profile == "lean-agent"
+            or portable_agent_trimmed
+        ),
     )
-
     index_json_include_lookup = _resolve_optional_bool(
         getattr(args, "index_json_lookup", None),
         getattr(cfg, "index_json_include_lookup", None),
@@ -257,7 +286,6 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         getattr(cfg, "index_json_include_symbol_index_lines", None),
         default=index_json_mode != "minimal",
     )
-
     default_compact_analysis = analysis_metadata and not (
         index_json_mode == "minimal" or profile == "lean-agent"
     )
@@ -269,181 +297,188 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
             default=analysis_metadata,
         )
 
-    index_json_include_graph = _resolve_analysis_toggle(
-        "index_json_include_graph", "index_json_graph"
-    )
-    index_json_include_test_links = _resolve_analysis_toggle(
-        "index_json_include_test_links", "index_json_test_links"
-    )
-    index_json_include_guide = _resolve_analysis_toggle(
-        "index_json_include_guide", "index_json_guide"
-    )
-    index_json_include_file_imports = _resolve_analysis_toggle(
-        "index_json_include_file_imports", "index_json_file_imports"
-    )
-    index_json_include_classes = _resolve_analysis_toggle(
-        "index_json_include_classes", "index_json_classes"
-    )
-    index_json_include_exports = _resolve_analysis_toggle(
-        "index_json_include_exports", "index_json_exports"
-    )
-    index_json_include_module_docstrings = _resolve_analysis_toggle(
-        "index_json_include_module_docstrings",
-        "index_json_module_docstrings",
-    )
-    index_json_include_semantic = _resolve_optional_bool(
-        getattr(args, "index_json_semantic", None),
-        getattr(cfg, "index_json_include_semantic", None),
-        default=default_compact_analysis,
-    )
-    index_json_include_purpose_text = _resolve_optional_bool(
-        getattr(args, "index_json_purpose_text", None),
-        getattr(cfg, "index_json_include_purpose_text", None),
-        default=default_compact_analysis,
-    )
-    index_json_include_symbol_locators = _resolve_optional_bool(
-        getattr(args, "index_json_symbol_locators", None),
-        getattr(cfg, "index_json_include_symbol_locators", None),
-        default=profile != "lean-agent",
-    )
-    index_json_include_symbol_references = _resolve_optional_bool(
-        getattr(args, "index_json_symbol_references", None),
-        getattr(cfg, "index_json_include_symbol_references", None),
-        default=default_compact_analysis,
-    )
-    index_json_include_file_summaries = _resolve_optional_bool(
-        getattr(args, "index_json_file_summaries", None),
-        getattr(cfg, "index_json_include_file_summaries", None),
-        default=default_compact_analysis,
-    )
-    index_json_include_relationships = _resolve_optional_bool(
-        getattr(args, "index_json_relationships", None),
-        getattr(cfg, "index_json_include_relationships", None),
-        default=default_compact_analysis,
-    )
-    markdown_include_repository_guide = _resolve_optional_bool(
-        getattr(args, "markdown_repository_guide", None),
-        getattr(cfg, "markdown_include_repository_guide", None),
-        default=analysis_metadata and profile != "lean-agent",
-    )
-    markdown_include_symbol_index = _resolve_optional_bool(
-        getattr(args, "markdown_symbol_index", None),
-        getattr(cfg, "markdown_include_symbol_index", None),
-        default=True,
-    )
-    markdown_include_directory_tree = _resolve_optional_bool(
-        getattr(args, "markdown_directory_tree", None),
-        getattr(cfg, "markdown_include_directory_tree", None),
-        default=True,
-    )
-    markdown_include_environment_setup = _resolve_optional_bool(
-        getattr(args, "markdown_environment_setup", None),
-        getattr(cfg, "markdown_include_environment_setup", None),
-        default=profile != "lean-agent",
-    )
-    markdown_include_how_to_use = _resolve_optional_bool(
-        getattr(args, "markdown_how_to_use", None),
-        getattr(cfg, "markdown_include_how_to_use", None),
-        default=profile != "lean-agent",
-    )
-    focus_file = (
-        list(getattr(cfg, "focus_file", []))
-        if getattr(args, "focus_file", None) is None
-        else [str(item) for item in args.focus_file]
-    )
-    focus_symbol = (
-        list(getattr(cfg, "focus_symbol", []))
-        if getattr(args, "focus_symbol", None) is None
-        else [str(item) for item in args.focus_symbol]
-    )
+    return {
+        "analysis_metadata": analysis_metadata,
+        "index_json_pretty": index_json_pretty,
+        "index_json_include_lookup": index_json_include_lookup,
+        "index_json_include_symbol_index_lines": index_json_include_symbol_index_lines,
+        "index_json_include_graph": _resolve_optional_bool(
+            getattr(args, "index_json_graph", None),
+            getattr(cfg, "index_json_include_graph", None),
+            default=analysis_metadata and not portable_agent_trimmed,
+        ),
+        "index_json_include_test_links": _resolve_analysis_toggle(
+            "index_json_include_test_links", "index_json_test_links"
+        ),
+        "index_json_include_guide": _resolve_analysis_toggle(
+            "index_json_include_guide", "index_json_guide"
+        ),
+        "index_json_include_file_imports": _resolve_analysis_toggle(
+            "index_json_include_file_imports", "index_json_file_imports"
+        ),
+        "index_json_include_classes": _resolve_analysis_toggle(
+            "index_json_include_classes", "index_json_classes"
+        ),
+        "index_json_include_exports": _resolve_analysis_toggle(
+            "index_json_include_exports", "index_json_exports"
+        ),
+        "index_json_include_module_docstrings": _resolve_analysis_toggle(
+            "index_json_include_module_docstrings",
+            "index_json_module_docstrings",
+        ),
+        "index_json_include_semantic": _resolve_optional_bool(
+            getattr(args, "index_json_semantic", None),
+            getattr(cfg, "index_json_include_semantic", None),
+            default=default_compact_analysis,
+        ),
+        "index_json_include_purpose_text": _resolve_optional_bool(
+            getattr(args, "index_json_purpose_text", None),
+            getattr(cfg, "index_json_include_purpose_text", None),
+            default=default_compact_analysis,
+        ),
+        "index_json_include_symbol_locators": _resolve_optional_bool(
+            getattr(args, "index_json_symbol_locators", None),
+            getattr(cfg, "index_json_include_symbol_locators", None),
+            default=profile != "lean-agent",
+        ),
+        "index_json_include_symbol_references": _resolve_optional_bool(
+            getattr(args, "index_json_symbol_references", None),
+            getattr(cfg, "index_json_include_symbol_references", None),
+            default=default_compact_analysis and not portable_agent_trimmed,
+        ),
+        "index_json_include_file_summaries": _resolve_optional_bool(
+            getattr(args, "index_json_file_summaries", None),
+            getattr(cfg, "index_json_include_file_summaries", None),
+            default=default_compact_analysis,
+        ),
+        "index_json_include_relationships": _resolve_optional_bool(
+            getattr(args, "index_json_relationships", None),
+            getattr(cfg, "index_json_include_relationships", None),
+            default=default_compact_analysis,
+        ),
+        "markdown_include_repository_guide": _resolve_optional_bool(
+            getattr(args, "markdown_repository_guide", None),
+            getattr(cfg, "markdown_include_repository_guide", None),
+            default=analysis_metadata and profile != "lean-agent",
+        ),
+        "markdown_include_symbol_index": _resolve_optional_bool(
+            getattr(args, "markdown_symbol_index", None),
+            getattr(cfg, "markdown_include_symbol_index", None),
+            default=True,
+        ),
+        "markdown_include_directory_tree": _resolve_optional_bool(
+            getattr(args, "markdown_directory_tree", None),
+            getattr(cfg, "markdown_include_directory_tree", None),
+            default=True,
+        ),
+        "markdown_include_environment_setup": _resolve_optional_bool(
+            getattr(args, "markdown_environment_setup", None),
+            getattr(cfg, "markdown_include_environment_setup", None),
+            default=profile != "lean-agent",
+        ),
+        "markdown_include_how_to_use": _resolve_optional_bool(
+            getattr(args, "markdown_how_to_use", None),
+            getattr(cfg, "markdown_include_how_to_use", None),
+            default=profile != "lean-agent",
+        ),
+    }
+
+
+def _resolve_focus_options(cfg: Config, args: argparse.Namespace) -> dict[str, object]:
     include_import_neighbors = (
         int(getattr(cfg, "include_import_neighbors", 0) or 0)
         if getattr(args, "include_import_neighbors", None) is None
         else int(args.include_import_neighbors or 0)
     )
-    include_import_neighbors = max(0, include_import_neighbors)
     include_reverse_import_neighbors = (
         int(getattr(cfg, "include_reverse_import_neighbors", 0) or 0)
         if getattr(args, "include_reverse_import_neighbors", None) is None
         else int(args.include_reverse_import_neighbors or 0)
     )
-    include_reverse_import_neighbors = max(0, include_reverse_import_neighbors)
-    include_same_package = (
-        bool(getattr(cfg, "include_same_package", False))
-        if getattr(args, "include_same_package", None) is None
-        else bool(args.include_same_package)
-    )
-    include_entrypoints = (
-        bool(getattr(cfg, "include_entrypoints", False))
-        if getattr(args, "include_entrypoints", None) is None
-        else bool(args.include_entrypoints)
-    )
-    include_tests = (
-        bool(getattr(cfg, "include_tests", False))
-        if getattr(args, "include_tests", None) is None
-        else bool(args.include_tests)
-    )
-    respect_gitignore = (
-        cfg.respect_gitignore
-        if args.respect_gitignore is None
-        else bool(args.respect_gitignore)
-    )
-    security_check = (
-        bool(getattr(cfg, "security_check", True))
-        if args.security_check is None
-        else bool(args.security_check)
-    )
-    security_content_sniff = (
-        bool(getattr(cfg, "security_content_sniff", False))
-        if args.security_content_sniff is None
-        else bool(args.security_content_sniff)
-    )
-    security_redaction = (
-        bool(getattr(cfg, "security_redaction", False))
-        if args.security_redaction is None
-        else bool(args.security_redaction)
-    )
-    safety_report = (
-        bool(getattr(cfg, "safety_report", False))
-        if args.safety_report is None
-        else bool(args.safety_report)
-    )
-    security_path_patterns = (
-        list(getattr(cfg, "security_path_patterns", []))
-        if args.security_path_pattern is None
-        else [str(p) for p in args.security_path_pattern]
-    )
-    security_path_patterns_add = (
-        list(getattr(cfg, "security_path_patterns_add", []))
-        if args.security_path_pattern_add is None
-        else [str(p) for p in args.security_path_pattern_add]
-    )
-    security_path_patterns_remove = (
-        list(getattr(cfg, "security_path_patterns_remove", []))
-        if args.security_path_pattern_remove is None
-        else [str(p) for p in args.security_path_pattern_remove]
-    )
-    security_content_patterns = (
-        list(getattr(cfg, "security_content_patterns", []))
-        if args.security_content_pattern is None
-        else [str(p) for p in args.security_content_pattern]
-    )
-    dedupe = bool(cfg.dedupe) if args.dedupe is None else bool(args.dedupe)
-    split_max_chars = (
-        cfg.split_max_chars
-        if args.split_max_chars is None
-        else int(args.split_max_chars or 0)
-    )
-    split_strict = (
-        bool(getattr(cfg, "split_strict", False))
-        if args.split_strict is None
-        else bool(args.split_strict)
-    )
-    split_allow_cut_files = (
-        bool(getattr(cfg, "split_allow_cut_files", False))
-        if args.split_allow_cut_files is None
-        else bool(args.split_allow_cut_files)
-    )
+    return {
+        "focus_file": (
+            list(getattr(cfg, "focus_file", []))
+            if getattr(args, "focus_file", None) is None
+            else [str(item) for item in args.focus_file]
+        ),
+        "focus_symbol": (
+            list(getattr(cfg, "focus_symbol", []))
+            if getattr(args, "focus_symbol", None) is None
+            else [str(item) for item in args.focus_symbol]
+        ),
+        "include_import_neighbors": max(0, include_import_neighbors),
+        "include_reverse_import_neighbors": max(0, include_reverse_import_neighbors),
+        "include_same_package": (
+            bool(getattr(cfg, "include_same_package", False))
+            if getattr(args, "include_same_package", None) is None
+            else bool(args.include_same_package)
+        ),
+        "include_entrypoints": (
+            bool(getattr(cfg, "include_entrypoints", False))
+            if getattr(args, "include_entrypoints", None) is None
+            else bool(args.include_entrypoints)
+        ),
+        "include_tests": (
+            bool(getattr(cfg, "include_tests", False))
+            if getattr(args, "include_tests", None) is None
+            else bool(args.include_tests)
+        ),
+    }
+
+
+def _resolve_safety_options(cfg: Config, args: argparse.Namespace) -> dict[str, object]:
+    return {
+        "respect_gitignore": (
+            cfg.respect_gitignore
+            if args.respect_gitignore is None
+            else bool(args.respect_gitignore)
+        ),
+        "security_check": (
+            bool(getattr(cfg, "security_check", True))
+            if args.security_check is None
+            else bool(args.security_check)
+        ),
+        "security_content_sniff": (
+            bool(getattr(cfg, "security_content_sniff", False))
+            if args.security_content_sniff is None
+            else bool(args.security_content_sniff)
+        ),
+        "security_redaction": (
+            bool(getattr(cfg, "security_redaction", False))
+            if args.security_redaction is None
+            else bool(args.security_redaction)
+        ),
+        "safety_report": (
+            bool(getattr(cfg, "safety_report", False))
+            if args.safety_report is None
+            else bool(args.safety_report)
+        ),
+        "security_path_patterns": (
+            list(getattr(cfg, "security_path_patterns", []))
+            if args.security_path_pattern is None
+            else [str(p) for p in args.security_path_pattern]
+        ),
+        "security_path_patterns_add": (
+            list(getattr(cfg, "security_path_patterns_add", []))
+            if args.security_path_pattern_add is None
+            else [str(p) for p in args.security_path_pattern_add]
+        ),
+        "security_path_patterns_remove": (
+            list(getattr(cfg, "security_path_patterns_remove", []))
+            if args.security_path_pattern_remove is None
+            else [str(p) for p in args.security_path_pattern_remove]
+        ),
+        "security_content_patterns": (
+            list(getattr(cfg, "security_content_patterns", []))
+            if args.security_content_pattern is None
+            else [str(p) for p in args.security_content_pattern]
+        ),
+    }
+
+
+def _resolve_render_options(
+    cfg: Config, args: argparse.Namespace, *, profile: str
+) -> dict[str, object]:
     if args.layout is not None:
         layout = str(args.layout).strip().lower()
     else:
@@ -462,23 +497,43 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
             else str(getattr(cfg, "nav_mode", "auto")).strip().lower()
         )
     )
-    symbol_backend = (
-        str(args.symbol_backend).strip().lower()
-        if args.symbol_backend is not None
-        else str(getattr(cfg, "symbol_backend", "auto")).strip().lower()
-    )
-    encoding_errors = resolve_encoding_errors(cfg, args.encoding_errors)
+    return {
+        "dedupe": bool(cfg.dedupe) if args.dedupe is None else bool(args.dedupe),
+        "split_max_chars": (
+            cfg.split_max_chars
+            if args.split_max_chars is None
+            else int(args.split_max_chars or 0)
+        ),
+        "split_strict": (
+            bool(getattr(cfg, "split_strict", False))
+            if args.split_strict is None
+            else bool(args.split_strict)
+        ),
+        "split_allow_cut_files": (
+            bool(getattr(cfg, "split_allow_cut_files", False))
+            if args.split_allow_cut_files is None
+            else bool(args.split_allow_cut_files)
+        ),
+        "layout": layout,
+        "nav_mode": nav_mode,
+        "symbol_backend": (
+            str(args.symbol_backend).strip().lower()
+            if args.symbol_backend is not None
+            else str(getattr(cfg, "symbol_backend", "auto")).strip().lower()
+        ),
+        "encoding_errors": resolve_encoding_errors(cfg, args.encoding_errors),
+    }
 
+
+def _resolve_budget_options(cfg: Config, args: argparse.Namespace) -> dict[str, object]:
     token_count_encoding = (
         str(args.token_count_encoding).strip()
         if args.token_count_encoding is not None
         else str(getattr(cfg, "token_count_encoding", "o200k_base")).strip()
     ) or "o200k_base"
-
     cfg_tree = bool(getattr(cfg, "token_count_tree", False))
     cfg_thr = int(getattr(cfg, "token_count_tree_threshold", 0) or 0)
     cfg_top = int(getattr(cfg, "top_files_len", 5) or 5)
-
     token_count_tree = cfg_tree
     token_count_tree_threshold = cfg_thr
     if args.token_count_tree is not None:
@@ -489,117 +544,90 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
                 token_count_tree_threshold = int(raw)
             except Exception:
                 token_count_tree_threshold = cfg_thr
-
     top_files_len = cfg_top
     if args.top_files_len is not None:
         top_files_len = int(args.top_files_len)
+    return {
+        "token_report": bool(
+            token_count_tree
+            or args.top_files_len is not None
+            or args.token_count_encoding is not None
+        ),
+        "token_count_tree": token_count_tree,
+        "token_count_tree_threshold": token_count_tree_threshold,
+        "top_files_len": top_files_len,
+        "token_count_encoding": token_count_encoding,
+        "file_summary": (
+            bool(getattr(cfg, "file_summary", True))
+            if args.file_summary is None
+            else bool(args.file_summary)
+        ),
+        "max_file_bytes": (
+            int(getattr(cfg, "max_file_bytes", 0) or 0)
+            if args.max_file_bytes is None
+            else int(args.max_file_bytes or 0)
+        ),
+        "max_total_bytes": (
+            int(getattr(cfg, "max_total_bytes", 0) or 0)
+            if args.max_total_bytes is None
+            else int(args.max_total_bytes or 0)
+        ),
+        "max_file_tokens": (
+            int(getattr(cfg, "max_file_tokens", 0) or 0)
+            if args.max_file_tokens is None
+            else int(args.max_file_tokens or 0)
+        ),
+        "max_total_tokens": (
+            int(getattr(cfg, "max_total_tokens", 0) or 0)
+            if args.max_total_tokens is None
+            else int(args.max_total_tokens or 0)
+        ),
+        "max_workers": (
+            int(getattr(cfg, "max_workers", 0) or 0)
+            if args.max_workers is None
+            else int(args.max_workers or 0)
+        ),
+    }
 
-    token_report = bool(
-        token_count_tree
-        or args.top_files_len is not None
-        or args.token_count_encoding is not None
-    )
-    file_summary = (
-        bool(getattr(cfg, "file_summary", True))
-        if args.file_summary is None
-        else bool(args.file_summary)
-    )
 
-    max_file_bytes = (
-        int(getattr(cfg, "max_file_bytes", 0) or 0)
-        if args.max_file_bytes is None
-        else int(args.max_file_bytes or 0)
-    )
-    max_total_bytes = (
-        int(getattr(cfg, "max_total_bytes", 0) or 0)
-        if args.max_total_bytes is None
-        else int(args.max_total_bytes or 0)
-    )
-    max_file_tokens = (
-        int(getattr(cfg, "max_file_tokens", 0) or 0)
-        if args.max_file_tokens is None
-        else int(args.max_file_tokens or 0)
-    )
-    max_total_tokens = (
-        int(getattr(cfg, "max_total_tokens", 0) or 0)
-        if args.max_total_tokens is None
-        else int(args.max_total_tokens or 0)
-    )
-    max_workers = (
-        int(getattr(cfg, "max_workers", 0) or 0)
-        if args.max_workers is None
-        else int(args.max_workers or 0)
-    )
-
-    return PackOptions(
-        include=include,
-        include_source=include_source,
-        exclude=exclude,
-        keep_docstrings=keep_docstrings,
+def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
+    _validate_index_json_args(args)
+    profile = resolve_profile(cfg, args.profile)
+    emit_standalone_unpacker = resolve_emit_standalone_unpacker(cfg, args, profile)
+    locator_space = resolve_locator_space(
+        cfg,
+        args,
         profile=profile,
         emit_standalone_unpacker=emit_standalone_unpacker,
-        standalone_unpacker_output=standalone_unpacker_output,
-        locator_space=locator_space,
-        include_manifest=include_manifest,
-        index_json_enabled=index_json_enabled,
+    )
+    index_json_mode = resolve_index_json_mode(cfg, args, profile)
+    selection_options = _resolve_selection_options(cfg, args)
+    output_targets = _resolve_output_targets(
+        cfg,
+        args,
+        profile=profile,
         index_json_mode=index_json_mode,
-        manifest_json_output=manifest_json_output,
-        index_json_output=index_json_output,
-        index_json_pretty=index_json_pretty,
-        index_json_include_lookup=index_json_include_lookup,
-        index_json_include_symbol_index_lines=index_json_include_symbol_index_lines,
-        analysis_metadata=analysis_metadata,
-        index_json_include_graph=index_json_include_graph,
-        index_json_include_test_links=index_json_include_test_links,
-        index_json_include_guide=index_json_include_guide,
-        index_json_include_file_imports=index_json_include_file_imports,
-        index_json_include_classes=index_json_include_classes,
-        index_json_include_exports=index_json_include_exports,
-        index_json_include_module_docstrings=index_json_include_module_docstrings,
-        index_json_include_semantic=index_json_include_semantic,
-        index_json_include_purpose_text=index_json_include_purpose_text,
-        index_json_include_symbol_locators=index_json_include_symbol_locators,
-        index_json_include_symbol_references=index_json_include_symbol_references,
-        index_json_include_file_summaries=index_json_include_file_summaries,
-        index_json_include_relationships=index_json_include_relationships,
-        markdown_include_repository_guide=markdown_include_repository_guide,
-        markdown_include_symbol_index=markdown_include_symbol_index,
-        markdown_include_directory_tree=markdown_include_directory_tree,
-        markdown_include_environment_setup=markdown_include_environment_setup,
-        markdown_include_how_to_use=markdown_include_how_to_use,
-        focus_file=focus_file,
-        focus_symbol=focus_symbol,
-        include_import_neighbors=include_import_neighbors,
-        include_reverse_import_neighbors=include_reverse_import_neighbors,
-        include_same_package=include_same_package,
-        include_entrypoints=include_entrypoints,
-        include_tests=include_tests,
-        respect_gitignore=respect_gitignore,
-        security_check=security_check,
-        security_content_sniff=security_content_sniff,
-        security_redaction=security_redaction,
-        safety_report=safety_report,
-        security_path_patterns=security_path_patterns,
-        security_path_patterns_add=security_path_patterns_add,
-        security_path_patterns_remove=security_path_patterns_remove,
-        security_content_patterns=security_content_patterns,
-        dedupe=dedupe,
-        split_max_chars=split_max_chars,
-        split_strict=split_strict,
-        split_allow_cut_files=split_allow_cut_files,
-        layout=layout,
-        nav_mode=nav_mode,
-        symbol_backend=symbol_backend,
-        encoding_errors=encoding_errors,
-        token_report=token_report,
-        token_count_tree=token_count_tree,
-        token_count_tree_threshold=token_count_tree_threshold,
-        top_files_len=top_files_len,
-        token_count_encoding=token_count_encoding,
-        file_summary=file_summary,
-        max_file_bytes=max_file_bytes,
-        max_total_bytes=max_total_bytes,
-        max_file_tokens=max_file_tokens,
-        max_total_tokens=max_total_tokens,
-        max_workers=max_workers,
+    )
+    sidecar_and_markdown = _resolve_sidecar_and_markdown_options(
+        cfg,
+        args,
+        profile=profile,
+        index_json_mode=index_json_mode,
+    )
+    focus_options = _resolve_focus_options(cfg, args)
+    safety_options = _resolve_safety_options(cfg, args)
+    render_options = _resolve_render_options(cfg, args, profile=profile)
+    budget_options = _resolve_budget_options(cfg, args)
+
+    return PackOptions(
+        profile=profile,
+        emit_standalone_unpacker=emit_standalone_unpacker,
+        locator_space=locator_space,
+        **selection_options,
+        **output_targets,
+        **sidecar_and_markdown,
+        **focus_options,
+        **safety_options,
+        **render_options,
+        **budget_options,
     )

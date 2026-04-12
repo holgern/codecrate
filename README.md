@@ -92,8 +92,15 @@ codecrate pack . -o context.md --profile portable-agent
 python context.unpack.py -o reconstructed/
 ```
 
-This keeps a reconstructable `full` pack, emits a normalized sidecar, and adds
-dual markdown/reconstructed locators by default.
+This keeps a reconstructable `full` pack, emits a minified normalized sidecar,
+and adds dual markdown/reconstructed locators by default while trimming graph
+and symbol-reference payloads unless you opt back in.
+
+To compare sidecar size tradeoffs across profiles and modes:
+
+```bash
+python scripts/benchmark_packs.py --profile portable-agent --index-json-mode normalized
+```
 
 Pack for zero-install reconstruction workflows:
 
@@ -221,7 +228,7 @@ include_preset = "python+docs"
 # File patterns to exclude
 exclude = ["**/test_*.py", "**/tests/**"]
 
-# Output profile: "human" | "agent" | "lean-agent" | "hybrid" | "portable"
+# Output profile: "human" | "agent" | "lean-agent" | "hybrid" | "portable" | "portable-agent"
 profile = "human"
 
 # Retrieval sidecar mode: "full" | "compact" | "minimal" | "normalized"
@@ -229,6 +236,7 @@ profile = "human"
 # - agent defaults to "normalized"
 # - lean-agent defaults to "normalized" with lean analysis defaults
 # - hybrid defaults to "full"
+# - portable-agent defaults to "normalized" with standalone unpack defaults
 index_json_mode = "normalized"
 
 # Explicitly enable or disable index-json independent of profile defaults
@@ -362,7 +370,7 @@ codecrate pack <root> [OPTIONS]
 
 - `-o, --output PATH`: Output markdown path (default: `context.md`)
 - `--dedupe` / `--no-dedupe`: Enable or disable deduplication
-- `--profile {human,agent,lean-agent,hybrid,portable}`: Output defaults profile (`agent` implies compact nav + normalized v3 index-json; `lean-agent` keeps normalized but trims default sidecar and markdown payloads)
+- `--profile {human,agent,lean-agent,hybrid,portable,portable-agent}`: Output defaults profile (`agent` implies compact nav + normalized v3 index-json; `lean-agent` keeps normalized but trims default sidecar and markdown payloads; `portable-agent` keeps reconstructable full layout plus normalized sidecar defaults)
 - `--layout {auto,stubs,full}`: Output layout mode
 - `--nav-mode {auto,compact,full}`: Navigation density mode
 - `--symbol-backend {auto,python,tree-sitter,none}`: Non-Python symbol backend
@@ -409,8 +417,8 @@ codecrate pack <root> [OPTIONS]
 - `--max-total-tokens N`: Fail if included files exceed this token limit
 - `--max-workers N`: Max worker threads for IO/parsing/token counting
 - `--manifest-json [PATH]`: Write manifest JSON for tooling
-- `--index-json [PATH]`: Write retrieval-oriented index JSON for agents and tools (`--index-json` alone defaults to full v1 compatibility mode)
-- `--index-json-mode {full,compact,minimal,normalized}`: Select sidecar mode and enable index-json output (`agent` defaults to `normalized`, `hybrid` defaults to `full`)
+- `--index-json [PATH]`: Write retrieval-oriented index JSON for agents and tools (`--index-json` preserves profile/config sidecar mode defaults unless `--index-json-mode` overrides them)
+- `--index-json-mode {full,compact,minimal,normalized}`: Select sidecar mode and enable index-json output (`agent` and `portable-agent` default to `normalized`, `hybrid` defaults to `full`, plain `human` falls back to `full` when `--index-json` is requested)
 - `--index-json-pretty` / `--no-index-json-pretty`: Pretty-print or minify index-json output
 - `--index-json-lookup` / `--no-index-json-lookup`: Include or trim v2 lookup maps
 - `--index-json-symbol-index-lines` / `--no-index-json-symbol-index-lines`: Include or trim compact v2 symbol index line ranges

@@ -73,6 +73,7 @@ class _PreparedPackFiles:
 def _resolve_pack_roots_and_stdin(
     parser: ArgumentParser, args: Namespace
 ) -> tuple[list[Path], list[Path] | None]:
+    positional_roots = [root.resolve() for root in (args.root or [])]
     has_focus_options = bool(getattr(args, "focus_file", None)) or bool(
         getattr(args, "focus_symbol", None)
     )
@@ -90,23 +91,25 @@ def _resolve_pack_roots_and_stdin(
     )
     has_focus_options = has_focus_options or bool(getattr(args, "include_tests", False))
     if args.repo:
-        if args.root is not None:
-            parser.error("pack: specify either ROOT or --repo (repeatable), not both")
+        if positional_roots:
+            parser.error(
+                "pack: specify either positional ROOTs or --repo (repeatable), not both"
+            )
         if has_focus_options:
             parser.error(
                 "pack: focus options require a single ROOT (do not use --repo)"
             )
         roots = [r.resolve() for r in args.repo]
     else:
-        if args.root is None:
+        if not positional_roots:
             parser.error("pack: ROOT is required when --repo is not used")
-        roots = [args.root.resolve()]
+        if has_focus_options and len(positional_roots) != 1:
+            parser.error("pack: focus options require exactly one positional ROOT")
+        roots = positional_roots
     stdin_files: list[Path] | None = None
     if args.stdin or args.stdin0:
-        if args.repo:
-            parser.error(
-                "pack: --stdin/--stdin0 requires a single ROOT (do not use --repo)"
-            )
+        if args.repo or len(roots) != 1:
+            parser.error("pack: --stdin/--stdin0 requires exactly one positional ROOT")
         if args.stdin0:
             raw_chunks = sys.stdin.buffer.read().split(b"\0")
             raw_paths = [

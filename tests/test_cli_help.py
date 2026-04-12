@@ -50,8 +50,8 @@ def test_pack_help_clarifies_explicit_file_behavior(capsys) -> None:
     assert "lean-agent implies compact nav + lean normalized v3" in captured.out
     assert "index-json" in captured.out
     assert "portable" in captured.out
-    assert "Explicit" in captured.out
-    assert "full mode" in captured.out
+    assert "preserves" in captured.out
+    assert "overrides them" in captured.out
     assert "--index-json-mode" in captured.out
     assert "--index-json-pretty" in captured.out
     assert "--index-json-lookup" in captured.out

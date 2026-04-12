@@ -22,9 +22,9 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(raw_argv)
 
     if args.cmd == "pack":
-        # argparse with nargs="?" can consume ROOT as the option value when users run
+        # argparse can consume ROOT as the option value when users run
         # `pack --token-count-tree ROOT`. Recover ROOT so packing still proceeds.
-        if not args.repo and args.root is None and args.token_count_tree is not None:
+        if not args.repo and not args.root and args.token_count_tree is not None:
             raw_tree = str(args.token_count_tree).strip()
             if raw_tree and raw_tree != "-1":
                 try:
@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> None:
                 except ValueError:
                     candidate = Path(raw_tree)
                     if candidate.exists():
-                        args.root = candidate
+                        args.root = [candidate]
                         args.token_count_tree = "-1"
         from .cli_pack import run_pack_command
 

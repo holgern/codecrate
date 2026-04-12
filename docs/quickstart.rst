@@ -68,12 +68,13 @@ Pack multiple repositories into one output root:
 
 .. code-block:: console
 
+   codecrate pack /path/to/repo1 /path/to/repo2 -o multi
    codecrate pack --repo /path/to/repo1 --repo /path/to/repo2 -o multi
 
 Common options:
 
 * ``--dedupe``: deduplicate identical function bodies (enables stub layout when effective)
-* ``--profile {human,agent,hybrid,portable}``: choose output defaults for human reading, agent tooling, or portable reconstruction
+* ``--profile {human,agent,lean-agent,hybrid,portable,portable-agent}``: choose output defaults for human reading, agent tooling, lean retrieval, or portable reconstruction
 * ``--layout {auto,stubs,full}``: control output layout
 * ``--manifest/--no-manifest``: include or omit the Manifest section (omit only for LLM-only packs)
 * ``--split-max-chars N``: emit ``.index.md`` and ``.partN.md`` split outputs for LLMs
@@ -84,10 +85,10 @@ Common options:
 * ``--max-total-bytes`` / ``--max-total-tokens``: fail fast when total included size exceeds budget
 * ``--security-redaction``: mask flagged files instead of skipping
 * ``--safety-report``: include a Safety Report section with reasons
-* ``--index-json [PATH]``: emit the full v1-compatible retrieval sidecar for tooling and agents
+* ``--index-json [PATH]``: emit the retrieval sidecar for tooling and agents while preserving profile/config sidecar mode defaults
 * ``--index-json-mode full|compact|minimal|normalized``: choose full v1, compact/minimal v2,
-  or normalized v3 sidecars; ``agent`` defaults to ``normalized`` and ``hybrid`` defaults to
-  ``full``
+  or normalized v3 sidecars; ``agent`` and ``portable-agent`` default to ``normalized`` and
+  ``hybrid`` defaults to ``full``
 * ``--index-json-lookup`` / ``--no-index-json-lookup``: include or trim v2 lookup maps
 * ``--index-json-symbol-index-lines`` / ``--no-index-json-symbol-index-lines``:
   include or trim compact v2 symbol index line ranges

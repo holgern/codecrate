@@ -37,7 +37,7 @@ Overview
 .. code-block:: console
 
    codecrate --version
-   codecrate pack [ROOT] [--repo REPO ...] [options]
+   codecrate pack [ROOT ...] [--repo REPO ...] [options]
    codecrate unpack PACK.md -o OUT_DIR [--strict]
    codecrate patch OLD_PACK.md ROOT [-o patch.md]
    codecrate apply PATCH.md ROOT [--check-baseline|--ignore-baseline]
@@ -55,9 +55,11 @@ Create a packed Markdown context file from one or more repositories.
 .. code-block:: console
 
    codecrate pack . -o context
+   codecrate pack /path/to/repo1 /path/to/repo2 -o multi.md
    codecrate pack --repo /path/to/repo1 --repo /path/to/repo2 -o multi.md
 
-When using ``--repo``, omit the positional ``ROOT``. Specifying both is an error.
+Use either positional ``ROOT`` arguments or repeated ``--repo`` arguments for
+multi-repo packs. Mixing the two styles is an error.
 
 Useful flags:
 
@@ -111,10 +113,11 @@ Useful flags:
 * ``--manifest-json [PATH]``: write manifest JSON for tooling (default:
   ``<output>.manifest.json``)
 * ``--index-json [PATH]``: write index JSON for agent/tooling lookup (default:
-  ``<output>.index.json``; explicit ``--index-json`` defaults to full mode)
+  ``<output>.index.json``; explicit ``--index-json`` preserves profile/config
+  mode defaults unless ``--index-json-mode`` overrides them)
 * ``--index-json-mode full|compact|minimal|normalized``: choose sidecar mode and enable
-    index-json output (``agent`` defaults to ``normalized``; ``hybrid`` defaults to
-    ``full``)
+    index-json output (``agent`` and ``portable-agent`` default to ``normalized``;
+    ``hybrid`` defaults to ``full``)
 * ``--index-json-lookup / --no-index-json-lookup``: include or trim lookup maps
     in compact/minimal v2 sidecars
 * ``--index-json-symbol-index-lines / --no-index-json-symbol-index-lines``:

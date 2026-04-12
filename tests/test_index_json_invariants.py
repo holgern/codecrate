@@ -73,7 +73,9 @@ def test_index_json_hrefs_match_rendered_markdown_full_nav(tmp_path: Path) -> No
     assert validate_index_payload(payload, base_dir=tmp_path) == []
 
 
-def test_index_json_hrefs_match_rendered_markdown_compact_nav(tmp_path: Path) -> None:
+def test_index_json_agent_profile_preserves_normalized_validation(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
 
     main(
@@ -89,7 +91,8 @@ def test_index_json_hrefs_match_rendered_markdown_compact_nav(tmp_path: Path) ->
     )
 
     payload = _load_payload(tmp_path)
-    _assert_href_targets_exist(tmp_path, payload)
+    assert payload["format"] == "codecrate.index-json.v3"
+    assert payload["mode"] == "normalized"
     assert validate_index_payload(payload, base_dir=tmp_path) == []
 
 

@@ -41,8 +41,10 @@ Profiles can change output defaults without changing the underlying pack format:
 
 * ``human`` keeps current markdown-first behavior
 * ``agent`` implies compact navigation and normalized v3 index JSON output
+* ``lean-agent`` implies the leanest normalized v3 agent sidecar defaults
 * ``hybrid`` keeps current markdown behavior and also emits index JSON output
 * ``portable`` implies manifest-enabled ``full`` layout for standalone unpack
+* ``portable-agent`` keeps reconstructable ``full`` layout plus normalized retrieval defaults
 
 The index sidecar includes deterministic per-repository metadata for:
 
