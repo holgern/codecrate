@@ -130,7 +130,7 @@ def _detect_python_from_pyproject(root: Path) -> SetupMetadata | None:
                 if group in _PYTHON_DEV_GROUPS and isinstance(values, list):
                     dev.extend(str(item).strip() for item in values if item)
         dev = _dedupe_items(dev)
-        dev_prepare = 'python -m pip install -e ".[dev]"'
+        dev_prepare: str | None = 'python -m pip install -e ".[dev]"'
         if not isinstance(optional, dict) or "dev" not in optional:
             dev_prepare = None
         return SetupMetadata(
@@ -166,19 +166,19 @@ def _detect_python_from_pyproject(root: Path) -> SetupMetadata | None:
             dev_dependencies=[],
         )
 
-    runtime: list[str] = []
+    poetry_runtime: list[str] = []
     deps = poetry.get("dependencies")
     if isinstance(deps, dict):
         for name, value in deps.items():
             if name == "python":
                 continue
-            runtime.append(_format_dep_value(str(name), value))
+            poetry_runtime.append(_format_dep_value(str(name), value))
 
-    dev: list[str] = []
+    poetry_dev: list[str] = []
     legacy_dev = poetry.get("dev-dependencies")
     if isinstance(legacy_dev, dict):
         for name, value in legacy_dev.items():
-            dev.append(_format_dep_value(str(name), value))
+            poetry_dev.append(_format_dep_value(str(name), value))
 
     groups = poetry.get("group")
     if isinstance(groups, dict):
@@ -191,15 +191,17 @@ def _detect_python_from_pyproject(root: Path) -> SetupMetadata | None:
             if not isinstance(group_deps, dict):
                 continue
             for name, value in group_deps.items():
-                dev.append(_format_dep_value(str(name), value))
+                poetry_dev.append(_format_dep_value(str(name), value))
 
     return SetupMetadata(
         ecosystem="Python",
         source_file="pyproject.toml",
         prepare_command="python -m pip install -e .",
-        runtime_dependencies=_dedupe_items(runtime),
-        dev_dependencies=_dedupe_items(dev),
-        dev_prepare_command='python -m pip install -e ".[dev]"' if dev else None,
+        runtime_dependencies=_dedupe_items(poetry_runtime),
+        dev_dependencies=_dedupe_items(poetry_dev),
+        dev_prepare_command='python -m pip install -e ".[dev]"'
+        if poetry_dev
+        else None,
     )
 
 

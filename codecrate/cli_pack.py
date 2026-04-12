@@ -14,7 +14,7 @@ from .formats import MANIFEST_JSON_FORMAT_VERSION
 from .index_json import build_index_payload, write_index_json
 from .manifest import manifest_sha256, to_manifest
 from .markdown import render_markdown_result
-from .options import resolve_pack_options
+from .options import PackOptions, resolve_pack_options
 from .output_model import PackRun
 from .packer import pack_repo
 from .security import SafetyFinding, apply_safety_filters, build_ruleset
@@ -113,7 +113,7 @@ def _discover_and_filter_files(
     *,
     label: str,
     root: Path,
-    options: object,
+    options: PackOptions,
     stdin_files: list[Path] | None,
 ) -> _DiscoveryState:
     disc = discover_files(
@@ -159,7 +159,7 @@ def _discover_and_filter_files(
     )
 
 
-def _build_token_counter(options: object) -> tuple[str, Callable[[str], int]]:
+def _build_token_counter(options: PackOptions) -> tuple[str, Callable[[str], int]]:
     needs_token_counts = bool(
         options.token_report
         or options.max_file_tokens > 0
@@ -190,7 +190,7 @@ def _measure_and_apply_budgets(
     parser: ArgumentParser,
     *,
     label: str,
-    options: object,
+    options: PackOptions,
     discovery_state: _DiscoveryState,
 ) -> _PreparedPackFiles:
     token_backend, count_tokens = _build_token_counter(options)

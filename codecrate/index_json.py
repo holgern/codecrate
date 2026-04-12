@@ -997,7 +997,7 @@ def _compact_lookup_indexes(
         if index_json_mode == "compact":
             file_by_symbol[local_id] = path
 
-    lookup = {
+    lookup: dict[str, Any] = {
         "file_by_path": file_by_path,
         "symbol_by_local_id": symbol_by_local_id,
     }
