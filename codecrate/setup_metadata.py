@@ -199,9 +199,7 @@ def _detect_python_from_pyproject(root: Path) -> SetupMetadata | None:
         prepare_command="python -m pip install -e .",
         runtime_dependencies=_dedupe_items(poetry_runtime),
         dev_dependencies=_dedupe_items(poetry_dev),
-        dev_prepare_command='python -m pip install -e ".[dev]"'
-        if poetry_dev
-        else None,
+        dev_prepare_command='python -m pip install -e ".[dev]"' if poetry_dev else None,
     )
 
 

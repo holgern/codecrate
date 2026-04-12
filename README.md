@@ -64,8 +64,8 @@ python -m pip install build
 ./scripts/release-check.sh
 ```
 
-This runs the lint, format, test, and build gate in one command. CI also smoke
-installs the built wheel from `dist/`.
+This runs the lint, format, test, build, and non-VCS-tree portability gate in one
+command. CI also smoke installs the built wheel from `dist/`.
 
 ## Quick Start
 
