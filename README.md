@@ -89,9 +89,9 @@ Pack with rich markdown plus an agent sidecar:
 
 ```bash
 codecrate pack . -o context.md --profile hybrid
+```
 
 See `docs/index_json.rst` for the sidecar contract and lookup model.
-```
 
 This keeps the full v1-compatible sidecar.
 

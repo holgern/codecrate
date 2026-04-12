@@ -52,6 +52,19 @@ def test_doctor_reports_ignore_token_and_tree_sitter_status(
     assert "- tree-sitter:" in captured.out
 
 
+def test_doctor_reports_invalid_numeric_config_warnings(tmp_path: Path, capsys) -> None:
+    (tmp_path / "codecrate.toml").write_text(
+        '[codecrate]\nmax_total_tokens = "bad"\n',
+        encoding="utf-8",
+    )
+
+    main(["doctor", str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert "Config warnings:" in captured.out
+    assert "max_total_tokens" in captured.out
+
+
 def test_doctor_rejects_non_directory_root(tmp_path: Path) -> None:
     not_dir = tmp_path / "file.txt"
     not_dir.write_text("x\n", encoding="utf-8")

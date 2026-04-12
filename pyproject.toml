@@ -38,6 +38,7 @@ codecrate = "codecrate.cli:main"
 
 [tool.setuptools_scm]
 write_to = "codecrate/_version.py"
+fallback_version = "0+unknown"
 
 [project.optional-dependencies]
 dev = [

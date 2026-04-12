@@ -73,7 +73,7 @@ Pack multiple repositories into one output root:
 Common options:
 
 * ``--dedupe``: deduplicate identical function bodies (enables stub layout when effective)
-   * ``--profile {human,agent,hybrid,portable}``: choose output defaults for human reading, agent tooling, or portable reconstruction
+* ``--profile {human,agent,hybrid,portable}``: choose output defaults for human reading, agent tooling, or portable reconstruction
 * ``--layout {auto,stubs,full}``: control output layout
 * ``--manifest/--no-manifest``: include or omit the Manifest section (omit only for LLM-only packs)
 * ``--split-max-chars N``: emit ``.index.md`` and ``.partN.md`` split outputs for LLMs

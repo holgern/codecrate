@@ -125,6 +125,14 @@ class Config:
     encoding_errors: Literal["replace", "strict"] = "replace"
 
 
+@dataclass(frozen=True)
+class ConfigWarning:
+    key: str
+    raw_value: Any
+    fallback: int
+    message: str
+
+
 def _find_config_path(root: Path) -> Path | None:
     root = root.resolve()
     for name in CONFIG_FILENAMES:
@@ -158,14 +166,37 @@ def _extract_section(data: Any, *, from_pyproject: bool) -> dict[str, Any]:
     return section
 
 
-def load_config(root: Path) -> Config:  # noqa: C901
+def _load_int_value(
+    section: dict[str, Any],
+    key: str,
+    fallback: int,
+    *,
+    warnings: list[ConfigWarning],
+) -> int:
+    raw_value = section.get(key, fallback)
+    try:
+        return int(raw_value)
+    except (ValueError, TypeError):
+        warnings.append(
+            ConfigWarning(
+                key=key,
+                raw_value=raw_value,
+                fallback=fallback,
+                message="Invalid integer value; using default.",
+            )
+        )
+        return fallback
+
+
+def load_config_with_warnings(root: Path) -> tuple[Config, list[ConfigWarning]]:  # noqa: C901
     cfg_path = _find_config_path(root)
     if cfg_path is None:
-        return Config()
+        return Config(), []
 
     data = tomllib.loads(cfg_path.read_text(encoding="utf-8"))
     section = _extract_section(data, from_pyproject=cfg_path.name == PYPROJECT_FILENAME)
     cfg = Config()
+    warnings: list[ConfigWarning] = []
     out = section.get("output", cfg.output)
     if isinstance(out, str) and out.strip():
         raw_output = out.strip()
@@ -207,11 +238,12 @@ def load_config(root: Path) -> Config:  # noqa: C901
     if isinstance(exc, list):
         cfg.exclude = [str(x) for x in exc]
 
-    split = section.get("split_max_chars", cfg.split_max_chars)
-    try:
-        cfg.split_max_chars = int(split)
-    except Exception:
-        pass
+    cfg.split_max_chars = _load_int_value(
+        section,
+        "split_max_chars",
+        cfg.split_max_chars,
+        warnings=warnings,
+    )
 
     cfg.split_strict = bool(section.get("split_strict", cfg.split_strict))
     cfg.split_allow_cut_files = bool(
@@ -225,47 +257,48 @@ def load_config(root: Path) -> Config:  # noqa: C901
     tree = section.get("token_count_tree", cfg.token_count_tree)
     cfg.token_count_tree = bool(tree)
 
-    thr = section.get("token_count_tree_threshold", cfg.token_count_tree_threshold)
-    try:
-        cfg.token_count_tree_threshold = int(thr)
-    except Exception:
-        pass
-
-    top = section.get("top_files_len", cfg.top_files_len)
-    try:
-        cfg.top_files_len = int(top)
-    except Exception:
-        pass
-
-    max_file_bytes = section.get("max_file_bytes", cfg.max_file_bytes)
-    try:
-        cfg.max_file_bytes = int(max_file_bytes)
-    except Exception:
-        pass
-
-    max_total_bytes = section.get("max_total_bytes", cfg.max_total_bytes)
-    try:
-        cfg.max_total_bytes = int(max_total_bytes)
-    except Exception:
-        pass
-
-    max_file_tokens = section.get("max_file_tokens", cfg.max_file_tokens)
-    try:
-        cfg.max_file_tokens = int(max_file_tokens)
-    except Exception:
-        pass
-
-    max_total_tokens = section.get("max_total_tokens", cfg.max_total_tokens)
-    try:
-        cfg.max_total_tokens = int(max_total_tokens)
-    except Exception:
-        pass
-
-    max_workers = section.get("max_workers", cfg.max_workers)
-    try:
-        cfg.max_workers = int(max_workers)
-    except Exception:
-        pass
+    cfg.token_count_tree_threshold = _load_int_value(
+        section,
+        "token_count_tree_threshold",
+        cfg.token_count_tree_threshold,
+        warnings=warnings,
+    )
+    cfg.top_files_len = _load_int_value(
+        section,
+        "top_files_len",
+        cfg.top_files_len,
+        warnings=warnings,
+    )
+    cfg.max_file_bytes = _load_int_value(
+        section,
+        "max_file_bytes",
+        cfg.max_file_bytes,
+        warnings=warnings,
+    )
+    cfg.max_total_bytes = _load_int_value(
+        section,
+        "max_total_bytes",
+        cfg.max_total_bytes,
+        warnings=warnings,
+    )
+    cfg.max_file_tokens = _load_int_value(
+        section,
+        "max_file_tokens",
+        cfg.max_file_tokens,
+        warnings=warnings,
+    )
+    cfg.max_total_tokens = _load_int_value(
+        section,
+        "max_total_tokens",
+        cfg.max_total_tokens,
+        warnings=warnings,
+    )
+    cfg.max_workers = _load_int_value(
+        section,
+        "max_workers",
+        cfg.max_workers,
+        warnings=warnings,
+    )
 
     summary = section.get("file_summary", cfg.file_summary)
     cfg.file_summary = bool(summary)
@@ -340,4 +373,9 @@ def load_config(root: Path) -> Config:  # noqa: C901
         if encoding_errors in {"replace", "strict"}:
             cfg.encoding_errors = encoding_errors  # type: ignore[assignment]
 
+    return cfg, warnings
+
+
+def load_config(root: Path) -> Config:
+    cfg, _warnings = load_config_with_warnings(root)
     return cfg

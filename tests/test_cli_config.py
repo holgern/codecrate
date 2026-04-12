@@ -72,6 +72,29 @@ security_path_patterns_remove = ["*secrets*"]
     assert "*secrets*" not in patterns
 
 
+def test_config_show_effective_reports_invalid_numeric_config_warnings(
+    tmp_path: Path, capsys
+) -> None:
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+split_max_chars = "bad"
+max_file_tokens = "still bad"
+""",
+        encoding="utf-8",
+    )
+
+    main(["config", "show", str(tmp_path), "--effective", "--json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["values"]["split_max_chars"] == 0
+    assert payload["values"]["max_file_tokens"] == 0
+    assert [warning["key"] for warning in payload["config_warnings"]] == [
+        "split_max_chars",
+        "max_file_tokens",
+    ]
+
+
 def test_config_show_rejects_non_directory_root(tmp_path: Path) -> None:
     not_dir = tmp_path / "file.txt"
     not_dir.write_text("x\n", encoding="utf-8")

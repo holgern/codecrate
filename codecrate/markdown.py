@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Literal
 
 from .fences import choose_backtick_fence, is_fence_close, parse_fence_open
@@ -443,7 +444,8 @@ def _render_environment_setup_section(root: Path) -> str:
         lines.append(f"- Optional dev command: `{setup.dev_prepare_command}`\n")
     if setup.runtime_dependencies:
         lines.append(
-            f"- Runtime dependencies: {_render_dependency_list(setup.runtime_dependencies)}\n"
+            "- Runtime dependencies: "
+            f"{_render_dependency_list(setup.runtime_dependencies)}\n"
         )
     if setup.dev_dependencies:
         lines.append(

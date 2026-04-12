@@ -24,7 +24,8 @@ from .config import (
     INCLUDE_PRESETS,
     PYPROJECT_FILENAME,
     Config,
-    load_config,
+    ConfigWarning,
+    load_config_with_warnings,
 )
 from .discover import DEFAULT_EXCLUDES
 from .fences import is_fence_close, parse_fence_open
@@ -69,9 +70,20 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"codecrate {_codecrate_version()}",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
+    _add_pack_parser(sub)
+    _add_unpack_parser(sub)
+    _add_patch_parser(sub)
+    _add_apply_parser(sub)
+    _add_validate_parser(sub)
+    _add_doctor_parser(sub)
+    _add_config_parser(sub)
+    return p
 
-    # pack
-    pack = sub.add_parser(
+
+def _add_pack_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    pack = subparsers.add_parser(
         "pack", help="Pack one or more repositories/directories into Markdown."
     )
     pack.add_argument(
@@ -281,7 +293,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Explicitly allow cutting oversized file blocks into multiple parts.",
     )
-
     pack.add_argument(
         "--token-count-tree",
         nargs="?",
@@ -409,8 +420,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    # unpack
-    unpack = sub.add_parser(
+
+def _add_unpack_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    unpack = subparsers.add_parser(
         "unpack", help="Reconstruct files from a packed context Markdown."
     )
     unpack.add_argument(
@@ -437,8 +451,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="UTF-8 decode policy when reading packed markdown",
     )
 
-    # patch
-    patch = sub.add_parser(
+
+def _add_patch_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    patch = subparsers.add_parser(
         "patch",
         help="Generate a diff-only patch Markdown from old pack + current repo.",
     )
@@ -466,8 +483,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="UTF-8 decode policy for baseline/current files",
     )
 
-    # apply
-    apply = sub.add_parser("apply", help="Apply a diff-only patch Markdown to a repo.")
+
+def _add_apply_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    apply = subparsers.add_parser(
+        "apply", help="Apply a diff-only patch Markdown to a repo."
+    )
     apply.add_argument(
         "patch_markdown", type=Path, help="Patch Markdown containing ```diff blocks"
     )
@@ -500,8 +522,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="UTF-8 decode policy for patch and repository files",
     )
-    # validate-pack
-    vpack = sub.add_parser(
+
+
+def _add_validate_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    vpack = subparsers.add_parser(
         "validate-pack",
         help="Validate a packed context Markdown (sha/markers/canonical consistency).",
     )
@@ -553,8 +579,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="UTF-8 decode policy when reading pack and root files",
     )
 
-    # doctor
-    doctor = sub.add_parser(
+
+def _add_doctor_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    doctor = subparsers.add_parser(
         "doctor", help="Run repository diagnostics and capability checks."
     )
     doctor.add_argument(
@@ -565,8 +594,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Repository root to inspect (default: .)",
     )
 
-    # config
-    config = sub.add_parser("config", help="Inspect resolved configuration values.")
+
+def _add_config_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    config = subparsers.add_parser(
+        "config", help="Inspect resolved configuration values."
+    )
     config_sub = config.add_subparsers(dest="config_cmd", required=True)
     config_show = config_sub.add_parser(
         "show", help="Show effective configuration for a repository root."
@@ -588,8 +622,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit machine-readable JSON config output.",
     )
-
-    return p
 
 
 @dataclass(frozen=True)
@@ -1415,15 +1447,38 @@ def _config_values(cfg: Config, *, effective: bool) -> dict[str, object]:
     return values
 
 
+def _config_warning_payloads(
+    config_warnings: Sequence[ConfigWarning],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "key": warning.key,
+            "raw_value": warning.raw_value,
+            "fallback": warning.fallback,
+            "message": warning.message,
+        }
+        for warning in config_warnings
+    ]
+
+
+def _format_config_warning(warning: ConfigWarning) -> str:
+    raw_value = json.dumps(warning.raw_value, ensure_ascii=True)
+    fallback = json.dumps(warning.fallback, ensure_ascii=True)
+    return (
+        f"{warning.key}: {warning.message} raw_value={raw_value}; fallback={fallback}"
+    )
+
+
 def _run_config_show(root: Path, *, effective: bool, as_json: bool) -> None:
     root = root.resolve()
     selected = _doctor_find_selected_config(root)
+    cfg, config_warnings = load_config_with_warnings(root)
     mode = "effective"
     if not effective:
         # The command currently supports only effective configuration rendering.
         mode = "effective"
 
-    values = _config_values(load_config(root), effective=True)
+    values = _config_values(cfg, effective=True)
     selected_text = (
         "none (defaults only)"
         if selected is None
@@ -1441,6 +1496,7 @@ def _run_config_show(root: Path, *, effective: bool, as_json: bool) -> None:
             "mode": mode,
             "precedence": precedence,
             "selected": selected_text,
+            "config_warnings": _config_warning_payloads(config_warnings),
             "values": values,
         }
         print(json.dumps(payload, indent=2, sort_keys=False))
@@ -1454,6 +1510,13 @@ def _run_config_show(root: Path, *, effective: bool, as_json: bool) -> None:
     )
     print(f"Selected: {selected_text}")
     print()
+    print("Config warnings:")
+    if config_warnings:
+        for warning in config_warnings:
+            print(f"- {_format_config_warning(warning)}")
+    else:
+        print("- none")
+    print()
     print("Effective values:")
     for key, value in values.items():
         print(f"{key} = {json.dumps(value, ensure_ascii=True)}")
@@ -1462,6 +1525,7 @@ def _run_config_show(root: Path, *, effective: bool, as_json: bool) -> None:
 def _run_doctor(root: Path) -> None:
     root = root.resolve()
     selected = _doctor_find_selected_config(root)
+    _cfg, config_warnings = load_config_with_warnings(root)
 
     print("Codecrate Doctor")
     print(f"Root: {root.as_posix()}")
@@ -1481,6 +1545,14 @@ def _run_doctor(root: Path) -> None:
         print("- selected: none (defaults only)")
     else:
         print(f"- selected: {selected.relative_to(root).as_posix()}")
+
+    print()
+    print("Config warnings:")
+    if config_warnings:
+        for warning in config_warnings:
+            print(f"- {_format_config_warning(warning)}")
+    else:
+        print("- none")
 
     print()
     print("Ignore files:")

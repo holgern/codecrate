@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import textwrap
 
 from .formats import FENCE_MACHINE_HEADER, FENCE_MANIFEST, MISSING_MANIFEST_ERROR
@@ -23,7 +24,7 @@ from typing import Any
 PACK_FORMAT_VERSION = "__PACK_FORMAT_VERSION__"
 FENCE_MACHINE_HEADER = "__FENCE_MACHINE_HEADER__"
 FENCE_MANIFEST = "__FENCE_MANIFEST__"
-MISSING_MANIFEST_ERROR = "__MISSING_MANIFEST_ERROR__"
+__MISSING_MANIFEST_ERROR_ASSIGNMENT__
 DEFAULT_PACK_FILENAME = "__DEFAULT_PACK_FILENAME__"
 
 _FENCE_OPEN_RE = re.compile(
@@ -589,6 +590,34 @@ if __name__ == "__main__":
 """
 
 
+def _wrap_string_chunks(value: str, *, width: int = 72) -> list[str]:
+    words = value.split(" ")
+    chunks: list[str] = []
+    current = ""
+    for index, word in enumerate(words):
+        suffix = "" if index == len(words) - 1 else " "
+        piece = word + suffix
+        if not current:
+            current = piece
+            continue
+        if len(current) + len(piece) <= width:
+            current += piece
+            continue
+        chunks.append(current)
+        current = piece
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _render_wrapped_string_assignment(name: str, value: str) -> str:
+    chunks = _wrap_string_chunks(value)
+    if len(chunks) == 1:
+        return f"{name} = {json.dumps(value)}"
+    rendered_chunks = "".join(f"    {json.dumps(chunk)}\n" for chunk in chunks)
+    return f"{name} = (\n{rendered_chunks})"
+
+
 def render_standalone_unpacker(
     *, pack_format_version: str, default_pack_filename: str
 ) -> str:
@@ -596,7 +625,12 @@ def render_standalone_unpacker(
         _SCRIPT_TEMPLATE.replace("__PACK_FORMAT_VERSION__", pack_format_version)
         .replace("__FENCE_MACHINE_HEADER__", FENCE_MACHINE_HEADER)
         .replace("__FENCE_MANIFEST__", FENCE_MANIFEST)
-        .replace("__MISSING_MANIFEST_ERROR__", MISSING_MANIFEST_ERROR)
+        .replace(
+            "__MISSING_MANIFEST_ERROR_ASSIGNMENT__",
+            _render_wrapped_string_assignment(
+                "MISSING_MANIFEST_ERROR", MISSING_MANIFEST_ERROR
+            ),
+        )
         .replace("__DEFAULT_PACK_FILENAME__", default_pack_filename)
     )
     return textwrap.dedent(rendered).lstrip()

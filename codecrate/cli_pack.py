@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import sys
 from argparse import ArgumentParser, Namespace
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import cli as cli_impl
 from .config import load_config
-from .discover import discover_files
+from .discover import Discovery, discover_files
 from .formats import MANIFEST_JSON_FORMAT_VERSION
 from .index_json import build_index_payload, write_index_json
 from .manifest import manifest_sha256, to_manifest
@@ -39,7 +41,39 @@ def _resolve_output_index_json_mode(pack_runs: list[PackRun]) -> str:
     return max(modes, key=lambda item: priority.get(item, -1))
 
 
-def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: C901
+@dataclass(frozen=True)
+class _DiscoveryState:
+    discovery: Discovery
+    safe_files: list[Path]
+    skipped: list[SafetyFinding]
+    safety_findings: list[SafetyFinding]
+    redacted_files: dict[Path, str]
+
+
+@dataclass(frozen=True)
+class _PreparedPackFiles:
+    kept_measured: list[cli_impl._MeasuredFile]
+    skipped: list[SafetyFinding]
+    safety_findings: list[SafetyFinding]
+    skipped_for_budget: list[tuple[str, str]]
+    raw_token_counts: dict[str, int]
+    file_texts: dict[Path, str]
+    file_bytes: dict[str, int]
+    token_backend: str
+    count_tokens: Callable[[str], int]
+
+
+@dataclass(frozen=True)
+class _WrittenPackOutputs:
+    wrote_split_outputs: bool
+    wrote_unsplit_markdown: bool
+    split_files_written: list[Path]
+    repo_output_parts: dict[str, list[Part]]
+
+
+def _resolve_pack_roots_and_stdin(
+    parser: ArgumentParser, args: Namespace
+) -> tuple[list[Path], list[Path] | None]:
     if args.repo:
         if args.root is not None:
             parser.error("pack: specify either ROOT or --repo (repeatable), not both")
@@ -71,458 +105,576 @@ def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: 
                     "pack: --stdin was set but no file paths were provided on stdin"
                 )
         stdin_files = [Path(raw) for raw in raw_paths]
+    return roots, stdin_files
 
-    used_labels: set[str] = set()
-    used_slugs: set[str] = set()
-    pack_runs = []
 
-    for root in roots:
-        cfg = load_config(root)
+def _discover_and_filter_files(
+    parser: ArgumentParser,
+    *,
+    label: str,
+    root: Path,
+    options: object,
+    stdin_files: list[Path] | None,
+) -> _DiscoveryState:
+    disc = discover_files(
+        root=root,
+        include=options.include,
+        exclude=options.exclude,
+        respect_gitignore=options.respect_gitignore,
+        explicit_files=stdin_files,
+    )
+    safe_files = disc.files
+    skipped: list[SafetyFinding] = []
+    safety_findings: list[SafetyFinding] = []
+    redacted_files: dict[Path, str] = {}
+    if options.security_check:
         try:
-            options = resolve_pack_options(cfg, args)
-        except ValueError as e:
-            parser.error(f"pack: {e}")
-        label = cli_impl._unique_label(root, used_labels)
-        slug = cli_impl._unique_slug(label, used_slugs)
-
-        if args.print_rules:
-            cli_impl._print_effective_rules(label=label, root=root, options=options)
-
-        disc = discover_files(
-            root=root,
-            include=options.include,
-            exclude=options.exclude,
-            respect_gitignore=options.respect_gitignore,
-            explicit_files=stdin_files,
-        )
-        safe_files = disc.files
-        safety_findings = []
-        skipped = []
-        redacted_files: dict[Path, str] = {}
-        if options.security_check:
-            try:
-                ruleset = build_ruleset(
-                    path_patterns=options.security_path_patterns,
-                    path_patterns_add=options.security_path_patterns_add,
-                    path_patterns_remove=options.security_path_patterns_remove,
-                    content_patterns=options.security_content_patterns,
-                )
-            except ValueError as e:
-                parser.error(f"pack: invalid security rule pattern: {e}")
-
-            safety_result = apply_safety_filters(
-                disc.root,
-                disc.files,
-                ruleset=ruleset,
-                content_sniff=options.security_content_sniff,
-                redaction=options.security_redaction,
-            )
-            safe_files = safety_result.safe_files
-            skipped = safety_result.skipped
-            redacted_files = safety_result.redacted_files
-            safety_findings = safety_result.findings
-
-        needs_token_counts = bool(
-            options.token_report
-            or options.max_file_tokens > 0
-            or options.max_total_tokens > 0
-        )
-        token_backend = ""
-        count_tokens = approx_token_count
-        if needs_token_counts:
-            try:
-                counter = TokenCounter(options.token_count_encoding)
-                token_backend = getattr(counter, "backend", "")
-                counter.count("")
-                count_tokens = counter.count
-            except Exception as e:
-                token_backend = "approx"
-                count_tokens = approx_token_count
-                print(
-                    f"Warning: token counting disabled ({e}); "
-                    "falling back to approximate counts.",
-                    file=sys.stderr,
-                )
-
-        try:
-            measured_files = cli_impl._measure_files(
-                files=safe_files,
-                root=disc.root,
-                max_workers=options.max_workers,
-                override_texts=redacted_files,
-                encoding_errors=options.encoding_errors,
+            ruleset = build_ruleset(
+                path_patterns=options.security_path_patterns,
+                path_patterns_add=options.security_path_patterns_add,
+                path_patterns_remove=options.security_path_patterns_remove,
+                content_patterns=options.security_content_patterns,
             )
         except ValueError as e:
-            parser.error(f"pack: {e}")
-        binary_measured = [m for m in measured_files if m.is_binary]
-        if binary_measured:
-            binary_skipped = [
-                SafetyFinding(path=m.path, reason="binary", action="skipped")
-                for m in binary_measured
-            ]
-            skipped.extend(binary_skipped)
-            safety_findings.extend(binary_skipped)
-            cli_impl._emit_binary_skip_warning(
-                label=label,
-                skipped=[m.rel for m in binary_measured],
-            )
-        measured_files = [m for m in measured_files if not m.is_binary]
+            parser.error(f"pack: invalid security rule pattern: {e}")
 
-        cli_impl._emit_safety_warning(
-            label=label,
-            root=disc.root,
-            findings=safety_findings,
-        )
-
-        raw_token_counts: dict[str, int] = {}
-        if options.max_file_tokens > 0 or options.max_total_tokens > 0:
-            raw_token_counts = cli_impl._count_tokens_parallel(
-                files=measured_files,
-                count_fn=count_tokens,
-                max_workers=options.max_workers,
-            )
-
-        kept_measured = []
-        skipped_for_budget: list[tuple[str, str]] = []
-        for measured in measured_files:
-            if (
-                options.max_file_bytes > 0
-                and measured.size_bytes > options.max_file_bytes
-            ):
-                skipped_for_budget.append(
-                    (measured.rel, f"bytes>{options.max_file_bytes}")
-                )
-                continue
-            if options.max_file_tokens > 0:
-                t = raw_token_counts.get(measured.rel, 0)
-                if t > options.max_file_tokens:
-                    skipped_for_budget.append(
-                        (measured.rel, f"tokens>{options.max_file_tokens}")
-                    )
-                    continue
-            kept_measured.append(measured)
-
-        cli_impl._emit_budget_skip_warning(label=label, skipped=skipped_for_budget)
-
-        total_bytes = sum(m.size_bytes for m in kept_measured)
-        if options.max_total_bytes > 0 and total_bytes > options.max_total_bytes:
-            raise SystemExit(
-                f"pack: total bytes {total_bytes} exceed max_total_bytes "
-                f"{options.max_total_bytes} for {label}"
-            )
-
-        if options.max_total_tokens > 0:
-            total_tokens_raw = sum(
-                raw_token_counts.get(m.rel, 0) for m in kept_measured
-            )
-            if total_tokens_raw > options.max_total_tokens:
-                raise SystemExit(
-                    f"pack: total tokens {total_tokens_raw} exceed "
-                    f"max_total_tokens {options.max_total_tokens} for {label}"
-                )
-
-        files_for_pack = [m.path for m in kept_measured]
-        file_texts = {m.path: m.text for m in kept_measured}
-        file_bytes = {m.rel: m.size_bytes for m in kept_measured}
-
-        if args.print_files:
-            cli_impl._print_selected_files(
-                label=label, root=disc.root, selected=files_for_pack
-            )
-
-        if args.print_skipped:
-            skipped_details = [(item.path, item.reason) for item in disc.skipped]
-            skipped_details.extend(
-                (f.path.relative_to(disc.root).as_posix(), f.reason)
-                for f in skipped
-                if f.action == "skipped"
-            )
-            skipped_details.extend(skipped_for_budget)
-            skipped_details = sorted(set(skipped_details))
-            cli_impl._print_skipped_files(label=label, skipped=skipped_details)
-
-        pack, canonical = pack_repo(
+        safety_result = apply_safety_filters(
             disc.root,
-            files_for_pack,
-            keep_docstrings=options.keep_docstrings,
-            dedupe=options.dedupe,
-            symbol_backend=options.symbol_backend,
-            file_texts=file_texts,
+            disc.files,
+            ruleset=ruleset,
+            content_sniff=options.security_content_sniff,
+            redaction=options.security_redaction,
+        )
+        safe_files = safety_result.safe_files
+        skipped = safety_result.skipped
+        redacted_files = safety_result.redacted_files
+        safety_findings = safety_result.findings
+
+    return _DiscoveryState(
+        discovery=disc,
+        safe_files=safe_files,
+        skipped=skipped,
+        safety_findings=safety_findings,
+        redacted_files=redacted_files,
+    )
+
+
+def _build_token_counter(options: object) -> tuple[str, Callable[[str], int]]:
+    needs_token_counts = bool(
+        options.token_report
+        or options.max_file_tokens > 0
+        or options.max_total_tokens > 0
+    )
+    token_backend = ""
+    count_tokens = approx_token_count
+    if not needs_token_counts:
+        return token_backend, count_tokens
+
+    try:
+        counter = TokenCounter(options.token_count_encoding)
+        token_backend = getattr(counter, "backend", "")
+        counter.count("")
+        count_tokens = counter.count
+    except Exception as e:
+        token_backend = "approx"
+        count_tokens = approx_token_count
+        print(
+            f"Warning: token counting disabled ({e}); "
+            "falling back to approximate counts.",
+            file=sys.stderr,
+        )
+    return token_backend, count_tokens
+
+
+def _measure_and_apply_budgets(
+    parser: ArgumentParser,
+    *,
+    label: str,
+    options: object,
+    discovery_state: _DiscoveryState,
+) -> _PreparedPackFiles:
+    token_backend, count_tokens = _build_token_counter(options)
+    try:
+        measured_files = cli_impl._measure_files(
+            files=discovery_state.safe_files,
+            root=discovery_state.discovery.root,
             max_workers=options.max_workers,
+            override_texts=discovery_state.redacted_files,
             encoding_errors=options.encoding_errors,
         )
-        use_stubs = options.layout == "stubs" or (
-            options.layout == "auto" and cli_impl._pack_has_effective_dedupe(pack)
+    except ValueError as e:
+        parser.error(f"pack: {e}")
+
+    skipped = list(discovery_state.skipped)
+    safety_findings = list(discovery_state.safety_findings)
+    binary_measured = [m for m in measured_files if m.is_binary]
+    if binary_measured:
+        binary_skipped = [
+            SafetyFinding(path=m.path, reason="binary", action="skipped")
+            for m in binary_measured
+        ]
+        skipped.extend(binary_skipped)
+        safety_findings.extend(binary_skipped)
+        cli_impl._emit_binary_skip_warning(
+            label=label,
+            skipped=[m.rel for m in binary_measured],
         )
-        effective_layout = "stubs" if use_stubs else "full"
-        manifest_obj = to_manifest(pack, minimal=not use_stubs)
-        manifest_checksum = manifest_sha256(manifest_obj)
-        binary_count = sum(1 for f in skipped if f.reason == "binary")
-        skipped_for_safety_count = sum(
-            1 for f in skipped if not (f.reason == "binary" and f.action == "skipped")
+    measured_files = [m for m in measured_files if not m.is_binary]
+
+    cli_impl._emit_safety_warning(
+        label=label,
+        root=discovery_state.discovery.root,
+        findings=safety_findings,
+    )
+
+    raw_token_counts: dict[str, int] = {}
+    if options.max_file_tokens > 0 or options.max_total_tokens > 0:
+        raw_token_counts = cli_impl._count_tokens_parallel(
+            files=measured_files,
+            count_fn=count_tokens,
+            max_workers=options.max_workers,
         )
-        redacted_count = sum(1 for f in safety_findings if f.action == "redacted")
-        safety_entries = [
-            {
-                "path": f.path.relative_to(disc.root).as_posix(),
-                "reason": f.reason,
-                "action": f.action,
-            }
-            for f in sorted(
-                safety_findings,
-                key=lambda item: (
-                    item.path.relative_to(disc.root).as_posix(),
-                    item.action,
-                    item.reason,
+
+    kept_measured = []
+    skipped_for_budget: list[tuple[str, str]] = []
+    for measured in measured_files:
+        if options.max_file_bytes > 0 and measured.size_bytes > options.max_file_bytes:
+            skipped_for_budget.append((measured.rel, f"bytes>{options.max_file_bytes}"))
+            continue
+        if options.max_file_tokens > 0:
+            token_count = raw_token_counts.get(measured.rel, 0)
+            if token_count > options.max_file_tokens:
+                skipped_for_budget.append(
+                    (measured.rel, f"tokens>{options.max_file_tokens}")
+                )
+                continue
+        kept_measured.append(measured)
+
+    cli_impl._emit_budget_skip_warning(label=label, skipped=skipped_for_budget)
+
+    total_bytes = sum(m.size_bytes for m in kept_measured)
+    if options.max_total_bytes > 0 and total_bytes > options.max_total_bytes:
+        raise SystemExit(
+            f"pack: total bytes {total_bytes} exceed max_total_bytes "
+            f"{options.max_total_bytes} for {label}"
+        )
+
+    if options.max_total_tokens > 0:
+        total_tokens_raw = sum(raw_token_counts.get(m.rel, 0) for m in kept_measured)
+        if total_tokens_raw > options.max_total_tokens:
+            raise SystemExit(
+                f"pack: total tokens {total_tokens_raw} exceed "
+                f"max_total_tokens {options.max_total_tokens} for {label}"
+            )
+
+    return _PreparedPackFiles(
+        kept_measured=kept_measured,
+        skipped=skipped,
+        safety_findings=safety_findings,
+        skipped_for_budget=skipped_for_budget,
+        raw_token_counts=raw_token_counts,
+        file_texts={m.path: m.text for m in kept_measured},
+        file_bytes={m.rel: m.size_bytes for m in kept_measured},
+        token_backend=token_backend,
+        count_tokens=count_tokens,
+    )
+
+
+def _build_single_pack_run(
+    parser: ArgumentParser,
+    args: Namespace,
+    *,
+    root: Path,
+    stdin_files: list[Path] | None,
+    used_labels: set[str],
+    used_slugs: set[str],
+) -> PackRun:
+    cfg = load_config(root)
+    try:
+        options = resolve_pack_options(cfg, args)
+    except ValueError as e:
+        parser.error(f"pack: {e}")
+    label = cli_impl._unique_label(root, used_labels)
+    slug = cli_impl._unique_slug(label, used_slugs)
+
+    if args.print_rules:
+        cli_impl._print_effective_rules(label=label, root=root, options=options)
+
+    discovery_state = _discover_and_filter_files(
+        parser,
+        label=label,
+        root=root,
+        options=options,
+        stdin_files=stdin_files,
+    )
+    prepared_files = _measure_and_apply_budgets(
+        parser,
+        label=label,
+        options=options,
+        discovery_state=discovery_state,
+    )
+
+    files_for_pack = [m.path for m in prepared_files.kept_measured]
+    if args.print_files:
+        cli_impl._print_selected_files(
+            label=label,
+            root=discovery_state.discovery.root,
+            selected=files_for_pack,
+        )
+
+    if args.print_skipped:
+        skipped_details = [
+            (item.path, item.reason) for item in discovery_state.discovery.skipped
+        ]
+        skipped_details.extend(
+            (f.path.relative_to(discovery_state.discovery.root).as_posix(), f.reason)
+            for f in prepared_files.skipped
+            if f.action == "skipped"
+        )
+        skipped_details.extend(prepared_files.skipped_for_budget)
+        skipped_details = sorted(set(skipped_details))
+        cli_impl._print_skipped_files(label=label, skipped=skipped_details)
+
+    pack, canonical = pack_repo(
+        discovery_state.discovery.root,
+        files_for_pack,
+        keep_docstrings=options.keep_docstrings,
+        dedupe=options.dedupe,
+        symbol_backend=options.symbol_backend,
+        file_texts=prepared_files.file_texts,
+        max_workers=options.max_workers,
+        encoding_errors=options.encoding_errors,
+    )
+    use_stubs = options.layout == "stubs" or (
+        options.layout == "auto" and cli_impl._pack_has_effective_dedupe(pack)
+    )
+    effective_layout = "stubs" if use_stubs else "full"
+    manifest_obj = to_manifest(pack, minimal=not use_stubs)
+    manifest_checksum = manifest_sha256(manifest_obj)
+    binary_count = sum(1 for f in prepared_files.skipped if f.reason == "binary")
+    skipped_for_safety_count = sum(
+        1
+        for f in prepared_files.skipped
+        if not (f.reason == "binary" and f.action == "skipped")
+    )
+    redacted_count = sum(
+        1 for f in prepared_files.safety_findings if f.action == "redacted"
+    )
+    safety_entries = [
+        {
+            "path": f.path.relative_to(discovery_state.discovery.root).as_posix(),
+            "reason": f.reason,
+            "action": f.action,
+        }
+        for f in sorted(
+            prepared_files.safety_findings,
+            key=lambda item: (
+                item.path.relative_to(discovery_state.discovery.root).as_posix(),
+                item.action,
+                item.reason,
+            ),
+        )
+    ]
+    effective_nav_mode = cli_impl._resolve_effective_nav_mode(
+        options.nav_mode,
+        options.split_max_chars,
+    )
+    rendered = render_markdown_result(
+        pack,
+        canonical,
+        layout=options.layout,
+        nav_mode=effective_nav_mode,
+        skipped_for_safety_count=skipped_for_safety_count,
+        skipped_for_binary_count=binary_count,
+        redacted_for_safety_count=redacted_count,
+        include_safety_report=options.safety_report,
+        safety_report_entries=safety_entries,
+        include_manifest=options.include_manifest,
+        manifest_data=manifest_obj,
+        repo_label=label,
+        repo_slug=slug,
+    )
+    md = rendered.markdown
+
+    file_tokens: dict[str, int] = {}
+    output_tokens = 0
+    total_file_tokens = 0
+    if options.token_report:
+        output_tokens = prepared_files.count_tokens(md)
+        diag_files = [
+            cli_impl._MeasuredFile(
+                path=fp.path,
+                rel=fp.path.relative_to(pack.root).as_posix(),
+                text=(
+                    fp.original_text if effective_layout == "full" else fp.stubbed_text
+                ),
+                size_bytes=prepared_files.file_bytes.get(
+                    fp.path.relative_to(pack.root).as_posix(),
+                    len(fp.original_text.encode("utf-8")),
                 ),
             )
+            for fp in pack.files
         ]
-        effective_nav_mode = cli_impl._resolve_effective_nav_mode(
-            options.nav_mode,
-            options.split_max_chars,
+        file_tokens = cli_impl._count_tokens_parallel(
+            files=diag_files,
+            count_fn=prepared_files.count_tokens,
+            max_workers=options.max_workers,
         )
-        rendered = render_markdown_result(
-            pack,
-            canonical,
-            layout=options.layout,
-            nav_mode=effective_nav_mode,
-            skipped_for_safety_count=skipped_for_safety_count,
-            skipped_for_binary_count=binary_count,
-            redacted_for_safety_count=redacted_count,
-            include_safety_report=options.safety_report,
-            safety_report_entries=safety_entries,
-            include_manifest=options.include_manifest,
-            manifest_data=manifest_obj,
-            repo_label=label,
-            repo_slug=slug,
-        )
-        md = rendered.markdown
+        total_file_tokens = sum(file_tokens.values())
 
-        file_tokens: dict[str, int] = {}
-        output_tokens = 0
-        total_file_tokens = 0
+    default_output = cli_impl._resolve_output_path(cfg, args, root)
+    return PackRun(
+        root=root,
+        label=label,
+        slug=slug,
+        markdown=md,
+        render_metadata=rendered.metadata,
+        pack_result=pack,
+        canonical_sources=canonical,
+        options=options,
+        default_output=default_output,
+        file_count=len(files_for_pack),
+        skipped_for_safety_count=skipped_for_safety_count,
+        redacted_for_safety_count=redacted_count,
+        safety_findings=prepared_files.safety_findings,
+        effective_layout=effective_layout,
+        effective_nav_mode=effective_nav_mode,
+        output_tokens=output_tokens,
+        total_file_tokens=total_file_tokens,
+        file_tokens=file_tokens,
+        file_bytes=prepared_files.file_bytes,
+        token_backend=prepared_files.token_backend,
+        manifest=manifest_obj,
+        manifest_sha256=manifest_checksum,
+    )
 
-        if options.token_report:
-            output_tokens = count_tokens(md)
-            diag_files = [
-                cli_impl._MeasuredFile(
-                    path=fp.path,
-                    rel=fp.path.relative_to(pack.root).as_posix(),
-                    text=(
-                        fp.original_text
-                        if effective_layout == "full"
-                        else fp.stubbed_text
-                    ),
-                    size_bytes=file_bytes.get(
-                        fp.path.relative_to(pack.root).as_posix(),
-                        len(fp.original_text.encode("utf-8")),
-                    ),
-                )
-                for fp in pack.files
-            ]
-            file_tokens = cli_impl._count_tokens_parallel(
-                files=diag_files,
-                count_fn=count_tokens,
-                max_workers=options.max_workers,
-            )
-            total_file_tokens = sum(file_tokens.values())
 
-        default_output = cli_impl._resolve_output_path(cfg, args, root)
-
-        pack_runs.append(
-            PackRun(
-                root=root,
-                label=label,
-                slug=slug,
-                markdown=md,
-                render_metadata=rendered.metadata,
-                pack_result=pack,
-                canonical_sources=canonical,
-                options=options,
-                default_output=default_output,
-                file_count=len(files_for_pack),
-                skipped_for_safety_count=skipped_for_safety_count,
-                redacted_for_safety_count=redacted_count,
-                safety_findings=safety_findings,
-                effective_layout=effective_layout,
-                effective_nav_mode=effective_nav_mode,
-                output_tokens=output_tokens,
-                total_file_tokens=total_file_tokens,
-                file_tokens=file_tokens,
-                file_bytes=file_bytes,
-                token_backend=token_backend,
-                manifest=manifest_obj,
-                manifest_sha256=manifest_checksum,
-            )
+def _require_manifest_for_standalone(
+    parser: ArgumentParser,
+    *,
+    emit_standalone_unpacker: bool,
+    pack_runs: list[PackRun],
+) -> None:
+    if not emit_standalone_unpacker:
+        return
+    manifestless = [run.label for run in pack_runs if not run.options.include_manifest]
+    if manifestless:
+        parser.error(
+            "--emit-standalone-unpacker requires a manifest-enabled pack "
+            "(remove --no-manifest)."
         )
 
-    out_path = args.output if args.output is not None else pack_runs[0].default_output
-    emit_standalone_unpacker = bool(getattr(args, "emit_standalone_unpacker", False))
-    if emit_standalone_unpacker:
-        manifestless = [
-            run.label for run in pack_runs if not run.options.include_manifest
-        ]
-        if manifestless:
-            parser.error(
-                "--emit-standalone-unpacker requires a manifest-enabled pack "
-                "(remove --no-manifest)."
-            )
-    if len(pack_runs) == 1:
-        md = pack_runs[0].markdown
-    else:
-        md = cli_impl._combine_pack_markdown(pack_runs)
 
-    wrote_split_outputs = False
-    wrote_unsplit_markdown = False
+def _write_single_repo_outputs(
+    *,
+    out_path: Path,
+    md: str,
+    pack_run: PackRun,
+    emit_standalone_unpacker: bool,
+) -> _WrittenPackOutputs:
+    split_max_chars = pack_run.options.split_max_chars
+    try:
+        parts = split_by_max_chars(
+            md,
+            out_path,
+            split_max_chars,
+            strict=pack_run.options.split_strict,
+            allow_cut_files=pack_run.options.split_allow_cut_files,
+        )
+    except ValueError as e:
+        raise SystemExit(f"pack: {e}") from e
+
+    if len(parts) == 1 and parts[0].path == out_path:
+        out_path.write_text(md, encoding="utf-8")
+        return _WrittenPackOutputs(
+            wrote_split_outputs=False,
+            wrote_unsplit_markdown=True,
+            split_files_written=[],
+            repo_output_parts={pack_run.slug: [Part(path=out_path, content=md)]},
+        )
+
+    renamed = cli_impl._rename_split_parts(parts, out_path)
+    oversized_parts = cli_impl._oversized_split_parts(renamed, split_max_chars)
+    if pack_run.options.split_strict and oversized_parts:
+        raise SystemExit(
+            "pack: split_strict requires all non-index parts to fit "
+            f"within split_max_chars {split_max_chars}; oversize: "
+            f"{', '.join(path.name for path in oversized_parts)}"
+        )
+
     split_files_written: list[Path] = []
-    repo_output_parts: dict[str, list[Part]] = {}
-    if len(pack_runs) == 1:
-        split_max_chars = pack_runs[0].options.split_max_chars
+    for part in renamed:
+        part.path.write_text(part.content, encoding="utf-8")
+        split_files_written.append(part.path)
+
+    wrote_unsplit_markdown = False
+    if emit_standalone_unpacker:
+        out_path.write_text(md, encoding="utf-8")
+        wrote_unsplit_markdown = True
+    cli_impl._warn_oversized_split_outputs(
+        label=pack_run.label,
+        paths=oversized_parts,
+        max_chars=split_max_chars,
+    )
+    return _WrittenPackOutputs(
+        wrote_split_outputs=True,
+        wrote_unsplit_markdown=wrote_unsplit_markdown,
+        split_files_written=split_files_written,
+        repo_output_parts={pack_run.slug: list(renamed)},
+    )
+
+
+def _write_multi_repo_outputs(
+    *,
+    out_path: Path,
+    md: str,
+    pack_runs: list[PackRun],
+    emit_standalone_unpacker: bool,
+) -> _WrittenPackOutputs:
+    all_repo_split = True
+    split_candidates = []
+    for run_pack in pack_runs:
+        split_max_chars = run_pack.options.split_max_chars
+        if split_max_chars <= 0:
+            all_repo_split = False
+            break
+        repo_base = out_path.with_name(
+            f"{out_path.stem}.{run_pack.slug}{out_path.suffix}"
+        )
         try:
             parts = split_by_max_chars(
-                md,
-                out_path,
-                split_max_chars,
-                strict=pack_runs[0].options.split_strict,
-                allow_cut_files=pack_runs[0].options.split_allow_cut_files,
+                run_pack.markdown,
+                repo_base,
+                run_pack.options.split_max_chars,
+                strict=run_pack.options.split_strict,
+                allow_cut_files=run_pack.options.split_allow_cut_files,
             )
         except ValueError as e:
             raise SystemExit(f"pack: {e}") from e
-        if len(parts) == 1 and parts[0].path == out_path:
-            out_path.write_text(md, encoding="utf-8")
-            wrote_unsplit_markdown = True
-            repo_output_parts[pack_runs[0].slug] = [Part(path=out_path, content=md)]
-        else:
-            renamed = cli_impl._rename_split_parts(parts, out_path)
-            oversized_parts = cli_impl._oversized_split_parts(renamed, split_max_chars)
-            if pack_runs[0].options.split_strict and oversized_parts:
-                raise SystemExit(
-                    "pack: split_strict requires all non-index parts to fit "
-                    f"within split_max_chars {split_max_chars}; oversize: "
-                    f"{', '.join(path.name for path in oversized_parts)}"
-                )
-            for part in renamed:
-                part.path.write_text(part.content, encoding="utf-8")
-                split_files_written.append(part.path)
-            wrote_split_outputs = True
-            if emit_standalone_unpacker:
-                out_path.write_text(md, encoding="utf-8")
-                wrote_unsplit_markdown = True
-            repo_output_parts[pack_runs[0].slug] = list(renamed)
-            cli_impl._warn_oversized_split_outputs(
-                label=pack_runs[0].label,
-                paths=oversized_parts,
-                max_chars=split_max_chars,
+        if len(parts) == 1 and parts[0].path == repo_base:
+            all_repo_split = False
+            break
+        renamed = cli_impl._rename_split_parts(parts, repo_base)
+        oversized_parts = cli_impl._oversized_split_parts(renamed, split_max_chars)
+        if run_pack.options.split_strict and oversized_parts:
+            raise SystemExit(
+                "pack: split_strict requires all non-index parts to fit "
+                f"within split_max_chars {split_max_chars} "
+                f"for {run_pack.label}; "
+                f"oversize: {', '.join(path.name for path in oversized_parts)}"
             )
-    else:
-        all_repo_split = True
-        split_candidates = []
-        for run_pack in pack_runs:
-            split_max_chars = run_pack.options.split_max_chars
-            if split_max_chars <= 0:
-                all_repo_split = False
-                break
-            repo_base = out_path.with_name(
-                f"{out_path.stem}.{run_pack.slug}{out_path.suffix}"
+        split_candidates.append((run_pack, renamed, oversized_parts))
+
+    if not all_repo_split:
+        out_path.write_text(md, encoding="utf-8")
+        return _WrittenPackOutputs(
+            wrote_split_outputs=False,
+            wrote_unsplit_markdown=True,
+            split_files_written=[],
+            repo_output_parts={
+                run_pack.slug: [Part(path=out_path, content=md)]
+                for run_pack in pack_runs
+            },
+        )
+
+    split_files_written: list[Path] = []
+    repo_output_parts: dict[str, list[Part]] = {}
+    for run_pack, renamed, oversized_parts in split_candidates:
+        written_parts = []
+        for part in renamed:
+            content_with_header = cli_impl._prefix_repo_header(
+                part.content, run_pack.label
             )
-            try:
-                parts = split_by_max_chars(
-                    run_pack.markdown,
-                    repo_base,
-                    run_pack.options.split_max_chars,
-                    strict=run_pack.options.split_strict,
-                    allow_cut_files=run_pack.options.split_allow_cut_files,
-                )
-            except ValueError as e:
-                raise SystemExit(f"pack: {e}") from e
-            if len(parts) == 1 and parts[0].path == repo_base:
-                all_repo_split = False
-                break
-            renamed = cli_impl._rename_split_parts(parts, repo_base)
-            oversized_parts = cli_impl._oversized_split_parts(renamed, split_max_chars)
-            if run_pack.options.split_strict and oversized_parts:
-                raise SystemExit(
-                    "pack: split_strict requires all non-index parts to fit "
-                    f"within split_max_chars {split_max_chars} "
-                    f"for {run_pack.label}; "
-                    f"oversize: {', '.join(path.name for path in oversized_parts)}"
-                )
-            split_candidates.append((run_pack, renamed, oversized_parts))
+            final_part = Part(
+                path=part.path,
+                content=content_with_header,
+                kind=part.kind,
+                files=part.files,
+                canonical_ids=part.canonical_ids,
+                section_types=part.section_types,
+            )
+            final_part.path.write_text(final_part.content, encoding="utf-8")
+            split_files_written.append(final_part.path)
+            written_parts.append(final_part)
+        repo_output_parts[run_pack.slug] = written_parts
+        cli_impl._warn_oversized_split_outputs(
+            label=run_pack.label,
+            paths=oversized_parts,
+            max_chars=run_pack.options.split_max_chars,
+        )
 
-        if all_repo_split:
-            wrote_split_outputs = True
-            for run_pack, renamed, oversized_parts in split_candidates:
-                written_parts = []
-                for part in renamed:
-                    content_with_header = cli_impl._prefix_repo_header(
-                        part.content, run_pack.label
-                    )
-                    final_part = Part(
-                        path=part.path,
-                        content=content_with_header,
-                        kind=part.kind,
-                        files=part.files,
-                        canonical_ids=part.canonical_ids,
-                        section_types=part.section_types,
-                    )
-                    final_part.path.write_text(final_part.content, encoding="utf-8")
-                    split_files_written.append(final_part.path)
-                    written_parts.append(final_part)
-                repo_output_parts[run_pack.slug] = written_parts
-                cli_impl._warn_oversized_split_outputs(
-                    label=run_pack.label,
-                    paths=oversized_parts,
-                    max_chars=run_pack.options.split_max_chars,
-                )
-            if emit_standalone_unpacker:
-                out_path.write_text(md, encoding="utf-8")
-                wrote_unsplit_markdown = True
-        else:
-            out_path.write_text(md, encoding="utf-8")
-            wrote_unsplit_markdown = True
-            for run_pack in pack_runs:
-                repo_output_parts[run_pack.slug] = [Part(path=out_path, content=md)]
+    wrote_unsplit_markdown = False
+    if emit_standalone_unpacker:
+        out_path.write_text(md, encoding="utf-8")
+        wrote_unsplit_markdown = True
+    return _WrittenPackOutputs(
+        wrote_split_outputs=True,
+        wrote_unsplit_markdown=wrote_unsplit_markdown,
+        split_files_written=split_files_written,
+        repo_output_parts=repo_output_parts,
+    )
 
+
+def _write_manifest_json_if_requested(
+    *,
+    manifest_json_arg: str | None,
+    out_path: Path,
+    pack_runs: list[PackRun],
+) -> Path | None:
     manifest_json_path = cli_impl._manifest_json_output_path(
-        manifest_json_arg=args.manifest_json,
+        manifest_json_arg=manifest_json_arg,
         markdown_output=out_path,
     )
-    if manifest_json_path is not None:
-        payload: dict[str, object] = {
-            "format": MANIFEST_JSON_FORMAT_VERSION,
-            "repositories": [
-                {
-                    "label": run.label,
-                    "slug": run.slug,
-                    "manifest_sha256": run.manifest_sha256,
-                    "manifest": run.manifest,
-                }
-                for run in pack_runs
-            ],
-        }
-        manifest_json_path.write_text(
-            json.dumps(payload, indent=2, sort_keys=False) + "\n",
-            encoding="utf-8",
-        )
+    if manifest_json_path is None:
+        return None
+    payload: dict[str, object] = {
+        "format": MANIFEST_JSON_FORMAT_VERSION,
+        "repositories": [
+            {
+                "label": run.label,
+                "slug": run.slug,
+                "manifest_sha256": run.manifest_sha256,
+                "manifest": run.manifest,
+            }
+            for run in pack_runs
+        ],
+    }
+    manifest_json_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=False) + "\n",
+        encoding="utf-8",
+    )
+    return manifest_json_path
 
-    index_json_path = None
-    if any(run.options.index_json_enabled for run in pack_runs):
-        index_json_arg = args.index_json if args.index_json is not None else ""
-        index_json_path = cli_impl._index_json_output_path(
-            index_json_arg=index_json_arg,
-            markdown_output=out_path,
-        )
-    if index_json_path is not None:
-        payload = build_index_payload(
-            codecrate_version=cli_impl._codecrate_version(),
-            index_output_path=index_json_path,
-            pack_runs=pack_runs,
-            repo_output_parts=repo_output_parts,
-            is_split=wrote_split_outputs,
-            index_json_mode=_resolve_output_index_json_mode(pack_runs),
-        )
-        write_index_json(index_json_path, payload)
 
+def _write_index_json_if_requested(
+    *,
+    index_json_arg: str | None,
+    out_path: Path,
+    pack_runs: list[PackRun],
+    repo_output_parts: dict[str, list[Part]],
+    wrote_split_outputs: bool,
+) -> Path | None:
+    if not any(run.options.index_json_enabled for run in pack_runs):
+        return None
+    index_json_path = cli_impl._index_json_output_path(
+        index_json_arg=index_json_arg or "",
+        markdown_output=out_path,
+    )
+    if index_json_path is None:
+        return None
+    payload = build_index_payload(
+        codecrate_version=cli_impl._codecrate_version(),
+        index_output_path=index_json_path,
+        pack_runs=pack_runs,
+        repo_output_parts=repo_output_parts,
+        is_split=wrote_split_outputs,
+        index_json_mode=_resolve_output_index_json_mode(pack_runs),
+    )
+    write_index_json(index_json_path, payload)
+    return index_json_path
+
+
+def _emit_token_reports(pack_runs: list[PackRun]) -> None:
     for run in pack_runs:
         if not run.options.token_report:
             continue
@@ -554,8 +706,18 @@ def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: 
                 file=sys.stderr,
             )
 
+
+def _print_pack_output_summary(
+    *,
+    out_path: Path,
+    md: str,
+    pack_runs: list[PackRun],
+    outputs: _WrittenPackOutputs,
+    manifest_json_path: Path | None,
+    index_json_path: Path | None,
+) -> None:
     summary_run = next((run for run in pack_runs if run.options.file_summary), None)
-    if summary_run is not None and not wrote_split_outputs:
+    if summary_run is not None and not outputs.wrote_split_outputs:
         try:
             rel_out_path = out_path.relative_to(Path.cwd())
         except ValueError:
@@ -568,50 +730,136 @@ def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:  # noqa: 
             encoding=summary_encoding,
         )
     else:
-        if wrote_split_outputs:
+        if outputs.wrote_split_outputs:
             if len(pack_runs) == 1:
                 index_path = out_path.with_name(
                     f"{out_path.stem}.index{out_path.suffix}"
                 )
-                part_count = max(0, len(split_files_written) - 1)
-                if wrote_unsplit_markdown:
+                part_count = max(0, len(outputs.split_files_written) - 1)
+                if outputs.wrote_unsplit_markdown:
                     print(
                         f"Wrote {out_path}, {index_path}, and {part_count} split part "
                         "file(s)."
                     )
                 else:
                     print(f"Wrote {index_path} and {part_count} split part file(s).")
+            elif outputs.wrote_unsplit_markdown:
+                print(
+                    f"Wrote {out_path} plus split outputs for {len(pack_runs)} "
+                    f"repos ({len(outputs.split_files_written)} file(s))."
+                )
             else:
-                if wrote_unsplit_markdown:
-                    print(
-                        f"Wrote {out_path} plus split outputs for {len(pack_runs)} "
-                        f"repos ({len(split_files_written)} file(s))."
-                    )
-                else:
-                    print(
-                        f"Wrote split outputs for {len(pack_runs)} repos "
-                        f"({len(split_files_written)} file(s))."
-                    )
+                print(
+                    f"Wrote split outputs for {len(pack_runs)} repos "
+                    f"({len(outputs.split_files_written)} file(s))."
+                )
+        elif len(pack_runs) == 1:
+            print(f"Wrote {out_path}.")
         else:
-            if len(pack_runs) == 1:
-                print(f"Wrote {out_path}.")
-            else:
-                print(f"Wrote {out_path} for {len(pack_runs)} repos.")
+            print(f"Wrote {out_path} for {len(pack_runs)} repos.")
         if manifest_json_path is not None:
             print(f"Wrote {manifest_json_path}.")
         if index_json_path is not None:
             print(f"Wrote {index_json_path}.")
 
-    standalone_unpacker_path = None
-    if emit_standalone_unpacker:
-        standalone_unpacker_path = cli_impl._standalone_unpacker_output_path(
-            markdown_output=out_path
+
+def _write_standalone_unpacker_if_requested(
+    *,
+    emit_standalone_unpacker: bool,
+    out_path: Path,
+    pack_runs: list[PackRun],
+) -> None:
+    if not emit_standalone_unpacker:
+        return
+    standalone_unpacker_path = cli_impl._standalone_unpacker_output_path(
+        markdown_output=out_path
+    )
+    standalone_unpacker_path.write_text(
+        render_standalone_unpacker(
+            pack_format_version=pack_runs[0].manifest.get("format", ""),
+            default_pack_filename=out_path.name,
+        ),
+        encoding="utf-8",
+    )
+    print(f"Wrote {standalone_unpacker_path}.")
+
+
+def _write_pack_outputs(
+    parser: ArgumentParser,
+    args: Namespace,
+    *,
+    pack_runs: list[PackRun],
+) -> None:
+    out_path = args.output if args.output is not None else pack_runs[0].default_output
+    emit_standalone_unpacker = bool(getattr(args, "emit_standalone_unpacker", False))
+    _require_manifest_for_standalone(
+        parser,
+        emit_standalone_unpacker=emit_standalone_unpacker,
+        pack_runs=pack_runs,
+    )
+    if len(pack_runs) == 1:
+        md = pack_runs[0].markdown
+    else:
+        md = cli_impl._combine_pack_markdown(pack_runs)
+    outputs = (
+        _write_single_repo_outputs(
+            out_path=out_path,
+            md=md,
+            pack_run=pack_runs[0],
+            emit_standalone_unpacker=emit_standalone_unpacker,
         )
-        standalone_unpacker_path.write_text(
-            render_standalone_unpacker(
-                pack_format_version=pack_runs[0].manifest.get("format", ""),
-                default_pack_filename=out_path.name,
-            ),
-            encoding="utf-8",
+        if len(pack_runs) == 1
+        else _write_multi_repo_outputs(
+            out_path=out_path,
+            md=md,
+            pack_runs=pack_runs,
+            emit_standalone_unpacker=emit_standalone_unpacker,
         )
-        print(f"Wrote {standalone_unpacker_path}.")
+    )
+    manifest_json_path = _write_manifest_json_if_requested(
+        manifest_json_arg=args.manifest_json,
+        out_path=out_path,
+        pack_runs=pack_runs,
+    )
+    index_json_path = _write_index_json_if_requested(
+        index_json_arg=args.index_json,
+        out_path=out_path,
+        pack_runs=pack_runs,
+        repo_output_parts=outputs.repo_output_parts,
+        wrote_split_outputs=outputs.wrote_split_outputs,
+    )
+    _emit_token_reports(pack_runs)
+    _print_pack_output_summary(
+        out_path=out_path,
+        md=md,
+        pack_runs=pack_runs,
+        outputs=outputs,
+        manifest_json_path=manifest_json_path,
+        index_json_path=index_json_path,
+    )
+    _write_standalone_unpacker_if_requested(
+        emit_standalone_unpacker=emit_standalone_unpacker,
+        out_path=out_path,
+        pack_runs=pack_runs,
+    )
+
+
+def run_pack_command(parser: ArgumentParser, args: Namespace) -> None:
+    roots, stdin_files = _resolve_pack_roots_and_stdin(parser, args)
+
+    used_labels: set[str] = set()
+    used_slugs: set[str] = set()
+    pack_runs: list[PackRun] = []
+
+    for root in roots:
+        pack_runs.append(
+            _build_single_pack_run(
+                parser,
+                args,
+                root=root,
+                stdin_files=stdin_files,
+                used_labels=used_labels,
+                used_slugs=used_slugs,
+            )
+        )
+    _write_pack_outputs(parser, args, pack_runs=pack_runs)

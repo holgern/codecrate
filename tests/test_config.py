@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codecrate.config import DEFAULT_INCLUDES, Config, load_config
+from codecrate.config import (
+    DEFAULT_INCLUDES,
+    Config,
+    load_config,
+    load_config_with_warnings,
+)
 
 
 def test_config_defaults() -> None:
@@ -253,6 +258,27 @@ max_workers = "bad"
     assert cfg.max_file_tokens == 0
     assert cfg.max_total_tokens == 0
     assert cfg.max_workers == 0
+
+
+def test_load_config_with_warnings_reports_invalid_numeric_values(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+split_max_chars = "bad"
+top_files_len = "also bad"
+""",
+        encoding="utf-8",
+    )
+
+    cfg, config_warnings = load_config_with_warnings(tmp_path)
+
+    assert cfg.split_max_chars == 0
+    assert cfg.top_files_len == 5
+    assert [warning.key for warning in config_warnings] == [
+        "split_max_chars",
+        "top_files_len",
+    ]
 
 
 def test_load_config_invalid_include_exclude(tmp_path: Path) -> None:
