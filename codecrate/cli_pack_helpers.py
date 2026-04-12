@@ -406,6 +406,16 @@ def _standalone_unpacker_output_path(*, markdown_output: Path) -> Path:
     return markdown_output.with_name(f"{markdown_output.stem}.unpack.py")
 
 
+def resolve_standalone_unpacker_output_path(
+    *,
+    markdown_output: Path,
+    standalone_unpacker_arg: str | None,
+) -> Path:
+    if standalone_unpacker_arg is not None and standalone_unpacker_arg.strip():
+        return Path(standalone_unpacker_arg)
+    return _standalone_unpacker_output_path(markdown_output=markdown_output)
+
+
 def _print_selected_files(*, label: str, root: Path, selected: list[Path]) -> None:
     print(
         f"Debug: selected files for {label} ({len(selected)}):",

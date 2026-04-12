@@ -14,10 +14,13 @@ class PackOptions:
     keep_docstrings: bool
     profile: str
     emit_standalone_unpacker: bool
+    standalone_unpacker_output: str | None
     locator_space: str
     include_manifest: bool
     index_json_enabled: bool
     index_json_mode: str | None
+    manifest_json_output: str | None
+    index_json_output: str | None
     index_json_include_lookup: bool
     index_json_include_symbol_index_lines: bool
     analysis_metadata: bool
@@ -110,7 +113,9 @@ def resolve_emit_standalone_unpacker(cfg: Config, args: argparse.Namespace) -> b
     cli_value = getattr(args, "emit_standalone_unpacker", None)
     if cli_value is not None:
         return bool(cli_value)
-    return bool(getattr(cfg, "emit_standalone_unpacker", False))
+    return bool(getattr(cfg, "emit_standalone_unpacker", False)) or (
+        getattr(cfg, "standalone_unpacker_output", None) is not None
+    )
 
 
 def resolve_locator_space(
@@ -166,11 +171,18 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         include_manifest = cfg.manifest if profile == "human" else True
     else:
         include_manifest = bool(args.manifest)
+    manifest_json_output = getattr(cfg, "manifest_json_output", None)
+    index_json_output = getattr(cfg, "index_json_output", None)
+    standalone_unpacker_output = getattr(cfg, "standalone_unpacker_output", None)
     if args.index_json is not None:
         index_json_enabled = True
     elif bool(getattr(args, "no_index_json", False)):
         index_json_enabled = False
+    elif getattr(cfg, "index_json_enabled", None) is not None:
+        index_json_enabled = bool(cfg.index_json_enabled)
     elif getattr(args, "index_json_mode", None) is not None:
+        index_json_enabled = True
+    elif index_json_output is not None:
         index_json_enabled = True
     elif getattr(cfg, "index_json_mode", None) is not None:
         index_json_enabled = True
@@ -413,10 +425,13 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         keep_docstrings=keep_docstrings,
         profile=profile,
         emit_standalone_unpacker=emit_standalone_unpacker,
+        standalone_unpacker_output=standalone_unpacker_output,
         locator_space=locator_space,
         include_manifest=include_manifest,
         index_json_enabled=index_json_enabled,
         index_json_mode=index_json_mode,
+        manifest_json_output=manifest_json_output,
+        index_json_output=index_json_output,
         index_json_include_lookup=index_json_include_lookup,
         index_json_include_symbol_index_lines=index_json_include_symbol_index_lines,
         analysis_metadata=analysis_metadata,

@@ -42,7 +42,7 @@
 - **Mixed-language reporting**: Per-file language detection plus requested/used backend and extraction status
 - **Dual ID strategy**: Markdown keeps short display IDs while `index-json` exposes stronger machine IDs for tooling
 - **Environment diagnostics**: `codecrate doctor` reports config precedence, ignore files, and backend availability
-- **CLI ergonomics**: `--version`, `pack --print-rules`, `config show --effective`, and baseline policy flags for `apply`
+- **CLI ergonomics**: `--version`, `pack --print-rules`, `config show --effective`, `config schema --json`, and baseline policy flags for `apply`
 
 ## Installation
 
@@ -189,11 +189,22 @@ Codecrate reads config from the repository root with this precedence:
 2. `.codecrate.toml` / `codecrate.toml`
 3. `pyproject.toml` under `[tool.codecrate]`
 
+Use this quick chooser for profile defaults:
+
+| Use case                 | Profile    | Behavior                                                   |
+| ------------------------ | ---------- | ---------------------------------------------------------- |
+| Review-only markdown     | `human`    | Markdown-first output without profile-implied `index-json` |
+| Retrieval / agent lookup | `agent`    | Compact nav plus normalized v3 `index-json`                |
+| Review plus tooling      | `hybrid`   | Rich markdown plus full v1-compatible `index-json`         |
+| Portable reconstruction  | `portable` | Manifest-enabled `full` layout for standalone unpacking    |
+
+See `docs/config.rst` for the generated config reference, or run `codecrate config schema --json` for the machine-readable schema.
+
 Create a `.codecrate.toml` or `codecrate.toml` file in your repository root:
 
 ```toml
 [codecrate]
-# File patterns to include (default: ["**/*.py"])
+# File patterns to include (default preset: "python+docs")
 include = ["**/*.py"]
 
 # Include preset fallback when `include` is not set:
@@ -212,8 +223,16 @@ profile = "human"
 # - hybrid defaults to "full"
 index_json_mode = "normalized"
 
+# Explicitly enable or disable index-json independent of profile defaults
+index_json_enabled = true
+
+# Optional sidecar output paths; "" means use the default sibling path
+manifest_json_output = ""
+index_json_output = ""
+
 # Write a standard-library-only <output>.unpack.py next to the pack
 emit_standalone_unpacker = false
+standalone_unpacker_output = ""
 
 # Sidecar locator targets: "auto" | "markdown" | "reconstructed" | "dual"
 # - auto resolves to reconstructed when a standalone unpacker is emitted

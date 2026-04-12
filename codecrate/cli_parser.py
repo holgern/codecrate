@@ -695,6 +695,14 @@ def _add_config_parser(
         action="store_true",
         help="Emit machine-readable JSON config output.",
     )
+    config_schema = config_sub.add_parser(
+        "schema", help="Show the supported config keys and metadata."
+    )
+    config_schema.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON schema output.",
+    )
 
 
 def _print_top_level_help(parser: argparse.ArgumentParser) -> None:

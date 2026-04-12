@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from argparse import ArgumentParser, Namespace
 
-from .cli_doctor_helpers import _run_config_show, _run_doctor
+from .cli_doctor_helpers import _run_config_schema, _run_config_show, _run_doctor
 
 
 def run_doctor_command(parser: ArgumentParser, args: Namespace) -> None:
@@ -19,3 +19,7 @@ def run_config_show_command(parser: ArgumentParser, args: Namespace) -> None:
         effective=bool(args.effective),
         as_json=bool(args.json),
     )
+
+
+def run_config_schema_command(_parser: ArgumentParser, args: Namespace) -> None:
+    _run_config_schema(as_json=bool(args.json))

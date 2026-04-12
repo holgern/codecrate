@@ -300,13 +300,16 @@ Useful fields include:
 ``sizes``
    Character, byte, and token estimates for original and effective file bodies.
 
+``summary.summary_text``
+   Deterministic short prose describing the file's role and primary symbols.
+
 ``symbol_ids`` / ``display_symbol_ids`` / ``symbol_canonical_ids``
    Direct symbol membership for the file.
 
 In normalized v3 payloads, file entries instead use indexed fields such as
 ``p`` (path), ``part`` (part path), ``lang`` (language), ``mod`` (module), and
 optional analysis fields like ``imp`` (imports), ``exp`` (exports), ``doc``
-(``[start_line, end_line]``), and ``role``.
+(``[start_line, end_line]``), ``role``, and ``sum.st`` (summary text).
 
 
 Symbol metadata
@@ -346,10 +349,15 @@ Useful fields include:
    canonical markdown ranges; ``reconstructed`` points at the reconstructed file
    span and body span.
 
+``purpose_text``
+   Deterministic short prose summarizing the symbol's role, ownership, and
+   signature hints.
+
 In normalized v3 payloads, symbol entries use compact indexed fields such as
 ``i`` (local machine ID), ``c`` (canonical machine ID when needed), ``p`` (path
-index), ``q`` (qualname index), ``k`` (kind index), ``l1`` / ``l2`` (line
-range), plus optional ``o`` (owner class ID) and ``d`` (decorator indexes).
+ index), ``q`` (qualname index), ``k`` (kind index), ``l1`` / ``l2`` (line
+ range), plus optional ``o`` (owner class ID), ``d`` (decorator indexes), and
+ ``pt`` (purpose-text index).
 
 
 Lookup maps

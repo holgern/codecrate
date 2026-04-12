@@ -15,8 +15,10 @@ from .config import (
     CONFIG_FILENAMES,
     PYPROJECT_FILENAME,
     Config,
+    ConfigValueProvenance,
     ConfigWarning,
-    load_config_with_warnings,
+    config_schema_payload,
+    load_config_details,
 )
 from .security import build_ruleset
 from .tokens import TokenCounter
@@ -120,10 +122,28 @@ def _format_config_warning(warning: ConfigWarning) -> str:
     )
 
 
+def _config_provenance_payloads(
+    provenance: dict[str, ConfigValueProvenance],
+) -> dict[str, dict[str, object]]:
+    return {
+        key: {"source": value.source, "config_key": value.config_key}
+        for key, value in provenance.items()
+    }
+
+
+def _format_config_provenance(key: str, value: ConfigValueProvenance) -> str:
+    if value.config_key is None:
+        return f"{key}: {value.source}"
+    return f"{key}: {value.source} (key: {value.config_key})"
+
+
 def _run_config_show(root: Path, *, effective: bool, as_json: bool) -> None:
     root = root.resolve()
-    selected = _doctor_find_selected_config(root)
-    cfg, config_warnings = load_config_with_warnings(root)
+    details = load_config_details(root)
+    selected = details.selected_path
+    cfg = details.config
+    config_warnings = details.warnings
+    provenance = details.provenance
     mode = "effective"
     if not effective:
         # The command currently supports only effective configuration rendering.
@@ -148,6 +168,7 @@ def _run_config_show(root: Path, *, effective: bool, as_json: bool) -> None:
             "precedence": precedence,
             "selected": selected_text,
             "config_warnings": _config_warning_payloads(config_warnings),
+            "provenance": _config_provenance_payloads(provenance),
             "values": values,
         }
         print(json.dumps(payload, indent=2, sort_keys=False))
@@ -168,6 +189,10 @@ def _run_config_show(root: Path, *, effective: bool, as_json: bool) -> None:
     else:
         print("- none")
     print()
+    print("Value provenance:")
+    for key, value in provenance.items():
+        print(f"- {_format_config_provenance(key, value)}")
+    print()
     print("Effective values:")
     for key, value in values.items():
         print(f"{key} = {json.dumps(value, ensure_ascii=True)}")
@@ -175,8 +200,10 @@ def _run_config_show(root: Path, *, effective: bool, as_json: bool) -> None:
 
 def _run_doctor(root: Path) -> None:
     root = root.resolve()
-    selected = _doctor_find_selected_config(root)
-    _cfg, config_warnings = load_config_with_warnings(root)
+    details = load_config_details(root)
+    selected = details.selected_path
+    config_warnings = details.warnings
+    provenance = details.provenance
 
     print("Codecrate Doctor")
     print(f"Root: {root.as_posix()}")
@@ -206,6 +233,17 @@ def _run_doctor(root: Path) -> None:
         print("- none")
 
     print()
+    print("Resolved config fields:")
+    explicit_values = [
+        (key, value) for key, value in provenance.items() if value.source != "default"
+    ]
+    if explicit_values:
+        for key, value in explicit_values:
+            print(f"- {_format_config_provenance(key, value)}")
+    else:
+        print("- all defaults")
+
+    print()
     print("Ignore files:")
     print(f"- .gitignore: {'yes' if (root / '.gitignore').exists() else 'no'}")
     print(
@@ -225,3 +263,30 @@ def _run_doctor(root: Path) -> None:
     print()
     print("Optional parsing backends:")
     print(f"- tree-sitter: {_doctor_tree_sitter_status()}")
+
+
+def _run_config_schema(*, as_json: bool) -> None:
+    payload = config_schema_payload()
+    if as_json:
+        print(json.dumps(payload, indent=2, sort_keys=False))
+        return
+
+    print("Codecrate Config Schema")
+    print(
+        "Precedence: .codecrate.toml > codecrate.toml > pyproject.toml[tool.codecrate]"
+    )
+    print()
+    print("Fields:")
+    for field in payload["fields"]:
+        line = (
+            f"- {field['name']} ({field['type']}, access={field['access']}, "
+            f"default={json.dumps(field['default'], ensure_ascii=True)})"
+        )
+        print(line)
+        if field["cli_flags"]:
+            print(f"  CLI: {', '.join(field['cli_flags'])}")
+        if field["aliases"]:
+            print(f"  Aliases: {', '.join(field['aliases'])}")
+        if field["choices"]:
+            print(f"  Choices: {', '.join(field['choices'])}")
+        print(f"  {field['description']}")

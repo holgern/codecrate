@@ -167,6 +167,35 @@ def test_resolve_pack_options_config_index_json_mode_enables_sidecar(
     assert options.index_json_mode == "compact"
 
 
+def test_resolve_pack_options_config_index_json_enabled_overrides_mode(
+    tmp_path: Path,
+) -> None:
+    cfg = Config(profile="agent", index_json_mode="compact", index_json_enabled=False)
+
+    options = resolve_pack_options(cfg, _parse_pack_args(tmp_path))
+
+    assert options.index_json_enabled is False
+    assert options.index_json_mode == "compact"
+
+
+def test_resolve_pack_options_index_json_output_forces_sidecar(tmp_path: Path) -> None:
+    cfg = Config(index_json_output="")
+
+    options = resolve_pack_options(cfg, _parse_pack_args(tmp_path))
+
+    assert options.index_json_enabled is True
+    assert options.index_json_output == ""
+
+
+def test_resolve_pack_options_standalone_output_forces_unpacker(tmp_path: Path) -> None:
+    cfg = Config(standalone_unpacker_output="artifacts/context.unpack.py")
+
+    options = resolve_pack_options(cfg, _parse_pack_args(tmp_path))
+
+    assert options.emit_standalone_unpacker is True
+    assert options.standalone_unpacker_output == "artifacts/context.unpack.py"
+
+
 def test_resolve_pack_options_locator_space_from_cli(tmp_path: Path) -> None:
     cfg = Config()
 

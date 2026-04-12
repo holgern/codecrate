@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..analysis_metadata import build_class_purpose_text, build_symbol_purpose_text
 from ..locators import (
     anchor_for_file_index,
     anchor_for_file_source,
@@ -213,6 +214,7 @@ def _class_payload(
         }
         if include_display_ids:
             entry["display_local_id"] = class_ref.id
+        entry["purpose_text"] = build_class_purpose_text(class_ref)
         if markdown_path is not None and rel in file_markdown_ranges:
             entry["file_markdown_path"] = markdown_path
             entry["file_markdown_lines"] = file_markdown_ranges[rel]
@@ -318,6 +320,7 @@ def _full_symbol_payload(
             )
             symbol_entry["decorators"] = list(defn.decorators)
             symbol_entry["semantic"] = _semantic_symbol_payload(defn)
+            symbol_entry["purpose_text"] = build_symbol_purpose_text(defn)
         if markdown_path is not None:
             if defn.local_id in symbol_index_ranges:
                 symbol_entry["index_markdown_path"] = markdown_path

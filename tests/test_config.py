@@ -46,7 +46,11 @@ def test_config_defaults() -> None:
     assert isinstance(cfg.security_content_patterns, list)
     assert cfg.security_content_patterns
     assert cfg.nav_mode == "auto"
+    assert cfg.index_json_enabled is None
+    assert cfg.manifest_json_output is None
+    assert cfg.index_json_output is None
     assert cfg.emit_standalone_unpacker is False
+    assert cfg.standalone_unpacker_output is None
     assert cfg.locator_space == "auto"
     assert cfg.index_json_include_lookup is True
     assert cfg.index_json_include_symbol_index_lines is True
@@ -255,6 +259,29 @@ encoding_errors = "strict"
     assert cfg.encoding_errors == "strict"
 
 
+def test_load_config_supports_sidecar_enablement_and_output_paths(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+index_json_enabled = false
+manifest_json_output = ""
+index_json_output = "artifacts/context.index.json"
+emit_standalone_unpacker = true
+standalone_unpacker_output = "artifacts/context.unpack.py"
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path)
+
+    assert cfg.index_json_enabled is False
+    assert cfg.manifest_json_output == ""
+    assert cfg.index_json_output == "artifacts/context.index.json"
+    assert cfg.emit_standalone_unpacker is True
+    assert cfg.standalone_unpacker_output == "artifacts/context.unpack.py"
+
+
 def test_load_config_invalid_nav_mode_keeps_default(tmp_path: Path) -> None:
     """Invalid nav mode should keep default."""
     (tmp_path / "codecrate.toml").write_text(
@@ -343,6 +370,20 @@ top_files_len = "also bad"
         "split_max_chars",
         "top_files_len",
     ]
+
+
+def test_load_config_with_warnings_reports_unknown_keys(tmp_path: Path) -> None:
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+unknown_toggle = true
+""",
+        encoding="utf-8",
+    )
+
+    _cfg, config_warnings = load_config_with_warnings(tmp_path)
+
+    assert [warning.key for warning in config_warnings] == ["unknown_toggle"]
+    assert config_warnings[0].message == "Unknown config key; ignoring."
 
 
 def test_load_config_invalid_include_exclude(tmp_path: Path) -> None:

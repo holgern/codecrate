@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from ..analysis_metadata import build_class_purpose_text, build_symbol_purpose_text
 from ..markdown import _fence_lang_for
 from ..output_model import PackRun
 from .common import (
@@ -299,6 +300,13 @@ def _normalized_summary_payload(
     )
     if exports:
         payload["e"] = exports
+    summary_text = _table_index(
+        summary.get("summary_text"),
+        table=string_table,
+        lookup=string_lookup,
+    )
+    if summary_text is not None:
+        payload["st"] = summary_text
     if summary.get("touches_io"):
         payload["io"] = True
     if summary.get("is_test"):
@@ -506,6 +514,13 @@ def _normalized_class_payload(
                 table=string_table,
                 lookup=string_lookup,
             )
+        purpose_text = _table_index(
+            build_class_purpose_text(class_ref),
+            table=string_table,
+            lookup=string_lookup,
+        )
+        if purpose_text is not None:
+            entry["pt"] = purpose_text
         if class_ref.is_public:
             entry["pub"] = True
         classes_payload.append(entry)
@@ -608,6 +623,13 @@ def _normalized_symbol_payload(
             )
             if parameters:
                 entry["params"] = parameters
+            purpose_text = _table_index(
+                build_symbol_purpose_text(defn),
+                table=string_table,
+                lookup=string_lookup,
+            )
+            if purpose_text is not None:
+                entry["pt"] = purpose_text
             for key, enabled in (
                 ("meth", defn.is_method),
                 ("prop", defn.is_property),

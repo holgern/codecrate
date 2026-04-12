@@ -81,6 +81,12 @@ def main(argv: list[str] | None = None) -> None:
         run_config_show_command(parser, args)
         return
 
+    if args.cmd == "config" and args.config_cmd == "schema":
+        from .cli_doctor import run_config_schema_command
+
+        run_config_schema_command(parser, args)
+        return
+
     if args.cmd == "apply":
         from .cli_patch import run_apply_command
 

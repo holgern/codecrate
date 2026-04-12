@@ -13,8 +13,8 @@ from .cli_pack_helpers import (
     _oversized_split_parts,
     _print_pack_summary,
     _rename_split_parts,
-    _standalone_unpacker_output_path,
     _warn_oversized_split_outputs,
+    resolve_standalone_unpacker_output_path,
 )
 from .cli_parser import _codecrate_version
 from .cli_shared import _prefix_repo_header
@@ -41,6 +41,38 @@ class _WrittenPackOutputs:
     wrote_unsplit_markdown: bool
     split_files_written: list[Path]
     repo_output_parts: dict[str, list[Part]]
+
+
+def _resolve_shared_config_output(
+    parser: ArgumentParser,
+    *,
+    cli_value: str | None,
+    pack_runs: list[PackRun],
+    attr_name: str,
+    config_key: str,
+) -> str | None:
+    if cli_value is not None:
+        return cli_value
+    config_values: set[str] = set()
+    for run in pack_runs:
+        raw_value = getattr(run.options, attr_name, None)
+        if raw_value is None:
+            continue
+        if raw_value == "":
+            config_values.add(raw_value)
+            continue
+        path_value = Path(raw_value)
+        if not path_value.is_absolute():
+            path_value = run.root / path_value
+        config_values.add(path_value.as_posix())
+    if not config_values:
+        return None
+    if len(config_values) > 1:
+        parser.error(
+            "pack: conflicting config-defined "
+            f"{config_key} values across repositories; use a CLI override"
+        )
+    return next(iter(config_values))
 
 
 def _require_manifest_for_standalone(
@@ -219,6 +251,7 @@ def _write_manifest_json_if_requested(
     )
     if manifest_json_path is None:
         return None
+    manifest_json_path.parent.mkdir(parents=True, exist_ok=True)
     payload: dict[str, object] = {
         "format": MANIFEST_JSON_FORMAT_VERSION,
         "repositories": [
@@ -254,6 +287,7 @@ def _write_index_json_if_requested(
     )
     if index_json_path is None:
         return None
+    index_json_path.parent.mkdir(parents=True, exist_ok=True)
     payload = build_index_payload(
         codecrate_version=_codecrate_version(),
         index_output_path=index_json_path,
@@ -360,12 +394,15 @@ def _write_standalone_unpacker_if_requested(
     emit_standalone_unpacker: bool,
     out_path: Path,
     pack_runs: list[PackRun],
+    standalone_unpacker_output: str | None,
 ) -> None:
     if not emit_standalone_unpacker:
         return
-    standalone_unpacker_path = _standalone_unpacker_output_path(
-        markdown_output=out_path
+    standalone_unpacker_path = resolve_standalone_unpacker_output_path(
+        markdown_output=out_path,
+        standalone_unpacker_arg=standalone_unpacker_output,
     )
+    standalone_unpacker_path.parent.mkdir(parents=True, exist_ok=True)
     standalone_unpacker_path.write_text(
         render_standalone_unpacker(
             pack_format_version=pack_runs[0].manifest.get("format", ""),
@@ -395,6 +432,27 @@ def _write_pack_outputs(
         md = pack_runs[0].markdown
     else:
         md = _combine_pack_markdown(pack_runs)
+    manifest_json_arg = _resolve_shared_config_output(
+        parser,
+        cli_value=args.manifest_json,
+        pack_runs=pack_runs,
+        attr_name="manifest_json_output",
+        config_key="manifest_json_output",
+    )
+    index_json_arg = _resolve_shared_config_output(
+        parser,
+        cli_value=args.index_json,
+        pack_runs=pack_runs,
+        attr_name="index_json_output",
+        config_key="index_json_output",
+    )
+    standalone_unpacker_output = _resolve_shared_config_output(
+        parser,
+        cli_value=None,
+        pack_runs=pack_runs,
+        attr_name="standalone_unpacker_output",
+        config_key="standalone_unpacker_output",
+    )
     outputs = (
         _write_single_repo_outputs(
             out_path=out_path,
@@ -411,12 +469,12 @@ def _write_pack_outputs(
         )
     )
     manifest_json_path = _write_manifest_json_if_requested(
-        manifest_json_arg=args.manifest_json,
+        manifest_json_arg=manifest_json_arg,
         out_path=out_path,
         pack_runs=pack_runs,
     )
     index_json_path = _write_index_json_if_requested(
-        index_json_arg=args.index_json,
+        index_json_arg=index_json_arg,
         out_path=out_path,
         pack_runs=pack_runs,
         repo_output_parts=outputs.repo_output_parts,
@@ -435,6 +493,7 @@ def _write_pack_outputs(
         emit_standalone_unpacker=emit_standalone_unpacker,
         out_path=out_path,
         pack_runs=pack_runs,
+        standalone_unpacker_output=standalone_unpacker_output,
     )
 
 

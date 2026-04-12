@@ -18,47 +18,18 @@ Precedence (highest first):
 * ``.codecrate.toml`` / ``codecrate.toml``
 * ``pyproject.toml`` ``[tool.codecrate]``
 
-Supported keys include (non-exhaustive):
+See :doc:`config` for the exhaustive generated config reference, including:
 
 .. code-block:: toml
 
    [codecrate]
    output = "context.md"
    include_preset = "python+docs"
-   include = ["**/*.py", "**/*.toml", "**/*.rst"]
-   exclude = ["tests/**"]
-   manifest = true
    profile = "human"
-   layout = "auto"
-   nav_mode = "auto"
    index_json_mode = "normalized"
-   emit_standalone_unpacker = false
-   locator_space = "auto"
-   split_max_chars = 0
-   split_strict = false
-   split_allow_cut_files = false
-   symbol_backend = "auto"
-   encoding_errors = "replace"
-   security_check = true
-   security_content_sniff = false
-   security_redaction = false
-   safety_report = false
-   security_path_patterns = [".env", "*.pem", "*secrets*"]
-   security_path_patterns_add = ["*.vault"]
-   security_path_patterns_remove = ["*secrets*"]
-   security_content_patterns = ["private-key=(?i)-----BEGIN\\s+[A-Z ]*PRIVATE KEY-----"]
-
-   # Token diagnostics (printed to stderr, not added to output markdown)
-   token_count_encoding = "o200k_base"
-   token_count_tree = false
-   token_count_tree_threshold = 0
-   top_files_len = 5
-   max_file_bytes = 0
-   max_total_bytes = 0
-   max_file_tokens = 0
-   max_total_tokens = 0
-   max_workers = 0
-   file_summary = true
+   index_json_enabled = true
+   index_json_output = ""
+   standalone_unpacker_output = ""
 
 Overview
 --------
@@ -73,6 +44,7 @@ Overview
    codecrate validate-pack PACK.md [--root ROOT] [--strict] [policy flags]
    codecrate doctor [ROOT]
    codecrate config show [ROOT] [--effective] [--json]
+   codecrate config schema [--json]
 
 
 pack
@@ -330,3 +302,15 @@ The command reports:
 * effective values after precedence resolution
 * full resolved ``security_path_patterns`` list (after add/remove)
 * configured ``security_content_patterns`` list
+* per-field provenance, including config aliases such as ``include_manifest``
+
+
+config schema
+-------------
+
+Inspect the authoritative config metadata generated from code:
+
+.. code-block:: console
+
+   codecrate config schema
+   codecrate config schema --json

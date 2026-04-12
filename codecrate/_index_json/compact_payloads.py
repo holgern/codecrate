@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..analysis_metadata import build_symbol_purpose_text
 from ..locators import (
     anchor_for_file_index,
     anchor_for_file_source,
@@ -145,6 +146,7 @@ def _compact_symbol_payload(
             )
             symbol_entry["decorators"] = list(defn.decorators)
             symbol_entry["semantic"] = _semantic_symbol_payload(defn)
+            symbol_entry["purpose_text"] = build_symbol_purpose_text(defn)
         if include_canonical_ids:
             symbol_entry["canonical_id"] = canonical_machine_ids[defn.id]
         locators = _symbol_locator_payload(

@@ -295,6 +295,11 @@ def test_pack_index_json_includes_analysis_metadata(tmp_path: Path) -> None:
     assert method_symbol["semantic"]["return_annotation"] == "int"
     assert method_symbol["semantic"]["parameters"] == []
     assert service_file["summary"]["primary_symbols"][:2] == ["Service", "Service.run"]
+    assert service_file["summary"]["summary_text"].startswith("source file;")
+    assert repo["classes"][0]["purpose_text"].startswith("public class;")
+    assert (
+        method_symbol["purpose_text"] == "public staticmethod on Service; returns int"
+    )
     assert "pkg/helpers.py" in service_file["relationships"]["depends_on"]
     assert "tests/test_service.py" in service_file["relationships"]["related_tests"]
 
@@ -383,6 +388,7 @@ def test_pack_index_json_compact_v2_shape(tmp_path: Path) -> None:
     assert "symbol_ids" not in file_entry
     assert "display_symbol_ids" not in file_entry
     assert "symbol_canonical_ids" not in file_entry
+    assert "purpose_text" in symbol_entry
     assert file_entry["locators"] == {
         "markdown": {
             "path": "context.md",
@@ -507,12 +513,18 @@ def test_pack_index_json_normalized_v3_shape(tmp_path: Path) -> None:
     assert tables["paths"][file_entry["imp"][0]["t"]] == "pkg/helpers.py"
     assert tables["strings"][file_entry["exp"][0]] == "Service"
     assert file_entry["doc"] == [1, 1]
+    assert tables["strings"][file_entry["sum"]["st"]].startswith("source file;")
     assert tables["qualnames"][class_entry["q"]] == "Service"
     assert tables["strings"][class_entry["b"][0]] == "Base"
     assert tables["strings"][class_entry["d"][0]] == "decorator"
+    assert tables["strings"][class_entry["pt"]].startswith("public class;")
     assert tables["qualnames"][symbol_entry["q"]] == "Service.run"
     assert symbol_entry["o"] == class_entry["i"]
     assert tables["strings"][symbol_entry["d"][0]] == "staticmethod"
+    assert (
+        tables["strings"][symbol_entry["pt"]]
+        == "public staticmethod on Service; returns int"
+    )
     assert len(file_entry["loc"]["m"]) == 2
     assert file_entry["loc"]["m"][0] <= file_entry["loc"]["m"][1]
     assert symbol_entry["loc"]["m"]["f"] == file_entry["loc"]["m"]

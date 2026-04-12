@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .model import FilePack, ImportRef, PackResult
+from .model import ClassRef, DefRef, FilePack, ImportRef, PackResult
 
 try:
     import tomllib  # py311+
@@ -128,6 +128,76 @@ def _package_context(file_pack: FilePack) -> str:
     if "." not in module:
         return ""
     return module.rsplit(".", 1)[0]
+
+
+def _summary_label(values: list[str], *, limit: int = 3) -> str:
+    return ", ".join(values[:limit])
+
+
+def build_file_summary_text(
+    *,
+    role: str | None,
+    primary_symbols: list[str],
+    exports: list[str],
+    touches_io: bool,
+    is_test: bool,
+) -> str:
+    parts: list[str] = []
+    if role:
+        parts.append(f"{role.replace('-', ' ')} file")
+    elif is_test:
+        parts.append("test file")
+    else:
+        parts.append("source file")
+    if primary_symbols:
+        parts.append(f"primary symbols: {_summary_label(primary_symbols)}")
+    if exports:
+        parts.append(f"exports: {_summary_label(exports)}")
+    if touches_io:
+        parts.append("touches I/O")
+    return "; ".join(parts)
+
+
+def build_symbol_purpose_text(defn: DefRef) -> str:
+    parts: list[str] = []
+    visibility = "public" if defn.is_public else "private"
+    if defn.is_property:
+        kind = "property"
+    elif defn.is_classmethod:
+        kind = "classmethod"
+    elif defn.is_staticmethod:
+        kind = "staticmethod"
+    elif defn.is_method:
+        kind = "method"
+    else:
+        kind = defn.kind
+    if defn.is_coroutine:
+        kind = f"async {kind}"
+    if defn.owner_class:
+        parts.append(f"{visibility} {kind} on {defn.owner_class}")
+    else:
+        parts.append(f"{visibility} {kind}")
+    if defn.return_annotation:
+        parts.append(f"returns {defn.return_annotation}")
+    elif defn.is_generator:
+        parts.append("yields values")
+    parameter_names = [
+        parameter.name
+        for parameter in defn.parameters
+        if parameter.name not in {"self", "cls"}
+    ]
+    if parameter_names:
+        parts.append(f"params: {_summary_label(parameter_names)}")
+    return "; ".join(parts)
+
+
+def build_class_purpose_text(class_ref: ClassRef) -> str:
+    parts = ["public class" if class_ref.is_public else "private class"]
+    if class_ref.base_classes:
+        parts.append(f"bases: {_summary_label(class_ref.base_classes)}")
+    if class_ref.decorators:
+        parts.append(f"decorators: {_summary_label(class_ref.decorators)}")
+    return "; ".join(parts)
 
 
 def resolve_import_module(file_pack: FilePack, import_ref: ImportRef) -> str | None:
@@ -629,6 +699,13 @@ def build_file_summaries(
             "exports": list(file_pack.exports[:_SUMMARY_LIMIT]),
             "touches_io": bool(imports_roots & _IO_IMPORT_HINTS),
             "is_test": role in {"test", "test-fixture"},
+            "summary_text": build_file_summary_text(
+                role=role,
+                primary_symbols=primary_symbols,
+                exports=list(file_pack.exports[:_SUMMARY_LIMIT]),
+                touches_io=bool(imports_roots & _IO_IMPORT_HINTS),
+                is_test=role in {"test", "test-fixture"},
+            ),
         }
     return summaries
 

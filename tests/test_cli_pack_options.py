@@ -281,6 +281,46 @@ emit_standalone_unpacker = true
     assert (tmp_path / "context.unpack.py").exists()
 
 
+def test_pack_uses_config_for_index_json_enablement_and_output_paths(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+index_json_enabled = true
+index_json_output = "artifacts/retrieval.json"
+manifest_json_output = "artifacts/manifest.json"
+standalone_unpacker_output = "artifacts/context.unpack.py"
+""",
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path)])
+
+    assert (tmp_path / "artifacts" / "retrieval.json").exists()
+    assert (tmp_path / "artifacts" / "manifest.json").exists()
+    assert (tmp_path / "artifacts" / "context.unpack.py").exists()
+
+
+def test_pack_config_index_json_enabled_false_overrides_profile_default(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+profile = "agent"
+index_json_enabled = false
+""",
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path)])
+
+    assert not (tmp_path / "context.index.json").exists()
+
+
 def test_pack_stdin_applies_excludes(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
     (tmp_path / "b.py").write_text("def b():\n    return 2\n", encoding="utf-8")

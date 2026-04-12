@@ -9,5 +9,5 @@ split_max_chars = 0
 manifest = false
 layout = "full"
 profile = "portable"
-standalone_unpacker = true
+emit_standalone_unpacker = true
 index_json_mode = "minimal"

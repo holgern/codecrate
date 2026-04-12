@@ -19,6 +19,7 @@ It is designed for LLM workflows:
 
    quickstart
    cli
+   config
    format
    index_json
    agent_workflows
