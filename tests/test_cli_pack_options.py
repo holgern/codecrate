@@ -530,9 +530,7 @@ def test_pack_focus_file_expands_neighbors_and_tests(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("# Demo\n", encoding="utf-8")
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_a.py").write_text(
-        "from a import a\n\n"
-        "def test_a() -> None:\n"
-        "    assert a() == 1\n",
+        "from a import a\n\n" "def test_a() -> None:\n" "    assert a() == 1\n",
         encoding="utf-8",
     )
     out_path = tmp_path / "context.md"

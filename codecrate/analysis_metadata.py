@@ -288,16 +288,10 @@ def build_repository_guide(
             )
 
     entrypoints = sorted(
-        {
-            path
-            for path, hint in role_hints.items()
-            if hint == "entrypoint"
-        }
+        {path for path, hint in role_hints.items() if hint == "entrypoint"}
         | set(_entrypoints_from_pyproject(root, module_to_path))
     )
-    key_configs = sorted(
-        path for path, hint in role_hints.items() if hint == "config"
-    )
+    key_configs = sorted(path for path, hint in role_hints.items() if hint == "config")
     central_modules = [
         _rel_path(pack, file_pack)
         for file_pack in sorted(

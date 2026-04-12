@@ -139,9 +139,7 @@ def test_index_json_normalized_v3_validation(tmp_path: Path) -> None:
     (tmp_path / "pkg").mkdir()
     (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
     (tmp_path / "pkg" / "service.py").write_text(
-        "from .helpers import helper\n\n"
-        "def run() -> int:\n"
-        "    return helper()\n",
+        "from .helpers import helper\n\n" "def run() -> int:\n" "    return helper()\n",
         encoding="utf-8",
     )
     (tmp_path / "pkg" / "helpers.py").write_text(

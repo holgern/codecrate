@@ -5,9 +5,7 @@ from pathlib import Path
 from codecrate.parse import module_name_for, parse_symbols
 
 
-def _parse(
-    code: str, *, path: Path = Path("test.py"), root: Path = Path("/")
-):
+def _parse(code: str, *, path: Path = Path("test.py"), root: Path = Path("/")):
     return parse_symbols(path, root, code)
 
 

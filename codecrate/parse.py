@@ -112,9 +112,7 @@ class _Visitor(ast.NodeVisitor):
         return start
 
     def _add_class(self, node: ast.ClassDef) -> None:
-        qual = (
-            ".".join(self.qual_stack + [node.name]) if self.qual_stack else node.name
-        )
+        qual = ".".join(self.qual_stack + [node.name]) if self.qual_stack else node.name
         class_line = int(getattr(node, "lineno", 1))
         end_line = int(getattr(node, "end_lineno", class_line))
         decorator_start = self._decorator_start(node, class_line)
@@ -183,9 +181,7 @@ class _Visitor(ast.NodeVisitor):
                 doc_end=doc_end,
                 is_single_line=is_single_line,
                 decorators=_names_for_nodes(getattr(node, "decorator_list", [])),
-                owner_class=(
-                    ".".join(self.class_stack) if self.class_stack else None
-                ),
+                owner_class=(".".join(self.class_stack) if self.class_stack else None),
             )
         )
 
@@ -219,7 +215,7 @@ def _module_docstring_range(tree: ast.Module) -> tuple[int, int] | None:
 def _string_literals(node: ast.AST) -> list[str] | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return [node.value]
-    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+    if isinstance(node, ast.List | ast.Tuple | ast.Set):
         values: list[str] = []
         for elt in node.elts:
             strings = _string_literals(elt)

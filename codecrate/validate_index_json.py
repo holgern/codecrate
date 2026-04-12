@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .formats import (
     INDEX_JSON_FORMAT_VERSION_V1,
@@ -66,7 +66,7 @@ def _validate_locator_line_range(
     errors: list[str],
     *,
     repo_label: str,
-    line_range: dict[str, Any] | None,
+    line_range: Any,
     detail: str,
 ) -> None:
     if line_range is None:
@@ -594,7 +594,12 @@ def _normalized_tables(
     ):
         _append_error(errors, repo_label, "normalized tables must all be arrays")
         return None
-    return paths, parts_table, qualnames, strings
+    return (
+        cast(list[Any], paths),
+        cast(list[Any], parts_table),
+        cast(list[Any], qualnames),
+        cast(list[Any], strings),
+    )
 
 
 def _validate_normalized_file_entries(

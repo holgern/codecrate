@@ -300,25 +300,25 @@ def _resolve_focus_paths(pack: PackResult, options: PackOptions) -> set[str]:
         matched = False
         if ":" in query:
             module, qualname = query.split(":", 1)
-            for item in pack.defs:
-                rel = item.path.relative_to(pack.root).as_posix()
-                if item.module == module and item.qualname == qualname:
+            for def_item in pack.defs:
+                rel = def_item.path.relative_to(pack.root).as_posix()
+                if def_item.module == module and def_item.qualname == qualname:
                     selected.add(rel)
                     matched = True
-            for item in pack.classes:
-                rel = item.path.relative_to(pack.root).as_posix()
-                if item.module == module and item.qualname == qualname:
+            for class_item in pack.classes:
+                rel = class_item.path.relative_to(pack.root).as_posix()
+                if class_item.module == module and class_item.qualname == qualname:
                     selected.add(rel)
                     matched = True
         else:
-            for item in pack.defs:
-                rel = item.path.relative_to(pack.root).as_posix()
-                if item.qualname == query:
+            for def_item in pack.defs:
+                rel = def_item.path.relative_to(pack.root).as_posix()
+                if def_item.qualname == query:
                     selected.add(rel)
                     matched = True
-            for item in pack.classes:
-                rel = item.path.relative_to(pack.root).as_posix()
-                if item.qualname == query:
+            for class_item in pack.classes:
+                rel = class_item.path.relative_to(pack.root).as_posix()
+                if class_item.qualname == query:
                     selected.add(rel)
                     matched = True
         if not matched:
