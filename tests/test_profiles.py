@@ -43,6 +43,42 @@ def test_pack_profile_agent_implies_compact_nav_and_normalized_index_json(
     assert payload["repositories"][0]["locator_space"] == "markdown"
 
 
+def test_pack_profile_lean_agent_trims_markdown_and_sidecar_defaults(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "a.py").write_text(
+        "def alpha() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.1.0"\n',
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path), "--profile", "lean-agent"])
+
+    text = out_path.read_text(encoding="utf-8")
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo = payload["repositories"][0]
+
+    assert payload["mode"] == "normalized"
+    assert "## How to Use This Pack" not in text
+    assert "## Environment Setup" not in text
+    assert "## Repository Guide" not in text
+    assert "## Directory Tree" in text
+    assert "## Symbol Index" in text
+    assert "graph" not in repo
+    assert "test_links" not in repo
+    assert "guide" not in repo
+    assert "classes" not in repo
+    assert "sum" not in repo["files"][0]
+    assert "rel" not in repo["files"][0]
+    assert "pt" not in repo["symbols"][0]
+    assert "sig" not in repo["symbols"][0]
+
+
 def test_pack_profile_agent_explicit_overrides_win(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     out_path = tmp_path / "context.md"
@@ -114,3 +150,18 @@ def test_pack_profile_from_config_is_used(tmp_path: Path) -> None:
     payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
     assert payload["mode"] == "normalized"
     assert payload["repositories"][0]["locator_space"] == "markdown"
+
+
+def test_pack_profile_lean_agent_from_config_is_used(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "codecrate.toml").write_text(
+        '[codecrate]\nprofile = "lean-agent"\n',
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path)])
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    assert payload["mode"] == "normalized"
+    assert "graph" not in payload["repositories"][0]

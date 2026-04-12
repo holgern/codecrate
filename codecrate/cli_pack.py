@@ -296,7 +296,11 @@ def _write_index_json_if_requested(
         is_split=wrote_split_outputs,
         index_json_mode=_resolve_output_index_json_mode(pack_runs),
     )
-    write_index_json(index_json_path, payload)
+    write_index_json(
+        index_json_path,
+        payload,
+        pretty=any(run.options.index_json_pretty for run in pack_runs),
+    )
     return index_json_path
 
 

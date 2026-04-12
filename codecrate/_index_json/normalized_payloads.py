@@ -422,25 +422,27 @@ def _normalized_file_payload(
             )
             if role_hint is not None:
                 file_entry["role"] = role_hint
-            summary = dict(file_summaries.get(rel) or {})
-            if not run.options.index_json_include_exports:
-                summary["exports"] = []
-            normalized_summary = _normalized_summary_payload(
-                summary,
-                qualname_table=qualname_table,
-                qualname_lookup=qualname_lookup,
-                string_table=string_table,
-                string_lookup=string_lookup,
-            )
-            if normalized_summary is not None:
-                file_entry["sum"] = normalized_summary
-            normalized_relationships = _normalized_relationships_payload(
-                relationship_summaries.get(rel),
-                path_table=path_table,
-                path_lookup=path_lookup,
-            )
-            if normalized_relationships is not None:
-                file_entry["rel"] = normalized_relationships
+            if run.options.index_json_include_file_summaries:
+                summary = dict(file_summaries.get(rel) or {})
+                if not run.options.index_json_include_exports:
+                    summary["exports"] = []
+                normalized_summary = _normalized_summary_payload(
+                    summary,
+                    qualname_table=qualname_table,
+                    qualname_lookup=qualname_lookup,
+                    string_table=string_table,
+                    string_lookup=string_lookup,
+                )
+                if normalized_summary is not None:
+                    file_entry["sum"] = normalized_summary
+            if run.options.index_json_include_relationships:
+                normalized_relationships = _normalized_relationships_payload(
+                    relationship_summaries.get(rel),
+                    path_table=path_table,
+                    path_lookup=path_lookup,
+                )
+                if normalized_relationships is not None:
+                    file_entry["rel"] = normalized_relationships
         normalized_locators: dict[str, Any] = {}
         if _includes_locator_space(run.options.locator_space, "markdown"):
             markdown_lines = _locator_line_range_from_markdown(
@@ -471,6 +473,7 @@ def _normalized_class_payload(
     qualname_lookup: dict[str, int],
     string_table: list[str],
     string_lookup: dict[str, int],
+    include_purpose_text: bool,
 ) -> list[dict[str, Any]]:
     class_machine_ids, _ = _class_id_maps(run)
     classes_payload: list[dict[str, Any]] = []
@@ -514,13 +517,14 @@ def _normalized_class_payload(
                 table=string_table,
                 lookup=string_lookup,
             )
-        purpose_text = _table_index(
-            build_class_purpose_text(class_ref),
-            table=string_table,
-            lookup=string_lookup,
-        )
-        if purpose_text is not None:
-            entry["pt"] = purpose_text
+        if include_purpose_text:
+            purpose_text = _table_index(
+                build_class_purpose_text(class_ref),
+                table=string_table,
+                lookup=string_lookup,
+            )
+            if purpose_text is not None:
+                entry["pt"] = purpose_text
         if class_ref.is_public:
             entry["pub"] = True
         classes_payload.append(entry)
@@ -602,47 +606,49 @@ def _normalized_symbol_payload(
                     table=string_table,
                     lookup=string_lookup,
                 )
-            signature = _table_index(
-                defn.signature_text,
-                table=string_table,
-                lookup=string_lookup,
-            )
-            if signature is not None:
-                entry["sig"] = signature
-            return_annotation = _table_index(
-                defn.return_annotation,
-                table=string_table,
-                lookup=string_lookup,
-            )
-            if return_annotation is not None:
-                entry["ret"] = return_annotation
-            parameters = _normalized_parameters_payload(
-                defn.parameters,
-                string_table=string_table,
-                string_lookup=string_lookup,
-            )
-            if parameters:
-                entry["params"] = parameters
-            purpose_text = _table_index(
-                build_symbol_purpose_text(defn),
-                table=string_table,
-                lookup=string_lookup,
-            )
-            if purpose_text is not None:
-                entry["pt"] = purpose_text
-            for key, enabled in (
-                ("meth", defn.is_method),
-                ("prop", defn.is_property),
-                ("cls", defn.is_classmethod),
-                ("stat", defn.is_staticmethod),
-                ("gen", defn.is_generator),
-                ("co", defn.is_coroutine),
-                ("pub", defn.is_public),
-                ("ovl", defn.is_overload),
-                ("abs", defn.is_abstractmethod),
-            ):
-                if enabled:
-                    entry[key] = True
+            if run.options.index_json_include_semantic:
+                signature = _table_index(
+                    defn.signature_text,
+                    table=string_table,
+                    lookup=string_lookup,
+                )
+                if signature is not None:
+                    entry["sig"] = signature
+                return_annotation = _table_index(
+                    defn.return_annotation,
+                    table=string_table,
+                    lookup=string_lookup,
+                )
+                if return_annotation is not None:
+                    entry["ret"] = return_annotation
+                parameters = _normalized_parameters_payload(
+                    defn.parameters,
+                    string_table=string_table,
+                    string_lookup=string_lookup,
+                )
+                if parameters:
+                    entry["params"] = parameters
+                for key, enabled in (
+                    ("meth", defn.is_method),
+                    ("prop", defn.is_property),
+                    ("cls", defn.is_classmethod),
+                    ("stat", defn.is_staticmethod),
+                    ("gen", defn.is_generator),
+                    ("co", defn.is_coroutine),
+                    ("pub", defn.is_public),
+                    ("ovl", defn.is_overload),
+                    ("abs", defn.is_abstractmethod),
+                ):
+                    if enabled:
+                        entry[key] = True
+            if run.options.index_json_include_purpose_text:
+                purpose_text = _table_index(
+                    build_symbol_purpose_text(defn),
+                    table=string_table,
+                    lookup=string_lookup,
+                )
+                if purpose_text is not None:
+                    entry["pt"] = purpose_text
         normalized_locators: dict[str, Any] = {}
         if (
             _includes_locator_space(run.options.locator_space, "markdown")
@@ -701,7 +707,9 @@ def _normalized_repository_payload(
     role_hints: dict[str, str | None],
     relationship_summaries: dict[str, dict[str, list[str]]],
     file_summaries: dict[str, dict[str, Any]],
-    analysis_metadata: bool,
+    file_analysis_metadata: bool,
+    symbol_analysis_metadata: bool,
+    repository_analysis_metadata: bool,
 ) -> dict[str, Any]:
     path_table: list[str] = []
     path_lookup: dict[str, int] = {}
@@ -730,7 +738,7 @@ def _normalized_repository_payload(
         role_hints=role_hints,
         relationship_summaries=relationship_summaries,
         file_summaries=file_summaries,
-        analysis_metadata=analysis_metadata,
+        analysis_metadata=file_analysis_metadata,
         path_table=path_table,
         path_lookup=path_lookup,
         part_table=part_table,
@@ -752,8 +760,9 @@ def _normalized_repository_payload(
             qualname_lookup=qualname_lookup,
             string_table=string_table,
             string_lookup=string_lookup,
+            include_purpose_text=run.options.index_json_include_purpose_text,
         )
-        if analysis_metadata
+        if run.options.index_json_include_classes
         else []
     )
     symbols_payload = _normalized_symbol_payload(
@@ -766,7 +775,7 @@ def _normalized_repository_payload(
         reconstructed_root=reconstructed_root,
         class_ids_by_path_qualname=class_ids_by_path_qualname,
         include_canonical_ids=include_canonical_ids,
-        analysis_metadata=analysis_metadata,
+        analysis_metadata=symbol_analysis_metadata,
         path_table=path_table,
         path_lookup=path_lookup,
         part_table=part_table,
@@ -798,8 +807,9 @@ def _normalized_repository_payload(
         "files": files_payload,
         "symbols": symbols_payload,
     }
-    if analysis_metadata and run.options.index_json_include_classes:
+    if run.options.index_json_include_classes:
         repository["classes"] = classes_payload
+    if repository_analysis_metadata:
         repository.update(
             _normalized_analysis_payload(
                 import_edges,

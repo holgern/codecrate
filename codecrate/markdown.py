@@ -397,7 +397,11 @@ def _render_tree(paths: list[str]) -> str:
 
 
 def _render_how_to_use_section(
-    *, use_stubs: bool, include_repository_guide: bool
+    *,
+    use_stubs: bool,
+    include_repository_guide: bool,
+    include_directory_tree: bool,
+    include_symbol_index: bool,
 ) -> str:
     lines: list[str] = []
     lines.append("## How to Use This Pack\n\n")
@@ -407,20 +411,22 @@ def _render_how_to_use_section(
     )
     lines.append("**Quick workflow**\n")
     step = 1
-    lines.append(
-        f"{step}. **Directory Tree** {_range_token('SECTION', 'Directory Tree')}\n"
-    )
-    step += 1
+    if include_directory_tree:
+        lines.append(
+            f"{step}. **Directory Tree** {_range_token('SECTION', 'Directory Tree')}\n"
+        )
+        step += 1
     if include_repository_guide:
         lines.append(
             f"{step}. **Repository Guide** "
             f"{_range_token('SECTION', 'Repository Guide')}\n"
         )
         step += 1
-    lines.append(
-        f"{step}. **Symbol Index** {_range_token('SECTION', 'Symbol Index')}\n"
-    )
-    step += 1
+    if include_symbol_index:
+        lines.append(
+            f"{step}. **Symbol Index** {_range_token('SECTION', 'Symbol Index')}\n"
+        )
+        step += 1
     if use_stubs:
         lines.append(
             f"{step}. **Function Library** "
@@ -519,6 +525,10 @@ def render_markdown_result(  # noqa: C901
     safety_report_entries: list[dict[str, str]] | None = None,
     include_manifest: bool = True,
     include_repository_guide: bool = True,
+    include_symbol_index: bool = True,
+    include_directory_tree: bool = True,
+    include_environment_setup: bool = True,
+    include_how_to_use: bool = True,
     manifest_data: dict[str, Any] | None = None,
     repo_label: str = "repo",
     repo_slug: str = "repo",
@@ -611,13 +621,17 @@ def render_markdown_result(  # noqa: C901
         if include_repository_guide
         else ""
     )
-    lines.append(
-        _render_how_to_use_section(
-            use_stubs=use_stubs,
-            include_repository_guide=bool(guide_section),
+    if include_how_to_use:
+        lines.append(
+            _render_how_to_use_section(
+                use_stubs=use_stubs,
+                include_repository_guide=bool(guide_section),
+                include_directory_tree=include_directory_tree,
+                include_symbol_index=include_symbol_index,
+            )
         )
-    )
-    lines.append(_render_environment_setup_section(pack.root))
+    if include_environment_setup:
+        lines.append(_render_environment_setup_section(pack.root))
     lines.append(guide_section)
 
     if include_manifest:
@@ -645,42 +659,44 @@ def render_markdown_result(  # noqa: C901
         path.relative_to(pack.root).as_posix()
         for path in sort_paths([f.path for f in pack.files])
     ]
-    lines.append("## Directory Tree\n\n")
-    _append_fenced_block(lines, _render_tree(rel_paths) + "\n", "text")
+    if include_directory_tree:
+        lines.append("## Directory Tree\n\n")
+        _append_fenced_block(lines, _render_tree(rel_paths) + "\n", "text")
 
-    lines.append("## Symbol Index\n\n")
+    if include_symbol_index:
+        lines.append("## Symbol Index\n\n")
 
-    for fp in sorted(pack.files, key=lambda x: x.path.as_posix()):
-        rel = fp.path.relative_to(pack.root).as_posix()
-        file_range = _range_token("FILE", rel)
-        fa = anchor_for_file_index(rel)
-        sa = anchor_for_file_source(rel)
-        if compact_nav:
-            lines.append(f"### `{rel}` {file_range}\n")
-            lines.append(f'<a id="{fa}"></a>\n')
-        else:
-            # Always provide a jump target to the file contents.
-            lines.append(f"### `{rel}` {file_range} — [jump](#{sa})\n")
-            lines.append(f'<a id="{fa}"></a>\n')
-
-        for c in sorted(fp.classes, key=lambda x: (x.class_line, x.qualname)):
-            class_loc = _range_token("CLASS", c.id)
-            lines.append(f"- `class {c.qualname}` {class_loc}\n")
-
-        for d in sorted(fp.defs, key=lambda d: (d.def_line, d.qualname)):
-            loc = _range_token("DEF", d.local_id)
-            has_canonical = d.id in canonical_sources
-            link = "\n"
-            if use_stubs and has_canonical:
-                anchor = anchor_for_symbol(d.id)
-                link = f" — [jump](#{anchor})\n"
-                id_display = f"**{d.id}**"
-                if getattr(d, "local_id", d.id) != d.id:
-                    id_display += f" (local **{d.local_id}**)"
-                lines.append(f"- `{d.qualname}` → {id_display} {loc}{link}")
+        for fp in sorted(pack.files, key=lambda x: x.path.as_posix()):
+            rel = fp.path.relative_to(pack.root).as_posix()
+            file_range = _range_token("FILE", rel)
+            fa = anchor_for_file_index(rel)
+            sa = anchor_for_file_source(rel)
+            if compact_nav:
+                lines.append(f"### `{rel}` {file_range}\n")
+                lines.append(f'<a id="{fa}"></a>\n')
             else:
-                lines.append(f"- `{d.qualname}` → {loc}\n")
-        lines.append("\n")
+                # Always provide a jump target to the file contents.
+                lines.append(f"### `{rel}` {file_range} — [jump](#{sa})\n")
+                lines.append(f'<a id="{fa}"></a>\n')
+
+            for c in sorted(fp.classes, key=lambda x: (x.class_line, x.qualname)):
+                class_loc = _range_token("CLASS", c.id)
+                lines.append(f"- `class {c.qualname}` {class_loc}\n")
+
+            for d in sorted(fp.defs, key=lambda d: (d.def_line, d.qualname)):
+                loc = _range_token("DEF", d.local_id)
+                has_canonical = d.id in canonical_sources
+                link = "\n"
+                if use_stubs and has_canonical:
+                    anchor = anchor_for_symbol(d.id)
+                    link = f" — [jump](#{anchor})\n"
+                    id_display = f"**{d.id}**"
+                    if getattr(d, "local_id", d.id) != d.id:
+                        id_display += f" (local **{d.local_id}**)"
+                    lines.append(f"- `{d.qualname}` → {id_display} {loc}{link}")
+                else:
+                    lines.append(f"- `{d.qualname}` → {loc}\n")
+            lines.append("\n")
 
     if use_stubs:
         lines.append("## Function Library\n\n")
@@ -753,6 +769,10 @@ def render_markdown(  # noqa: C901
     safety_report_entries: list[dict[str, str]] | None = None,
     include_manifest: bool = True,
     include_repository_guide: bool = True,
+    include_symbol_index: bool = True,
+    include_directory_tree: bool = True,
+    include_environment_setup: bool = True,
+    include_how_to_use: bool = True,
     manifest_data: dict[str, Any] | None = None,
     repo_label: str = "repo",
     repo_slug: str = "repo",
@@ -769,6 +789,10 @@ def render_markdown(  # noqa: C901
         safety_report_entries=safety_report_entries,
         include_manifest=include_manifest,
         include_repository_guide=include_repository_guide,
+        include_symbol_index=include_symbol_index,
+        include_directory_tree=include_directory_tree,
+        include_environment_setup=include_environment_setup,
+        include_how_to_use=include_how_to_use,
         manifest_data=manifest_data,
         repo_label=repo_label,
         repo_slug=repo_slug,

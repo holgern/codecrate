@@ -21,6 +21,7 @@ class PackOptions:
     index_json_mode: str | None
     manifest_json_output: str | None
     index_json_output: str | None
+    index_json_pretty: bool
     index_json_include_lookup: bool
     index_json_include_symbol_index_lines: bool
     analysis_metadata: bool
@@ -31,6 +32,15 @@ class PackOptions:
     index_json_include_classes: bool
     index_json_include_exports: bool
     index_json_include_module_docstrings: bool
+    index_json_include_semantic: bool
+    index_json_include_purpose_text: bool
+    index_json_include_file_summaries: bool
+    index_json_include_relationships: bool
+    markdown_include_repository_guide: bool
+    markdown_include_symbol_index: bool
+    markdown_include_directory_tree: bool
+    markdown_include_environment_setup: bool
+    markdown_include_how_to_use: bool
     focus_file: list[str]
     focus_symbol: list[str]
     include_import_neighbors: int
@@ -83,7 +93,24 @@ def resolve_profile(cfg: Config, cli_value: str | None) -> str:
         cli_value if cli_value is not None else str(getattr(cfg, "profile", "human"))
     )
     norm = str(value).strip().lower()
-    return norm if norm in {"human", "agent", "hybrid", "portable"} else "human"
+    return (
+        norm
+        if norm in {"human", "agent", "lean-agent", "hybrid", "portable"}
+        else "human"
+    )
+
+
+def _resolve_optional_bool(
+    cli_value: bool | None,
+    cfg_value: bool | None,
+    *,
+    default: bool,
+) -> bool:
+    if cli_value is not None:
+        return bool(cli_value)
+    if cfg_value is not None:
+        return bool(cfg_value)
+    return default
 
 
 def resolve_index_json_mode(
@@ -102,7 +129,7 @@ def resolve_index_json_mode(
 
     if args.index_json is not None:
         return "full"
-    if profile == "agent":
+    if profile in {"agent", "lean-agent"}:
         return "normalized"
     if profile == "hybrid":
         return "full"
@@ -187,31 +214,44 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
     elif getattr(cfg, "index_json_mode", None) is not None:
         index_json_enabled = True
     else:
-        index_json_enabled = profile in {"agent", "hybrid"}
-    index_json_include_lookup = (
-        bool(getattr(cfg, "index_json_include_lookup", True))
-        if getattr(args, "index_json_lookup", None) is None
-        else bool(args.index_json_lookup)
+        index_json_enabled = profile in {"agent", "lean-agent", "hybrid"}
+
+    default_analysis_metadata = not (
+        index_json_mode == "minimal" or profile == "lean-agent"
     )
-    index_json_include_symbol_index_lines = (
-        bool(getattr(cfg, "index_json_include_symbol_index_lines", True))
-        if getattr(args, "index_json_symbol_index_lines", None) is None
-        else bool(args.index_json_symbol_index_lines)
+    analysis_metadata = _resolve_optional_bool(
+        getattr(args, "analysis_metadata", None),
+        getattr(cfg, "analysis_metadata", None),
+        default=default_analysis_metadata,
     )
-    analysis_metadata = (
-        bool(getattr(cfg, "analysis_metadata", True))
-        if getattr(args, "analysis_metadata", None) is None
-        else bool(args.analysis_metadata)
+
+    index_json_pretty = _resolve_optional_bool(
+        getattr(args, "index_json_pretty", None),
+        getattr(cfg, "index_json_pretty", None),
+        default=not (index_json_mode == "minimal" or profile == "lean-agent"),
+    )
+
+    index_json_include_lookup = _resolve_optional_bool(
+        getattr(args, "index_json_lookup", None),
+        getattr(cfg, "index_json_include_lookup", None),
+        default=index_json_mode != "minimal",
+    )
+    index_json_include_symbol_index_lines = _resolve_optional_bool(
+        getattr(args, "index_json_symbol_index_lines", None),
+        getattr(cfg, "index_json_include_symbol_index_lines", None),
+        default=index_json_mode != "minimal",
+    )
+
+    default_compact_analysis = analysis_metadata and not (
+        index_json_mode == "minimal" or profile == "lean-agent"
     )
 
     def _resolve_analysis_toggle(name: str, arg_name: str) -> bool:
-        cli_value = getattr(args, arg_name, None)
-        if cli_value is not None:
-            return bool(cli_value)
-        cfg_value = getattr(cfg, name, None)
-        if cfg_value is not None:
-            return bool(cfg_value)
-        return analysis_metadata
+        return _resolve_optional_bool(
+            getattr(args, arg_name, None),
+            getattr(cfg, name, None),
+            default=analysis_metadata,
+        )
 
     index_json_include_graph = _resolve_analysis_toggle(
         "index_json_include_graph", "index_json_graph"
@@ -234,6 +274,51 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
     index_json_include_module_docstrings = _resolve_analysis_toggle(
         "index_json_include_module_docstrings",
         "index_json_module_docstrings",
+    )
+    index_json_include_semantic = _resolve_optional_bool(
+        getattr(args, "index_json_semantic", None),
+        getattr(cfg, "index_json_include_semantic", None),
+        default=default_compact_analysis,
+    )
+    index_json_include_purpose_text = _resolve_optional_bool(
+        getattr(args, "index_json_purpose_text", None),
+        getattr(cfg, "index_json_include_purpose_text", None),
+        default=default_compact_analysis,
+    )
+    index_json_include_file_summaries = _resolve_optional_bool(
+        getattr(args, "index_json_file_summaries", None),
+        getattr(cfg, "index_json_include_file_summaries", None),
+        default=default_compact_analysis,
+    )
+    index_json_include_relationships = _resolve_optional_bool(
+        getattr(args, "index_json_relationships", None),
+        getattr(cfg, "index_json_include_relationships", None),
+        default=default_compact_analysis,
+    )
+    markdown_include_repository_guide = _resolve_optional_bool(
+        getattr(args, "markdown_repository_guide", None),
+        getattr(cfg, "markdown_include_repository_guide", None),
+        default=analysis_metadata and profile != "lean-agent",
+    )
+    markdown_include_symbol_index = _resolve_optional_bool(
+        getattr(args, "markdown_symbol_index", None),
+        getattr(cfg, "markdown_include_symbol_index", None),
+        default=True,
+    )
+    markdown_include_directory_tree = _resolve_optional_bool(
+        getattr(args, "markdown_directory_tree", None),
+        getattr(cfg, "markdown_include_directory_tree", None),
+        default=True,
+    )
+    markdown_include_environment_setup = _resolve_optional_bool(
+        getattr(args, "markdown_environment_setup", None),
+        getattr(cfg, "markdown_include_environment_setup", None),
+        default=profile != "lean-agent",
+    )
+    markdown_include_how_to_use = _resolve_optional_bool(
+        getattr(args, "markdown_how_to_use", None),
+        getattr(cfg, "markdown_include_how_to_use", None),
+        default=profile != "lean-agent",
     )
     focus_file = (
         list(getattr(cfg, "focus_file", []))
@@ -345,7 +430,7 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         if args.nav_mode is not None
         else (
             "compact"
-            if profile == "agent"
+            if profile in {"agent", "lean-agent"}
             else str(getattr(cfg, "nav_mode", "auto")).strip().lower()
         )
     )
@@ -432,6 +517,7 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         index_json_mode=index_json_mode,
         manifest_json_output=manifest_json_output,
         index_json_output=index_json_output,
+        index_json_pretty=index_json_pretty,
         index_json_include_lookup=index_json_include_lookup,
         index_json_include_symbol_index_lines=index_json_include_symbol_index_lines,
         analysis_metadata=analysis_metadata,
@@ -442,6 +528,15 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         index_json_include_classes=index_json_include_classes,
         index_json_include_exports=index_json_include_exports,
         index_json_include_module_docstrings=index_json_include_module_docstrings,
+        index_json_include_semantic=index_json_include_semantic,
+        index_json_include_purpose_text=index_json_include_purpose_text,
+        index_json_include_file_summaries=index_json_include_file_summaries,
+        index_json_include_relationships=index_json_include_relationships,
+        markdown_include_repository_guide=markdown_include_repository_guide,
+        markdown_include_symbol_index=markdown_include_symbol_index,
+        markdown_include_directory_tree=markdown_include_directory_tree,
+        markdown_include_environment_setup=markdown_include_environment_setup,
+        markdown_include_how_to_use=markdown_include_how_to_use,
         focus_file=focus_file,
         focus_symbol=focus_symbol,
         include_import_neighbors=include_import_neighbors,

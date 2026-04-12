@@ -52,8 +52,9 @@ def test_config_defaults() -> None:
     assert cfg.emit_standalone_unpacker is False
     assert cfg.standalone_unpacker_output is None
     assert cfg.locator_space == "auto"
-    assert cfg.index_json_include_lookup is True
-    assert cfg.index_json_include_symbol_index_lines is True
+    assert cfg.index_json_pretty is None
+    assert cfg.index_json_include_lookup is None
+    assert cfg.index_json_include_symbol_index_lines is None
     assert cfg.index_json_include_graph is None
     assert cfg.index_json_include_test_links is None
     assert cfg.index_json_include_guide is None
@@ -61,7 +62,16 @@ def test_config_defaults() -> None:
     assert cfg.index_json_include_classes is None
     assert cfg.index_json_include_exports is None
     assert cfg.index_json_include_module_docstrings is None
-    assert cfg.analysis_metadata is True
+    assert cfg.index_json_include_semantic is None
+    assert cfg.index_json_include_purpose_text is None
+    assert cfg.index_json_include_file_summaries is None
+    assert cfg.index_json_include_relationships is None
+    assert cfg.analysis_metadata is None
+    assert cfg.markdown_include_repository_guide is None
+    assert cfg.markdown_include_symbol_index is None
+    assert cfg.markdown_include_directory_tree is None
+    assert cfg.markdown_include_environment_setup is None
+    assert cfg.markdown_include_how_to_use is None
     assert cfg.focus_file == []
     assert cfg.focus_symbol == []
     assert cfg.include_import_neighbors == 0
@@ -216,8 +226,18 @@ index_json_include_exports = true
 index_json_include_module_docstrings = false
 emit_standalone_unpacker = true
 locator_space = "dual"
+index_json_pretty = false
 symbol_backend = "tree-sitter"
 encoding_errors = "strict"
+index_json_include_semantic = false
+index_json_include_purpose_text = false
+index_json_include_file_summaries = false
+index_json_include_relationships = true
+markdown_include_repository_guide = false
+markdown_include_symbol_index = true
+markdown_include_directory_tree = false
+markdown_include_environment_setup = true
+markdown_include_how_to_use = false
 """,
         encoding="utf-8",
     )
@@ -246,6 +266,7 @@ encoding_errors = "strict"
     assert cfg.nav_mode == "compact"
     assert cfg.emit_standalone_unpacker is True
     assert cfg.locator_space == "dual"
+    assert cfg.index_json_pretty is False
     assert cfg.index_json_include_lookup is False
     assert cfg.index_json_include_symbol_index_lines is False
     assert cfg.index_json_include_graph is False
@@ -255,6 +276,15 @@ encoding_errors = "strict"
     assert cfg.index_json_include_classes is False
     assert cfg.index_json_include_exports is True
     assert cfg.index_json_include_module_docstrings is False
+    assert cfg.index_json_include_semantic is False
+    assert cfg.index_json_include_purpose_text is False
+    assert cfg.index_json_include_file_summaries is False
+    assert cfg.index_json_include_relationships is True
+    assert cfg.markdown_include_repository_guide is False
+    assert cfg.markdown_include_symbol_index is True
+    assert cfg.markdown_include_directory_tree is False
+    assert cfg.markdown_include_environment_setup is True
+    assert cfg.markdown_include_how_to_use is False
     assert cfg.symbol_backend == "tree-sitter"
     assert cfg.encoding_errors == "strict"
 

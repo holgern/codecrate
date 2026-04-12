@@ -678,6 +678,58 @@ def test_pack_no_analysis_metadata_omits_guide_and_sidecar_analysis(
     assert "owner_class" not in repo["symbols"][0]
 
 
+def test_pack_index_json_guide_toggle_no_longer_controls_markdown_guide(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text(
+        "def run() -> int:\n    return 1\n", encoding="utf-8"
+    )
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--index-json",
+            "--no-index-json-guide",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+
+    assert "## Repository Guide" in text
+    assert "guide" not in payload["repositories"][0]
+
+
+def test_pack_markdown_repository_guide_toggle_is_independent(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text(
+        "def run() -> int:\n    return 1\n", encoding="utf-8"
+    )
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--index-json",
+            "--no-markdown-repository-guide",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+
+    assert "## Repository Guide" not in text
+    assert "guide" in payload["repositories"][0]
+
+
 def test_pack_index_json_section_toggles_trim_selected_analysis_payloads(
     tmp_path: Path,
 ) -> None:
@@ -707,6 +759,10 @@ def test_pack_index_json_section_toggles_trim_selected_analysis_payloads(
             "--no-index-json-classes",
             "--no-index-json-exports",
             "--no-index-json-module-docstrings",
+            "--no-index-json-semantic",
+            "--no-index-json-purpose-text",
+            "--no-index-json-file-summaries",
+            "--no-index-json-relationships",
             "-o",
             str(tmp_path / "context.md"),
         ]
@@ -726,8 +782,10 @@ def test_pack_index_json_section_toggles_trim_selected_analysis_payloads(
     assert "imports" not in file_entry
     assert "exports" not in file_entry
     assert "module_docstring_lines" not in file_entry
-    assert file_entry["summary"]["primary_symbols"] == ["run"]
-    assert "semantic" in repo["symbols"][0]
+    assert "summary" not in file_entry
+    assert "relationships" not in file_entry
+    assert "semantic" not in repo["symbols"][0]
+    assert "purpose_text" not in repo["symbols"][0]
 
 
 def test_pack_focus_reverse_neighbors_same_package_and_entrypoints(

@@ -154,11 +154,13 @@ def _full_file_payload(
         }
         if analysis_metadata:
             file_entry["role_hint"] = role_hints.get(rel)
-            summary = dict(file_summaries.get(rel) or {})
-            if not run.options.index_json_include_exports:
-                summary["exports"] = []
-            file_entry["summary"] = summary or None
-            file_entry["relationships"] = relationship_summaries.get(rel)
+            if run.options.index_json_include_file_summaries:
+                summary = dict(file_summaries.get(rel) or {})
+                if not run.options.index_json_include_exports:
+                    summary["exports"] = []
+                file_entry["summary"] = summary or None
+            if run.options.index_json_include_relationships:
+                file_entry["relationships"] = relationship_summaries.get(rel)
             if run.options.index_json_include_file_imports:
                 file_entry["imports"] = imports_by_source.get(rel, [])
             if run.options.index_json_include_exports:
@@ -186,6 +188,7 @@ def _class_payload(
     markdown_path: str | None,
     file_markdown_ranges: dict[str, dict[str, int]],
     include_display_ids: bool,
+    include_purpose_text: bool,
 ) -> list[dict[str, Any]]:
     class_machine_ids, _ = _class_id_maps(run)
     payload: list[dict[str, Any]] = []
@@ -214,7 +217,8 @@ def _class_payload(
         }
         if include_display_ids:
             entry["display_local_id"] = class_ref.id
-        entry["purpose_text"] = build_class_purpose_text(class_ref)
+        if include_purpose_text:
+            entry["purpose_text"] = build_class_purpose_text(class_ref)
         if markdown_path is not None and rel in file_markdown_ranges:
             entry["file_markdown_path"] = markdown_path
             entry["file_markdown_lines"] = file_markdown_ranges[rel]
@@ -319,8 +323,10 @@ def _full_symbol_payload(
                 else None
             )
             symbol_entry["decorators"] = list(defn.decorators)
-            symbol_entry["semantic"] = _semantic_symbol_payload(defn)
-            symbol_entry["purpose_text"] = build_symbol_purpose_text(defn)
+            if run.options.index_json_include_semantic:
+                symbol_entry["semantic"] = _semantic_symbol_payload(defn)
+            if run.options.index_json_include_purpose_text:
+                symbol_entry["purpose_text"] = build_symbol_purpose_text(defn)
         if markdown_path is not None:
             if defn.local_id in symbol_index_ranges:
                 symbol_entry["index_markdown_path"] = markdown_path

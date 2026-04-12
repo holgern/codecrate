@@ -11,10 +11,12 @@ retrieve, validate, diff, and apply changes safely.
 Choose A Profile
 ----------------
 
-Codecrate supports four output profiles:
+Codecrate supports five output profiles:
 
 * ``human``: keep the current markdown-first behavior
 * ``agent``: compact navigation plus normalized ``codecrate.index-json.v3``
+* ``lean-agent``: normalized ``codecrate.index-json.v3`` with lean analysis and
+  markdown defaults
 * ``hybrid``: current markdown richness plus full ``codecrate.index-json.v1``
 * ``portable``: manifest-enabled ``full`` layout for standalone reconstruction
 
@@ -23,6 +25,7 @@ Example:
 .. code-block:: console
 
    codecrate pack . -o context.md --profile agent
+   codecrate pack . -o context.md --profile lean-agent
 
 If you relied on compact-only lookup convenience fields, request them
 explicitly:
@@ -93,7 +96,7 @@ Codecrate now exposes three sidecar modes:
 
 * ``full``: current v1-compatible retrieval surface
 * ``compact``: machine-first v2 retrieval surface
-* ``minimal``: smallest practical v2 retrieval surface
+* ``minimal``: smallest v2-compatible retrieval surface
 * ``normalized``: table-interned v3 retrieval surface with the best default
   token efficiency for agent workflows
 
@@ -110,6 +113,9 @@ Generate it directly:
 ``--index-json`` alone keeps the full v1-compatible sidecar. Use
 ``--index-json-mode compact|minimal|normalized`` when you want the leanest
 machine-first sidecar surface.
+
+Use ``--profile lean-agent`` when you want those lean defaults without spelling
+out the individual toggles.
 
 If you need to trim the v2 payload further, you can also disable the lookup maps
 or compact-only symbol index line ranges:

@@ -38,7 +38,7 @@ INCLUDE_PRESETS: dict[str, list[str]] = {
 }
 DEFAULT_INCLUDE_PRESET: Literal["python+docs"] = "python+docs"
 
-ProfileValue = Literal["human", "agent", "hybrid", "portable"]
+ProfileValue = Literal["human", "agent", "lean-agent", "hybrid", "portable"]
 LayoutValue = Literal["auto", "stubs", "full"]
 IncludePresetValue = Literal["python-only", "python+docs", "everything"]
 NavModeValue = Literal["auto", "compact", "full"]
@@ -75,6 +75,7 @@ class Config:
     # Output defaults profile.
     # - "human": preserve current markdown-first behavior
     # - "agent": emit compact navigation and normalized v3 sidecar defaults
+    # - "lean-agent": emit the leanest recommended agent defaults
     # - "hybrid": preserve current markdown behavior but emit index-json by default
     # - "portable": prefer manifest-enabled full-layout output for standalone unpack
     profile: ProfileValue = "human"
@@ -119,7 +120,7 @@ class Config:
     # - None: let profile/default behavior decide whether to emit it
     # - "full": current v1-compatible sidecar
     # - "compact": slimmer v2 retrieval sidecar
-    # - "minimal": smallest practical v2 retrieval sidecar
+    # - "minimal": smallest v2-compatible retrieval sidecar
     index_json_mode: IndexJsonModeValue | None = None
     # Optional explicit sidecar enablement, independent of mode/profile defaults.
     index_json_enabled: bool | None = None
@@ -138,11 +139,12 @@ class Config:
     # - "reconstructed": locators target reconstructed output files
     # - "dual": emit both locator families
     locator_space: LocatorSpaceValue = "auto"
-    # Optional v2 payload trimming controls.
+    # Optional sidecar payload trimming controls.
+    index_json_pretty: bool | None = None
     # - index_json_include_lookup: include lookup maps in v2 sidecars
     # - index_json_include_symbol_index_lines: include unsplit symbol index lines
-    index_json_include_lookup: bool = True
-    index_json_include_symbol_index_lines: bool = True
+    index_json_include_lookup: bool | None = None
+    index_json_include_symbol_index_lines: bool | None = None
     index_json_include_graph: bool | None = None
     index_json_include_test_links: bool | None = None
     index_json_include_guide: bool | None = None
@@ -150,8 +152,17 @@ class Config:
     index_json_include_classes: bool | None = None
     index_json_include_exports: bool | None = None
     index_json_include_module_docstrings: bool | None = None
+    index_json_include_semantic: bool | None = None
+    index_json_include_purpose_text: bool | None = None
+    index_json_include_file_summaries: bool | None = None
+    index_json_include_relationships: bool | None = None
     # Analysis metadata and focused packing controls.
-    analysis_metadata: bool = True
+    analysis_metadata: bool | None = None
+    markdown_include_repository_guide: bool | None = None
+    markdown_include_symbol_index: bool | None = None
+    markdown_include_directory_tree: bool | None = None
+    markdown_include_environment_setup: bool | None = None
+    markdown_include_how_to_use: bool | None = None
     focus_file: list[str] = field(default_factory=list)
     focus_symbol: list[str] = field(default_factory=list)
     include_import_neighbors: int = 0
@@ -262,7 +273,7 @@ CONFIG_FIELD_METADATA: dict[str, ConfigFieldMetadata] = {
         type_name="enum",
         description="Output defaults profile.",
         cli_flags=("--profile",),
-        choices=("human", "agent", "hybrid", "portable"),
+        choices=("human", "agent", "lean-agent", "hybrid", "portable"),
     ),
     "layout": ConfigFieldMetadata(
         type_name="enum",
@@ -411,13 +422,18 @@ CONFIG_FIELD_METADATA: dict[str, ConfigFieldMetadata] = {
         cli_flags=("--locator-space",),
         choices=("auto", "markdown", "reconstructed", "dual"),
     ),
+    "index_json_pretty": ConfigFieldMetadata(
+        type_name="boolean|null",
+        description="Pretty-print index-json output instead of minifying it.",
+        cli_flags=("--index-json-pretty", "--no-index-json-pretty"),
+    ),
     "index_json_include_lookup": ConfigFieldMetadata(
-        type_name="boolean",
+        type_name="boolean|null",
         description="Include lookup tables in compact/minimal v2 index-json output.",
         cli_flags=("--index-json-lookup", "--no-index-json-lookup"),
     ),
     "index_json_include_symbol_index_lines": ConfigFieldMetadata(
-        type_name="boolean",
+        type_name="boolean|null",
         description=(
             "Include unsplit symbol index line ranges in compact v2 index-json output."
         ),
@@ -464,10 +480,69 @@ CONFIG_FIELD_METADATA: dict[str, ConfigFieldMetadata] = {
             "--no-index-json-module-docstrings",
         ),
     ),
+    "index_json_include_semantic": ConfigFieldMetadata(
+        type_name="boolean|null",
+        description="Include semantic signature metadata in index-json output.",
+        cli_flags=("--index-json-semantic", "--no-index-json-semantic"),
+    ),
+    "index_json_include_purpose_text": ConfigFieldMetadata(
+        type_name="boolean|null",
+        description="Include human-readable purpose text in index-json output.",
+        cli_flags=("--index-json-purpose-text", "--no-index-json-purpose-text"),
+    ),
+    "index_json_include_file_summaries": ConfigFieldMetadata(
+        type_name="boolean|null",
+        description="Include per-file summary payloads in index-json output.",
+        cli_flags=(
+            "--index-json-file-summaries",
+            "--no-index-json-file-summaries",
+        ),
+    ),
+    "index_json_include_relationships": ConfigFieldMetadata(
+        type_name="boolean|null",
+        description="Include per-file relationship payloads in index-json output.",
+        cli_flags=(
+            "--index-json-relationships",
+            "--no-index-json-relationships",
+        ),
+    ),
     "analysis_metadata": ConfigFieldMetadata(
-        type_name="boolean",
-        description="Include analysis-oriented metadata in generated outputs.",
+        type_name="boolean|null",
+        description=(
+            "Default on/off switch for analysis-oriented metadata in generated outputs."
+        ),
         cli_flags=("--analysis-metadata", "--no-analysis-metadata"),
+    ),
+    "markdown_include_repository_guide": ConfigFieldMetadata(
+        type_name="boolean|null",
+        description="Include the Repository Guide section in generated markdown.",
+        cli_flags=(
+            "--markdown-repository-guide",
+            "--no-markdown-repository-guide",
+        ),
+    ),
+    "markdown_include_symbol_index": ConfigFieldMetadata(
+        type_name="boolean|null",
+        description="Include the Symbol Index section in generated markdown.",
+        cli_flags=("--markdown-symbol-index", "--no-markdown-symbol-index"),
+    ),
+    "markdown_include_directory_tree": ConfigFieldMetadata(
+        type_name="boolean|null",
+        description="Include the Directory Tree section in generated markdown.",
+        cli_flags=("--markdown-directory-tree", "--no-markdown-directory-tree"),
+    ),
+    "markdown_include_environment_setup": ConfigFieldMetadata(
+        type_name="boolean|null",
+        description="Include the Environment Setup section in generated markdown.",
+        cli_flags=(
+            "--markdown-environment-setup",
+            "--no-markdown-environment-setup",
+        ),
+    ),
+    "markdown_include_how_to_use": ConfigFieldMetadata(
+        type_name="boolean|null",
+        description="Include the How to Use This Pack section in generated markdown.",
+        cli_flags=("--markdown-how-to-use", "--no-markdown-how-to-use"),
     ),
     "focus_file": ConfigFieldMetadata(
         type_name="list[string]",
@@ -608,6 +683,12 @@ def render_config_reference_rst() -> str:
         "   * - Retrieval and agent lookup",
         "     - ``agent``",
         "     - Compact navigation plus normalized v3 index-json output.",
+        "   * - Lean agent retrieval",
+        "     - ``lean-agent``",
+        (
+            "     - Compact navigation plus minified normalized v3 sidecars with "
+            "lean analysis defaults."
+        ),
         "   * - Review plus tooling",
         "     - ``hybrid``",
         "     - Rich markdown plus the full v1-compatible index-json sidecar.",
@@ -1435,7 +1516,15 @@ def load_config_details(root: Path) -> LoadedConfig:  # noqa: C901
             source=source,
         ),
     )
-    cfg.index_json_include_lookup = _load_bool_value(
+    cfg.index_json_pretty = _load_optional_bool_value(
+        section,
+        "index_json_pretty",
+        cfg.index_json_pretty,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
+    cfg.index_json_include_lookup = _load_optional_bool_value(
         section,
         "index_json_include_lookup",
         cfg.index_json_include_lookup,
@@ -1443,7 +1532,7 @@ def load_config_details(root: Path) -> LoadedConfig:  # noqa: C901
         provenance=provenance,
         source=source,
     )
-    cfg.index_json_include_symbol_index_lines = _load_bool_value(
+    cfg.index_json_include_symbol_index_lines = _load_optional_bool_value(
         section,
         "index_json_include_symbol_index_lines",
         cfg.index_json_include_symbol_index_lines,
@@ -1507,10 +1596,82 @@ def load_config_details(root: Path) -> LoadedConfig:  # noqa: C901
         provenance=provenance,
         source=source,
     )
-    cfg.analysis_metadata = _load_bool_value(
+    cfg.index_json_include_semantic = _load_optional_bool_value(
+        section,
+        "index_json_include_semantic",
+        cfg.index_json_include_semantic,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
+    cfg.index_json_include_purpose_text = _load_optional_bool_value(
+        section,
+        "index_json_include_purpose_text",
+        cfg.index_json_include_purpose_text,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
+    cfg.index_json_include_file_summaries = _load_optional_bool_value(
+        section,
+        "index_json_include_file_summaries",
+        cfg.index_json_include_file_summaries,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
+    cfg.index_json_include_relationships = _load_optional_bool_value(
+        section,
+        "index_json_include_relationships",
+        cfg.index_json_include_relationships,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
+    cfg.analysis_metadata = _load_optional_bool_value(
         section,
         "analysis_metadata",
         cfg.analysis_metadata,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
+    cfg.markdown_include_repository_guide = _load_optional_bool_value(
+        section,
+        "markdown_include_repository_guide",
+        cfg.markdown_include_repository_guide,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
+    cfg.markdown_include_symbol_index = _load_optional_bool_value(
+        section,
+        "markdown_include_symbol_index",
+        cfg.markdown_include_symbol_index,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
+    cfg.markdown_include_directory_tree = _load_optional_bool_value(
+        section,
+        "markdown_include_directory_tree",
+        cfg.markdown_include_directory_tree,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
+    cfg.markdown_include_environment_setup = _load_optional_bool_value(
+        section,
+        "markdown_include_environment_setup",
+        cfg.markdown_include_environment_setup,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
+    cfg.markdown_include_how_to_use = _load_optional_bool_value(
+        section,
+        "markdown_include_how_to_use",
+        cfg.markdown_include_how_to_use,
         warnings=warnings,
         provenance=provenance,
         source=source,

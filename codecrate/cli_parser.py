@@ -100,11 +100,12 @@ def _add_pack_parser(
     )
     pack.add_argument(
         "--profile",
-        choices=["human", "agent", "hybrid", "portable"],
+        choices=["human", "agent", "lean-agent", "hybrid", "portable"],
         default=None,
         help=(
             "Output defaults profile: human keeps current behavior, "
-            "agent implies compact nav + minimal v2 index-json, "
+            "agent implies compact nav + normalized v3 index-json, "
+            "lean-agent implies compact nav + lean normalized v3 index-json, "
             "hybrid implies full index-json, "
             "portable implies full layout with manifest for standalone unpack."
         ),
@@ -410,6 +411,12 @@ def _add_pack_parser(
         ),
     )
     pack.add_argument(
+        "--index-json-pretty",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Pretty-print index-json output instead of minifying it.",
+    )
+    pack.add_argument(
         "--index-json-lookup",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -468,6 +475,60 @@ def _add_pack_parser(
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Include module docstring ranges in index-json output.",
+    )
+    pack.add_argument(
+        "--index-json-semantic",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include semantic signature metadata in index-json output.",
+    )
+    pack.add_argument(
+        "--index-json-purpose-text",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include human-readable purpose text in index-json output.",
+    )
+    pack.add_argument(
+        "--index-json-file-summaries",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include per-file summary payloads in index-json output.",
+    )
+    pack.add_argument(
+        "--index-json-relationships",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include per-file relationship payloads in index-json output.",
+    )
+    pack.add_argument(
+        "--markdown-repository-guide",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include the Repository Guide section in markdown output.",
+    )
+    pack.add_argument(
+        "--markdown-symbol-index",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include the Symbol Index section in markdown output.",
+    )
+    pack.add_argument(
+        "--markdown-directory-tree",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include the Directory Tree section in markdown output.",
+    )
+    pack.add_argument(
+        "--markdown-environment-setup",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include the Environment Setup section in markdown output.",
+    )
+    pack.add_argument(
+        "--markdown-how-to-use",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include the How to Use This Pack section in markdown output.",
     )
     pack.add_argument(
         "--no-index-json",

@@ -46,14 +46,18 @@ def test_pack_help_clarifies_explicit_file_behavior(capsys) -> None:
     assert "Include globs are not applied" in captured.out
     assert "exclude" in captured.out
     assert "ignore files still apply" in captured.out
-    assert "agent implies compact nav + minimal v2 index-json" in captured.out
+    assert "agent implies compact nav + normalized v3 index-json" in captured.out
+    assert "lean-agent implies compact nav + lean normalized v3" in captured.out
+    assert "index-json" in captured.out
     assert "portable" in captured.out
-    assert "standalone unpack" in captured.out
     assert "Explicit" in captured.out
     assert "full mode" in captured.out
     assert "--index-json-mode" in captured.out
+    assert "--index-json-pretty" in captured.out
     assert "--index-json-lookup" in captured.out
     assert "--index-json-symbol-index-lines" in captured.out
+    assert "--index-json-semantic" in captured.out
+    assert "--markdown-repository-guide" in captured.out
     assert "--emit-standalone-unpacker" in captured.out
     assert "--locator-space" in captured.out
     assert "reconstructed when --emit-standalone-unpacker" in captured.out

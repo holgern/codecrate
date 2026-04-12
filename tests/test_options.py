@@ -28,6 +28,7 @@ def test_resolve_pack_options_uses_profile_defaults(tmp_path: Path) -> None:
     assert options.nav_mode == "compact"
     assert options.index_json_enabled is True
     assert options.index_json_mode == "normalized"
+    assert options.index_json_pretty is True
     assert options.index_json_include_lookup is True
     assert options.index_json_include_symbol_index_lines is True
     assert options.analysis_metadata is True
@@ -38,6 +39,15 @@ def test_resolve_pack_options_uses_profile_defaults(tmp_path: Path) -> None:
     assert options.index_json_include_classes is True
     assert options.index_json_include_exports is True
     assert options.index_json_include_module_docstrings is True
+    assert options.index_json_include_semantic is True
+    assert options.index_json_include_purpose_text is True
+    assert options.index_json_include_file_summaries is True
+    assert options.index_json_include_relationships is True
+    assert options.markdown_include_repository_guide is True
+    assert options.markdown_include_symbol_index is True
+    assert options.markdown_include_directory_tree is True
+    assert options.markdown_include_environment_setup is True
+    assert options.markdown_include_how_to_use is True
     assert options.focus_file == []
     assert options.focus_symbol == []
     assert options.include_import_neighbors == 0
@@ -46,6 +56,38 @@ def test_resolve_pack_options_uses_profile_defaults(tmp_path: Path) -> None:
     assert options.include_entrypoints is False
     assert options.include_tests is False
     assert options.include_manifest is True
+
+
+def test_resolve_pack_options_lean_agent_profile_defaults(tmp_path: Path) -> None:
+    cfg = Config()
+
+    options = resolve_pack_options(
+        cfg,
+        _parse_pack_args(tmp_path, "--profile", "lean-agent"),
+    )
+
+    assert options.profile == "lean-agent"
+    assert options.nav_mode == "compact"
+    assert options.index_json_enabled is True
+    assert options.index_json_mode == "normalized"
+    assert options.index_json_pretty is False
+    assert options.analysis_metadata is False
+    assert options.index_json_include_graph is False
+    assert options.index_json_include_test_links is False
+    assert options.index_json_include_guide is False
+    assert options.index_json_include_file_imports is False
+    assert options.index_json_include_classes is False
+    assert options.index_json_include_exports is False
+    assert options.index_json_include_module_docstrings is False
+    assert options.index_json_include_semantic is False
+    assert options.index_json_include_purpose_text is False
+    assert options.index_json_include_file_summaries is False
+    assert options.index_json_include_relationships is False
+    assert options.markdown_include_repository_guide is False
+    assert options.markdown_include_symbol_index is True
+    assert options.markdown_include_directory_tree is True
+    assert options.markdown_include_environment_setup is False
+    assert options.markdown_include_how_to_use is False
 
 
 def test_resolve_pack_options_cli_overrides_profile_defaults(tmp_path: Path) -> None:
@@ -122,6 +164,14 @@ def test_resolve_pack_options_index_json_mode_enables_sidecar(tmp_path: Path) ->
 
     assert options.index_json_enabled is True
     assert options.index_json_mode == "minimal"
+    assert options.index_json_pretty is False
+    assert options.index_json_include_lookup is False
+    assert options.index_json_include_symbol_index_lines is False
+    assert options.analysis_metadata is False
+    assert options.index_json_include_semantic is False
+    assert options.index_json_include_purpose_text is False
+    assert options.index_json_include_file_summaries is False
+    assert options.index_json_include_relationships is False
 
 
 def test_resolve_pack_options_normalized_index_json_mode_enables_sidecar(
@@ -300,6 +350,40 @@ def test_resolve_pack_options_v2_trimming_flags_from_config(tmp_path: Path) -> N
 
     assert options.index_json_include_lookup is False
     assert options.index_json_include_symbol_index_lines is False
+
+
+def test_resolve_pack_options_markdown_and_analysis_overrides_from_cli(
+    tmp_path: Path,
+) -> None:
+    cfg = Config(profile="lean-agent")
+
+    options = resolve_pack_options(
+        cfg,
+        _parse_pack_args(
+            tmp_path,
+            "--analysis-metadata",
+            "--index-json-semantic",
+            "--index-json-purpose-text",
+            "--index-json-file-summaries",
+            "--index-json-relationships",
+            "--markdown-repository-guide",
+            "--no-markdown-symbol-index",
+            "--no-markdown-directory-tree",
+            "--markdown-environment-setup",
+            "--markdown-how-to-use",
+        ),
+    )
+
+    assert options.analysis_metadata is True
+    assert options.index_json_include_semantic is True
+    assert options.index_json_include_purpose_text is True
+    assert options.index_json_include_file_summaries is True
+    assert options.index_json_include_relationships is True
+    assert options.markdown_include_repository_guide is True
+    assert options.markdown_include_symbol_index is False
+    assert options.markdown_include_directory_tree is False
+    assert options.markdown_include_environment_setup is True
+    assert options.markdown_include_how_to_use is True
 
 
 def test_resolve_pack_options_rejects_conflicting_index_json_flags(

@@ -443,10 +443,10 @@ def test_pack_index_json_minimal_v2_shape(tmp_path: Path) -> None:
     assert payload["mode"] == "minimal"
     assert payload["pack"]["index_json_mode"] == "minimal"
     assert repo["index_json_features"] == {
-        "lookup": True,
+        "lookup": False,
         "symbol_index_lines": False,
     }
-    assert set(repo["lookup"]) == {"file_by_path", "symbol_by_local_id"}
+    assert "lookup" not in repo
     assert repo["locator_space"] == "markdown"
     assert "language_family" not in file_entry
     assert "index_markdown_lines" not in symbol_entry
@@ -455,6 +455,8 @@ def test_pack_index_json_minimal_v2_shape(tmp_path: Path) -> None:
     assert file_entry["locators"]["markdown"]["path"] == "context.md"
     assert symbol_entry["locators"]["markdown"]["path"] == "context.md"
     assert "symbol_index_lines" in symbol_entry["locators"]["markdown"]
+    assert "semantic" not in symbol_entry
+    assert "purpose_text" not in symbol_entry
 
 
 def test_pack_index_json_normalized_v3_shape(tmp_path: Path) -> None:
@@ -685,7 +687,7 @@ def test_pack_index_json_compact_without_symbol_index_lines_shape(
     assert "index_markdown_lines" not in symbol_entry
 
 
-def test_pack_index_json_compact_minimal_and_normalized_are_smaller_than_full(
+def test_pack_index_json_compact_and_minimal_are_smaller_than_full(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "a.py").write_text(
@@ -748,7 +750,102 @@ def test_pack_index_json_compact_minimal_and_normalized_are_smaller_than_full(
 
     assert len(compact_text) < len(full_text)
     assert len(minimal_text) < len(compact_text)
-    assert len(normalized_text) < len(minimal_text)
+    assert len(normalized_text) < len(full_text)
+
+
+def test_pack_profile_lean_agent_is_smaller_than_agent(tmp_path: Path) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "a.py").write_text(
+        '"""docs"""\n\n'
+        "class Service:\n"
+        "    @staticmethod\n"
+        "    def run() -> int:\n"
+        "        return 1\n",
+        encoding="utf-8",
+    )
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "agent.md"),
+            "--profile",
+            "agent",
+        ]
+    )
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "lean.md"),
+            "--profile",
+            "lean-agent",
+        ]
+    )
+
+    agent_bytes = len((tmp_path / "agent.index.json").read_bytes())
+    lean_bytes = len((tmp_path / "lean.index.json").read_bytes())
+
+    assert lean_bytes < agent_bytes
+
+
+def test_pack_no_analysis_metadata_with_explicit_semantic_override_includes_semantic(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text(
+        "def alpha(x: int) -> int:\n    return x\n", encoding="utf-8"
+    )
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--index-json-mode",
+            "compact",
+            "--no-analysis-metadata",
+            "--index-json-semantic",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    assert "semantic" in payload["repositories"][0]["symbols"][0]
+
+
+def test_pack_index_json_pretty_toggle_changes_formatting(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "pretty.md"),
+            "--profile",
+            "lean-agent",
+            "--index-json-pretty",
+        ]
+    )
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "minified.md"),
+            "--profile",
+            "lean-agent",
+            "--no-index-json-pretty",
+        ]
+    )
+
+    pretty_text = (tmp_path / "pretty.index.json").read_text(encoding="utf-8")
+    minified_text = (tmp_path / "minified.index.json").read_text(encoding="utf-8")
+
+    assert '\n  "' in pretty_text
+    assert '\n  "' not in minified_text
 
 
 def test_pack_profile_agent_normalized_sidecar_stays_below_markdown_ratio(

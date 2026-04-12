@@ -21,7 +21,7 @@
 - **Two layout modes**:
   - `stubs`: Compact file stubs with function bodies in a separate "Function Library"
   - `full`: Complete file contents (no stubbing)
-- **Output profiles**: `human`, `agent`, `hybrid`, and `portable`
+- **Output profiles**: `human`, `agent`, `lean-agent`, `hybrid`, and `portable`
 - **Portable reconstruction**: Optional generated standalone unpacker script using only the Python standard library
 - **Round-trip support**: Reconstruct original files exactly from Markdown packs
 - **Diff generation**: Create minimal patch Markdown files showing only changed code
@@ -86,6 +86,15 @@ codecrate pack . -o context.md --profile agent
 
 This uses the normalized v3 sidecar by default.
 
+Pack for the leanest recommended agent workflow:
+
+```bash
+codecrate pack . -o context.md --profile lean-agent
+```
+
+This keeps normalized v3, disables analysis-heavy sidecar payloads by default,
+and trims markdown scaffolding.
+
 Pack with rich markdown plus an agent sidecar:
 
 ```bash
@@ -130,10 +139,16 @@ Explicit `--index-json` defaults to the full v1-compatible sidecar. Use
 `--index-json-mode compact`, `--index-json-mode minimal`, or
 `--index-json-mode normalized` when you want leaner machine-first sidecars.
 
-Generate the smallest practical retrieval sidecar:
+Generate the smallest recommended sidecar for agent workflows:
 
 ```bash
 codecrate pack . -o context.md --index-json-mode normalized
+```
+
+Generate the smallest v2-compatible retrieval sidecar:
+
+```bash
+codecrate pack . -o context.md --index-json-mode minimal
 ```
 
 Focus a pack around one symbol plus nearby imports and tests:
@@ -191,12 +206,13 @@ Codecrate reads config from the repository root with this precedence:
 
 Use this quick chooser for profile defaults:
 
-| Use case                 | Profile    | Behavior                                                   |
-| ------------------------ | ---------- | ---------------------------------------------------------- |
-| Review-only markdown     | `human`    | Markdown-first output without profile-implied `index-json` |
-| Retrieval / agent lookup | `agent`    | Compact nav plus normalized v3 `index-json`                |
-| Review plus tooling      | `hybrid`   | Rich markdown plus full v1-compatible `index-json`         |
-| Portable reconstruction  | `portable` | Manifest-enabled `full` layout for standalone unpacking    |
+| Use case                 | Profile      | Behavior                                                   |
+| ------------------------ | ------------ | ---------------------------------------------------------- |
+| Review-only markdown     | `human`      | Markdown-first output without profile-implied `index-json` |
+| Retrieval / agent lookup | `agent`      | Compact nav plus normalized v3 `index-json`                |
+| Lean agent retrieval     | `lean-agent` | Compact nav plus lean normalized v3 `index-json`           |
+| Review plus tooling      | `hybrid`     | Rich markdown plus full v1-compatible `index-json`         |
+| Portable reconstruction  | `portable`   | Manifest-enabled `full` layout for standalone unpacking    |
 
 See `docs/config.rst` for the generated config reference, or run `codecrate config schema --json` for the machine-readable schema.
 
@@ -214,12 +230,13 @@ include_preset = "python+docs"
 # File patterns to exclude
 exclude = ["**/test_*.py", "**/tests/**"]
 
-# Output profile: "human" | "agent" | "hybrid" | "portable"
+# Output profile: "human" | "agent" | "lean-agent" | "hybrid" | "portable"
 profile = "human"
 
 # Retrieval sidecar mode: "full" | "compact" | "minimal" | "normalized"
 # - explicit mode also enables index-json output
 # - agent defaults to "normalized"
+# - lean-agent defaults to "normalized" with lean analysis defaults
 # - hybrid defaults to "full"
 index_json_mode = "normalized"
 
@@ -248,6 +265,18 @@ index_json_include_file_imports = true
 index_json_include_classes = true
 index_json_include_exports = true
 index_json_include_module_docstrings = true
+
+# Optional size controls
+index_json_pretty = true
+index_json_include_semantic = true
+index_json_include_purpose_text = true
+index_json_include_file_summaries = true
+index_json_include_relationships = true
+markdown_include_repository_guide = true
+markdown_include_symbol_index = true
+markdown_include_directory_tree = true
+markdown_include_environment_setup = true
+markdown_include_how_to_use = true
 
 # Optional v2 sidecar trimming knobs
 index_json_include_lookup = true
@@ -342,7 +371,7 @@ codecrate pack <root> [OPTIONS]
 
 - `-o, --output PATH`: Output markdown path (default: `context.md`)
 - `--dedupe` / `--no-dedupe`: Enable or disable deduplication
-- `--profile {human,agent,hybrid,portable}`: Output defaults profile (`agent` implies compact nav + normalized v3 index-json)
+- `--profile {human,agent,lean-agent,hybrid,portable}`: Output defaults profile (`agent` implies compact nav + normalized v3 index-json; `lean-agent` keeps normalized but trims default sidecar and markdown payloads)
 - `--layout {auto,stubs,full}`: Output layout mode
 - `--nav-mode {auto,compact,full}`: Navigation density mode
 - `--symbol-backend {auto,python,tree-sitter,none}`: Non-Python symbol backend
@@ -391,9 +420,11 @@ codecrate pack <root> [OPTIONS]
 - `--manifest-json [PATH]`: Write manifest JSON for tooling
 - `--index-json [PATH]`: Write retrieval-oriented index JSON for agents and tools (`--index-json` alone defaults to full v1 compatibility mode)
 - `--index-json-mode {full,compact,minimal,normalized}`: Select sidecar mode and enable index-json output (`agent` defaults to `normalized`, `hybrid` defaults to `full`)
+- `--index-json-pretty` / `--no-index-json-pretty`: Pretty-print or minify index-json output
 - `--index-json-lookup` / `--no-index-json-lookup`: Include or trim v2 lookup maps
 - `--index-json-symbol-index-lines` / `--no-index-json-symbol-index-lines`: Include or trim compact v2 symbol index line ranges
-- `--index-json-graph`, `--index-json-test-links`, `--index-json-guide`, `--index-json-file-imports`, `--index-json-classes`, `--index-json-exports`, `--index-json-module-docstrings`: Independently include or trim analysis sections
+- `--index-json-graph`, `--index-json-test-links`, `--index-json-guide`, `--index-json-file-imports`, `--index-json-classes`, `--index-json-exports`, `--index-json-module-docstrings`, `--index-json-semantic`, `--index-json-purpose-text`, `--index-json-file-summaries`, `--index-json-relationships`: Independently include or trim analysis sections
+- `--markdown-repository-guide`, `--markdown-symbol-index`, `--markdown-directory-tree`, `--markdown-environment-setup`, `--markdown-how-to-use`: Independently include or trim markdown guide sections
 - `--no-index-json`: Disable index JSON output, including profile-implied defaults
 - `--emit-standalone-unpacker`: Write `<output>.unpack.py` for zero-install reconstruction
 - `--locator-space {auto,markdown,reconstructed,dual}`: Choose whether sidecar locators point into the markdown pack, the reconstructed file tree, or both (`auto` switches to reconstructed when `--emit-standalone-unpacker` is enabled)

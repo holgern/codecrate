@@ -58,6 +58,31 @@ def build_index_payload(
     repositories: list[dict[str, Any]] = []
     all_output_files: list[str] = []
     for run in pack_runs:
+        include_repository_analysis = any(
+            (
+                run.options.index_json_include_graph,
+                run.options.index_json_include_test_links,
+                run.options.index_json_include_guide,
+            )
+        )
+        include_file_analysis = any(
+            (
+                run.options.analysis_metadata,
+                run.options.index_json_include_file_imports,
+                run.options.index_json_include_exports,
+                run.options.index_json_include_module_docstrings,
+                run.options.index_json_include_file_summaries,
+                run.options.index_json_include_relationships,
+            )
+        )
+        include_symbol_analysis = any(
+            (
+                run.options.analysis_metadata,
+                run.options.index_json_include_classes,
+                run.options.index_json_include_semantic,
+                run.options.index_json_include_purpose_text,
+            )
+        )
         parts_input = repo_output_parts.get(run.slug, [])
         reconstructed_root = _repo_reconstructed_root(run, repo_count=len(pack_runs))
         (
@@ -77,15 +102,12 @@ def build_index_payload(
         )
         import_edges = (
             import_edges_payload(run.pack_result)
-            if run.options.analysis_metadata and run.options.index_json_include_graph
+            if run.options.index_json_include_graph
             else []
         )
         test_links = (
             test_links_payload(run.pack_result)
-            if (
-                run.options.analysis_metadata
-                and run.options.index_json_include_test_links
-            )
+            if run.options.index_json_include_test_links
             else []
         )
         guide = (
@@ -94,37 +116,31 @@ def build_index_payload(
                 pack=run.pack_result,
                 file_bytes=run.file_bytes,
             )
-            if run.options.analysis_metadata and run.options.index_json_include_guide
+            if run.options.index_json_include_guide
             else {}
         )
         architecture = (
             build_architecture_map(root=run.root, pack=run.pack_result)
-            if run.options.analysis_metadata and run.options.index_json_include_guide
+            if run.options.index_json_include_guide
             else {}
         )
         imports_by_source = (
             _imports_by_source(run)
-            if (
-                run.options.analysis_metadata
-                and run.options.index_json_include_file_imports
-            )
+            if run.options.index_json_include_file_imports
             else {}
         )
-        role_hints = _role_hints_by_path(run) if run.options.analysis_metadata else {}
+        role_hints = _role_hints_by_path(run) if include_file_analysis else {}
         relationship_summaries = (
             build_file_relationships(root=run.root, pack=run.pack_result)
-            if run.options.analysis_metadata
+            if run.options.index_json_include_relationships
             else {}
         )
-        if (
-            run.options.analysis_metadata
-            and not run.options.index_json_include_test_links
-        ):
+        if relationship_summaries and not run.options.index_json_include_test_links:
             for relationship in relationship_summaries.values():
                 relationship["related_tests"] = []
         file_summaries = (
             build_file_summaries(pack=run.pack_result)
-            if run.options.analysis_metadata
+            if run.options.index_json_include_file_summaries
             else {}
         )
         all_output_files.extend(part["path"] for part in parts)
@@ -141,7 +157,7 @@ def build_index_payload(
                 role_hints=role_hints,
                 relationship_summaries=relationship_summaries,
                 file_summaries=file_summaries,
-                analysis_metadata=run.options.analysis_metadata,
+                analysis_metadata=include_file_analysis,
             )
             classes_payload = (
                 _class_payload(
@@ -150,11 +166,9 @@ def build_index_payload(
                     markdown_path=markdown_path,
                     file_markdown_ranges=file_markdown_ranges,
                     include_display_ids=True,
+                    include_purpose_text=run.options.index_json_include_purpose_text,
                 )
-                if (
-                    run.options.analysis_metadata
-                    and run.options.index_json_include_classes
-                )
+                if run.options.index_json_include_classes
                 else []
             )
             symbols_payload = _full_symbol_payload(
@@ -166,7 +180,7 @@ def build_index_payload(
                 symbol_index_ranges=symbol_index_ranges,
                 canonical_markdown_ranges=canonical_markdown_ranges,
                 reconstructed_root=reconstructed_root,
-                analysis_metadata=run.options.analysis_metadata,
+                analysis_metadata=include_symbol_analysis,
             )
             repository = {
                 **_repository_common_payload(
@@ -178,7 +192,7 @@ def build_index_payload(
                     test_links=test_links,
                     guide=guide,
                     architecture=architecture,
-                    analysis_metadata=run.options.analysis_metadata,
+                    analysis_metadata=include_repository_analysis,
                 ),
                 "effective_layout": run.effective_layout,
                 "contains_manifest": run.options.include_manifest,
@@ -186,7 +200,7 @@ def build_index_payload(
                 "symbols": symbols_payload,
                 "lookup": _full_lookup_indexes(files_payload, symbols_payload),
             }
-            if run.options.analysis_metadata and run.options.index_json_include_classes:
+            if run.options.index_json_include_classes:
                 repository["classes"] = classes_payload
         elif index_json_mode == "normalized":
             repository = _normalized_repository_payload(
@@ -208,7 +222,9 @@ def build_index_payload(
                 role_hints=role_hints,
                 relationship_summaries=relationship_summaries,
                 file_summaries=file_summaries,
-                analysis_metadata=run.options.analysis_metadata,
+                file_analysis_metadata=include_file_analysis,
+                symbol_analysis_metadata=include_symbol_analysis,
+                repository_analysis_metadata=include_repository_analysis,
             )
         else:
             features = _v2_feature_payload(run, index_json_mode=index_json_mode)
@@ -224,7 +240,7 @@ def build_index_payload(
                 role_hints=role_hints,
                 relationship_summaries=relationship_summaries,
                 file_summaries=file_summaries,
-                analysis_metadata=run.options.analysis_metadata,
+                analysis_metadata=include_file_analysis,
             )
             classes_payload = (
                 _class_payload(
@@ -233,11 +249,9 @@ def build_index_payload(
                     markdown_path=markdown_path,
                     file_markdown_ranges=file_markdown_ranges,
                     include_display_ids=index_json_mode == "compact",
+                    include_purpose_text=run.options.index_json_include_purpose_text,
                 )
-                if (
-                    run.options.analysis_metadata
-                    and run.options.index_json_include_classes
-                )
+                if run.options.index_json_include_classes
                 else []
             )
             symbols_payload = _compact_symbol_payload(
@@ -251,7 +265,7 @@ def build_index_payload(
                 reconstructed_root=reconstructed_root,
                 index_json_mode=index_json_mode,
                 include_symbol_index_lines=features["symbol_index_lines"],
-                analysis_metadata=run.options.analysis_metadata,
+                analysis_metadata=include_symbol_analysis,
             )
             repository = {
                 **_repository_common_payload(
@@ -263,13 +277,13 @@ def build_index_payload(
                     test_links=test_links,
                     guide=guide,
                     architecture=architecture,
-                    analysis_metadata=run.options.analysis_metadata,
+                    analysis_metadata=include_repository_analysis,
                 ),
                 "index_json_features": features,
                 "files": files_payload,
                 "symbols": symbols_payload,
             }
-            if run.options.analysis_metadata and run.options.index_json_include_classes:
+            if run.options.index_json_include_classes:
                 repository["classes"] = classes_payload
             if features["lookup"]:
                 repository["lookup"] = _compact_lookup_indexes(
@@ -332,9 +346,21 @@ def build_index_payload(
     }
 
 
-def write_index_json(path: Path, payload: dict[str, Any]) -> Path:
+def write_index_json(
+    path: Path, payload: dict[str, Any], *, pretty: bool = True
+) -> Path:
     path.write_text(
-        json.dumps(payload, indent=2, sort_keys=False, ensure_ascii=False) + "\n",
+        (
+            json.dumps(payload, indent=2, sort_keys=False, ensure_ascii=False)
+            if pretty
+            else json.dumps(
+                payload,
+                separators=(",", ":"),
+                sort_keys=False,
+                ensure_ascii=False,
+            )
+        )
+        + "\n",
         encoding="utf-8",
     )
     return path

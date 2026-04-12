@@ -27,6 +27,9 @@ Profile chooser
    * - Retrieval and agent lookup
      - ``agent``
      - Compact navigation plus normalized v3 index-json output.
+   * - Lean agent retrieval
+     - ``lean-agent``
+     - Compact navigation plus minified normalized v3 sidecars with lean analysis defaults.
    * - Review plus tooling
      - ``hybrid``
      - Rich markdown plus the full v1-compatible index-json sidecar.
@@ -78,7 +81,7 @@ Supported keys
    "split_strict", "boolean", "false", "both", "--split-strict, --no-split-strict", "none", "none", "Fail when a logical split block exceeds split_max_chars."
    "split_allow_cut_files", "boolean", "false", "both", "--split-allow-cut-files, --no-split-allow-cut-files", "none", "none", "Allow oversized files to be cut across split parts."
    "manifest", "boolean", "true", "both", "--manifest, --no-manifest", "include_manifest", "none", "Include the Manifest section in generated markdown."
-   "profile", "enum", """human""", "both", "--profile", "none", "human, agent, hybrid, portable", "Output defaults profile."
+   "profile", "enum", """human""", "both", "--profile", "none", "human, agent, lean-agent, hybrid, portable", "Output defaults profile."
    "layout", "enum", """auto""", "both", "--layout", "none", "auto, stubs, full", "Markdown layout mode."
    "token_count_encoding", "string", """o200k_base""", "both", "--token-count-encoding", "none", "none", "Tokenizer encoding for CLI token diagnostics."
    "token_count_tree", "boolean", "false", "both", "--token-count-tree", "none", "none", "Enable CLI token tree reporting."
@@ -106,8 +109,9 @@ Supported keys
    "emit_standalone_unpacker", "boolean", "false", "both", "--emit-standalone-unpacker", "none", "none", "Write a standalone unpacker next to the markdown output."
    "standalone_unpacker_output", "string|null", "null", "config-only", "none", "none", "none", "Optional standalone unpacker output path; empty string uses the default sibling path."
    "locator_space", "enum", """auto""", "both", "--locator-space", "none", "auto, markdown, reconstructed, dual", "Locator target space for index-json payloads."
-   "index_json_include_lookup", "boolean", "true", "both", "--index-json-lookup, --no-index-json-lookup", "none", "none", "Include lookup tables in compact/minimal v2 index-json output."
-   "index_json_include_symbol_index_lines", "boolean", "true", "both", "--index-json-symbol-index-lines, --no-index-json-symbol-index-lines", "none", "none", "Include unsplit symbol index line ranges in compact v2 index-json output."
+   "index_json_pretty", "boolean|null", "null", "both", "--index-json-pretty, --no-index-json-pretty", "none", "none", "Pretty-print index-json output instead of minifying it."
+   "index_json_include_lookup", "boolean|null", "null", "both", "--index-json-lookup, --no-index-json-lookup", "none", "none", "Include lookup tables in compact/minimal v2 index-json output."
+   "index_json_include_symbol_index_lines", "boolean|null", "null", "both", "--index-json-symbol-index-lines, --no-index-json-symbol-index-lines", "none", "none", "Include unsplit symbol index line ranges in compact v2 index-json output."
    "index_json_include_graph", "boolean|null", "null", "both", "--index-json-graph, --no-index-json-graph", "none", "none", "Include import-graph metadata in index-json output."
    "index_json_include_test_links", "boolean|null", "null", "both", "--index-json-test-links, --no-index-json-test-links", "none", "none", "Include source-to-test links in index-json output."
    "index_json_include_guide", "boolean|null", "null", "both", "--index-json-guide, --no-index-json-guide", "none", "none", "Include repository guide metadata in index-json output."
@@ -115,7 +119,16 @@ Supported keys
    "index_json_include_classes", "boolean|null", "null", "both", "--index-json-classes, --no-index-json-classes", "none", "none", "Include class payloads in index-json output."
    "index_json_include_exports", "boolean|null", "null", "both", "--index-json-exports, --no-index-json-exports", "none", "none", "Include per-file export metadata in index-json output."
    "index_json_include_module_docstrings", "boolean|null", "null", "both", "--index-json-module-docstrings, --no-index-json-module-docstrings", "none", "none", "Include module docstring line ranges in index-json output."
-   "analysis_metadata", "boolean", "true", "both", "--analysis-metadata, --no-analysis-metadata", "none", "none", "Include analysis-oriented metadata in generated outputs."
+   "index_json_include_semantic", "boolean|null", "null", "both", "--index-json-semantic, --no-index-json-semantic", "none", "none", "Include semantic signature metadata in index-json output."
+   "index_json_include_purpose_text", "boolean|null", "null", "both", "--index-json-purpose-text, --no-index-json-purpose-text", "none", "none", "Include human-readable purpose text in index-json output."
+   "index_json_include_file_summaries", "boolean|null", "null", "both", "--index-json-file-summaries, --no-index-json-file-summaries", "none", "none", "Include per-file summary payloads in index-json output."
+   "index_json_include_relationships", "boolean|null", "null", "both", "--index-json-relationships, --no-index-json-relationships", "none", "none", "Include per-file relationship payloads in index-json output."
+   "analysis_metadata", "boolean|null", "null", "both", "--analysis-metadata, --no-analysis-metadata", "none", "none", "Default on/off switch for analysis-oriented metadata in generated outputs."
+   "markdown_include_repository_guide", "boolean|null", "null", "both", "--markdown-repository-guide, --no-markdown-repository-guide", "none", "none", "Include the Repository Guide section in generated markdown."
+   "markdown_include_symbol_index", "boolean|null", "null", "both", "--markdown-symbol-index, --no-markdown-symbol-index", "none", "none", "Include the Symbol Index section in generated markdown."
+   "markdown_include_directory_tree", "boolean|null", "null", "both", "--markdown-directory-tree, --no-markdown-directory-tree", "none", "none", "Include the Directory Tree section in generated markdown."
+   "markdown_include_environment_setup", "boolean|null", "null", "both", "--markdown-environment-setup, --no-markdown-environment-setup", "none", "none", "Include the Environment Setup section in generated markdown."
+   "markdown_include_how_to_use", "boolean|null", "null", "both", "--markdown-how-to-use, --no-markdown-how-to-use", "none", "none", "Include the How to Use This Pack section in generated markdown."
    "focus_file", "list[string]", "[]", "both", "--focus-file", "none", "none", "Focus pack generation on specific repo-relative files."
    "focus_symbol", "list[string]", "[]", "both", "--focus-symbol", "none", "none", "Focus pack generation on specific symbols."
    "include_import_neighbors", "integer", "0", "both", "--include-import-neighbors", "none", "none", "Include this many local import-neighbor hops around focused files."

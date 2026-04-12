@@ -21,10 +21,13 @@ Or let the profile enable it:
 .. code-block:: console
 
    codecrate pack . -o context.md --profile agent
+   codecrate pack . -o context.md --profile lean-agent
    codecrate pack . -o context.md --profile hybrid
 
 ``--profile agent`` resolves to the normalized v3 sidecar by default, while
-``--profile hybrid`` keeps the full v1-compatible sidecar.
+``--profile lean-agent`` keeps normalized v3 but trims analysis-heavy payloads
+and pretty-print whitespace by default, while ``--profile hybrid`` keeps the
+full v1-compatible sidecar.
 
 Or choose a specific sidecar mode:
 
@@ -39,6 +42,9 @@ Or choose a specific sidecar mode:
 ``--index-json-mode compact``, ``--index-json-mode minimal``, or
 ``--index-json-mode normalized`` when you want a machine-first sidecar
 explicitly.
+
+Use ``normalized`` for the smallest recommended sidecar in agent workflows.
+Use ``minimal`` for the smallest v2-compatible sidecar.
 
 By default, the sidecar is written next to the markdown output as
 ``<output>.index.json``.
@@ -206,8 +212,10 @@ Mode summary
    * ``symbol_by_local_id``
 
 ``minimal`` (v2)
-   Starts from compact mode and removes additional convenience duplication.
-   When ``index_json_features.lookup`` is true, the lookup maps are:
+   Starts from compact mode and trims additional convenience duplication.
+   It is the smallest v2-compatible sidecar surface rather than the smallest
+   overall sidecar. When ``index_json_features.lookup`` is true, the lookup
+   maps are:
 
    * ``file_by_path``
    * ``symbol_by_local_id``
@@ -237,6 +245,9 @@ When analysis metadata is enabled, the sidecar also exposes:
 
 Use ``--no-analysis-metadata`` when you want a smaller sidecar and do not need
 those architecture-oriented hints.
+
+``--profile lean-agent`` applies that smaller-sidecar posture by default and
+also minifies the JSON payload unless you opt back into ``--index-json-pretty``.
 
 
 Part metadata

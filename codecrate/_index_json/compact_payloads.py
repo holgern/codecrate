@@ -61,11 +61,13 @@ def _compact_file_payload(
         if analysis_metadata:
             file_entry["module"] = file_pack.module or None
             file_entry["role_hint"] = role_hints.get(rel)
-            summary = dict(file_summaries.get(rel) or {})
-            if not run.options.index_json_include_exports:
-                summary["exports"] = []
-            file_entry["summary"] = summary or None
-            file_entry["relationships"] = relationship_summaries.get(rel)
+            if run.options.index_json_include_file_summaries:
+                summary = dict(file_summaries.get(rel) or {})
+                if not run.options.index_json_include_exports:
+                    summary["exports"] = []
+                file_entry["summary"] = summary or None
+            if run.options.index_json_include_relationships:
+                file_entry["relationships"] = relationship_summaries.get(rel)
             if run.options.index_json_include_file_imports:
                 file_entry["imports"] = imports_by_source.get(rel, [])
             if run.options.index_json_include_exports:
@@ -145,8 +147,10 @@ def _compact_symbol_payload(
                 else None
             )
             symbol_entry["decorators"] = list(defn.decorators)
-            symbol_entry["semantic"] = _semantic_symbol_payload(defn)
-            symbol_entry["purpose_text"] = build_symbol_purpose_text(defn)
+            if run.options.index_json_include_semantic:
+                symbol_entry["semantic"] = _semantic_symbol_payload(defn)
+            if run.options.index_json_include_purpose_text:
+                symbol_entry["purpose_text"] = build_symbol_purpose_text(defn)
         if include_canonical_ids:
             symbol_entry["canonical_id"] = canonical_machine_ids[defn.id]
         locators = _symbol_locator_payload(
