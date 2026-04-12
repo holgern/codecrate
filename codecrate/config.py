@@ -38,7 +38,14 @@ INCLUDE_PRESETS: dict[str, list[str]] = {
 }
 DEFAULT_INCLUDE_PRESET: Literal["python+docs"] = "python+docs"
 
-ProfileValue = Literal["human", "agent", "lean-agent", "hybrid", "portable"]
+ProfileValue = Literal[
+    "human",
+    "agent",
+    "lean-agent",
+    "hybrid",
+    "portable",
+    "portable-agent",
+]
 LayoutValue = Literal["auto", "stubs", "full"]
 IncludePresetValue = Literal["python-only", "python+docs", "everything"]
 NavModeValue = Literal["auto", "compact", "full"]
@@ -78,6 +85,7 @@ class Config:
     # - "lean-agent": emit the leanest recommended agent defaults
     # - "hybrid": preserve current markdown behavior but emit index-json by default
     # - "portable": prefer manifest-enabled full-layout output for standalone unpack
+    # - "portable-agent": reconstructable full layout plus normalized sidecar defaults
     profile: ProfileValue = "human"
     # Output layout:
     # - "stubs": always emit stubbed files + Function Library (current format)
@@ -154,6 +162,8 @@ class Config:
     index_json_include_module_docstrings: bool | None = None
     index_json_include_semantic: bool | None = None
     index_json_include_purpose_text: bool | None = None
+    index_json_include_symbol_locators: bool | None = None
+    index_json_include_symbol_references: bool | None = None
     index_json_include_file_summaries: bool | None = None
     index_json_include_relationships: bool | None = None
     # Analysis metadata and focused packing controls.
@@ -273,7 +283,14 @@ CONFIG_FIELD_METADATA: dict[str, ConfigFieldMetadata] = {
         type_name="enum",
         description="Output defaults profile.",
         cli_flags=("--profile",),
-        choices=("human", "agent", "lean-agent", "hybrid", "portable"),
+        choices=(
+            "human",
+            "agent",
+            "lean-agent",
+            "hybrid",
+            "portable",
+            "portable-agent",
+        ),
     ),
     "layout": ConfigFieldMetadata(
         type_name="enum",
@@ -490,6 +507,21 @@ CONFIG_FIELD_METADATA: dict[str, ConfigFieldMetadata] = {
         description="Include human-readable purpose text in index-json output.",
         cli_flags=("--index-json-purpose-text", "--no-index-json-purpose-text"),
     ),
+    "index_json_include_symbol_locators": ConfigFieldMetadata(
+        type_name="boolean|null",
+        description="Include symbol locator payloads in index-json output.",
+        cli_flags=("--index-json-symbol-locators", "--no-index-json-symbol-locators"),
+    ),
+    "index_json_include_symbol_references": ConfigFieldMetadata(
+        type_name="boolean|null",
+        description=(
+            "Include symbol reference and call-like metadata in index-json output."
+        ),
+        cli_flags=(
+            "--index-json-symbol-references",
+            "--no-index-json-symbol-references",
+        ),
+    ),
     "index_json_include_file_summaries": ConfigFieldMetadata(
         type_name="boolean|null",
         description="Include per-file summary payloads in index-json output.",
@@ -695,6 +727,12 @@ def render_config_reference_rst() -> str:
         "   * - Portable reconstruction",
         "     - ``portable``",
         "     - Manifest-enabled ``full`` layout tuned for standalone unpacking.",
+        "   * - Portable retrieval + reconstruction",
+        "     - ``portable-agent``",
+        (
+            "     - Full layout, standalone unpacker, dual locators, and "
+            "normalized sidecar defaults."
+        ),
         "",
         "TOML versus CLI",
         "---------------",
@@ -1608,6 +1646,22 @@ def load_config_details(root: Path) -> LoadedConfig:  # noqa: C901
         section,
         "index_json_include_purpose_text",
         cfg.index_json_include_purpose_text,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
+    cfg.index_json_include_symbol_locators = _load_optional_bool_value(
+        section,
+        "index_json_include_symbol_locators",
+        cfg.index_json_include_symbol_locators,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
+    cfg.index_json_include_symbol_references = _load_optional_bool_value(
+        section,
+        "index_json_include_symbol_references",
+        cfg.index_json_include_symbol_references,
         warnings=warnings,
         provenance=provenance,
         source=source,

@@ -563,6 +563,113 @@ def build_repository_guide(
     }
 
 
+def build_package_summaries(
+    *, root: Path, pack: PackResult
+) -> dict[str, dict[str, Any]]:
+    entrypoints = set(build_entrypoints(root=root, pack=pack))
+    related_tests: dict[str, set[str]] = defaultdict(set)
+    for link in build_test_links(pack):
+        related_tests[link.source_path].add(link.test_path)
+    packages: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "files": [],
+            "entrypoints": set(),
+            "tests": set(),
+            "primary_modules": [],
+        }
+    )
+    for file_pack in pack.files:
+        rel = _rel_path(pack, file_pack)
+        package_name = _package_context(file_pack) or "."
+        entry = packages[package_name]
+        entry["files"].append(rel)
+        if rel in entrypoints:
+            entry["entrypoints"].add(rel)
+        entry["tests"].update(related_tests.get(rel, set()))
+        if role_hint_for_file(rel) not in {"test", "docs", "config"}:
+            entry["primary_modules"].append(rel)
+    return {
+        package_name: {
+            "file_count": len(sorted(data["files"])),
+            "files": sorted(data["files"]),
+            "entrypoints": sorted(data["entrypoints"]),
+            "related_tests": sorted(data["tests"]),
+            "primary_modules": sorted(data["primary_modules"])[:_SUMMARY_LIMIT],
+        }
+        for package_name, data in sorted(packages.items())
+    }
+
+
+def build_entrypoint_paths(*, root: Path, pack: PackResult) -> list[dict[str, Any]]:
+    outgoing: dict[str, set[str]] = defaultdict(set)
+    for edge in build_import_edges(pack):
+        if edge.target_path is None:
+            continue
+        outgoing[edge.source_path].add(edge.target_path)
+    payload: list[dict[str, Any]] = []
+    for entrypoint in build_entrypoints(root=root, pack=pack):
+        seen = {entrypoint}
+        queue = deque([entrypoint])
+        reachable: list[str] = []
+        while queue:
+            current = queue.popleft()
+            for target in sorted(outgoing.get(current, set())):
+                if target in seen:
+                    continue
+                seen.add(target)
+                reachable.append(target)
+                queue.append(target)
+        payload.append(
+            {
+                "entrypoint": entrypoint,
+                "reachable_files": reachable[: 2 * _SUMMARY_LIMIT],
+                "reachable_count": len(reachable),
+            }
+        )
+    return payload
+
+
+def build_centrality_rank(*, pack: PackResult) -> list[dict[str, Any]]:
+    incoming: dict[str, int] = defaultdict(int)
+    outgoing: dict[str, int] = defaultdict(int)
+    for edge in build_import_edges(pack):
+        if edge.target_path is None:
+            continue
+        outgoing[edge.source_path] += 1
+        incoming[edge.target_path] += 1
+    ranked = []
+    for file_pack in pack.files:
+        rel = _rel_path(pack, file_pack)
+        ranked.append(
+            {
+                "path": rel,
+                "score": incoming.get(rel, 0) + outgoing.get(rel, 0),
+                "incoming": incoming.get(rel, 0),
+                "outgoing": outgoing.get(rel, 0),
+                "role": role_hint_for_file(rel),
+            }
+        )
+    return sorted(
+        ranked,
+        key=lambda item: (
+            item["score"],
+            item["incoming"],
+            item["outgoing"],
+            str(item["path"]),
+        ),
+        reverse=True,
+    )[: 2 * _SUMMARY_LIMIT]
+
+
+def build_likely_edit_targets(*, pack: PackResult) -> list[str]:
+    targets = [
+        item["path"]
+        for item in build_centrality_rank(pack=pack)
+        if item["role"] not in {"test", "docs", "config"}
+    ]
+    return [str(item) for item in targets[:_SUMMARY_LIMIT]]
+
+
 def build_architecture_map(*, root: Path, pack: PackResult) -> dict[str, list[str]]:
     categories: dict[str, list[str]] = defaultdict(list)
     for file_pack in pack.files:

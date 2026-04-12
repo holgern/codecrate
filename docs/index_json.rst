@@ -23,11 +23,14 @@ Or let the profile enable it:
    codecrate pack . -o context.md --profile agent
    codecrate pack . -o context.md --profile lean-agent
    codecrate pack . -o context.md --profile hybrid
+   codecrate pack . -o context.md --profile portable-agent
 
 ``--profile agent`` resolves to the normalized v3 sidecar by default, while
 ``--profile lean-agent`` keeps normalized v3 but trims analysis-heavy payloads
 and pretty-print whitespace by default, while ``--profile hybrid`` keeps the
-full v1-compatible sidecar.
+full v1-compatible sidecar. ``--profile portable-agent`` pairs a reconstructable
+``full`` pack with a normalized sidecar, a generated standalone unpacker, and
+dual locator families.
 
 Or choose a specific sidecar mode:
 
@@ -190,8 +193,15 @@ Useful fields include:
      Reverse indexes for direct access by path or ID.
 
 ``graph`` / ``test_links`` / ``guide``
-    Optional analysis metadata: import edges, heuristic test coupling, and a
-    repository guide.
+     Optional analysis metadata: import edges, heuristic test coupling, and a
+     repository guide.
+
+``package_summaries`` / ``entrypoint_paths`` / ``centrality_rank`` /
+``likely_edit_targets``
+    Optional package and hot-path summaries for quicker subsystem orientation.
+
+``reference_graph``
+    Optional conservative symbol-call metadata for impact analysis and review.
 
 
 Mode summary
@@ -237,11 +247,16 @@ When analysis metadata is enabled, the sidecar also exposes:
 * ``repositories[].files[].exports``
 * ``repositories[].files[].module_docstring_lines``
 * ``repositories[].files[].role_hint``
+* ``repositories[].files[].inclusion_reason`` for focused packs
+* ``repositories[].files[].references_out`` / ``references_in``
 * ``repositories[].symbols[].owner_class``
 * ``repositories[].symbols[].decorators``
+* ``repositories[].symbols[].references_out`` / ``references_in``
 * ``repositories[].graph.import_edges``
 * ``repositories[].test_links``
 * ``repositories[].guide``
+* ``repositories[].package_summaries`` / ``entrypoint_paths``
+* ``repositories[].reference_graph.call_like_edges``
 
 Use ``--no-analysis-metadata`` when you want a smaller sidecar and do not need
 those architecture-oriented hints.
@@ -294,9 +309,17 @@ Useful fields include:
    Direct markdown targets for the file index entry and source body.
 
 ``locators``
-   Locator metadata for the file entry. In v1 payloads this still includes the
-   legacy availability booleans plus ``markdown`` and/or ``reconstructed``
-   locator objects. In v2 payloads it carries the locator objects directly.
+    Locator metadata for the file entry. In v1 payloads this still includes the
+    legacy availability booleans plus ``markdown``, ``split_part``, and/or ``reconstructed``
+    locator objects. In v2 payloads it carries the locator objects directly.
+
+``inclusion_reason``
+    Present for focused packs. Records why the file was selected and which paths
+    pulled it into the pack.
+
+``references_out`` / ``references_in`` / ``unresolved_references_count``
+    Optional conservative file-reference summaries derived from Python symbol
+    analysis.
 
 ``markdown_lines``
    Unsplit line range for the file section when line ranges are available.
@@ -356,13 +379,16 @@ Useful fields include:
    Number of source occurrences sharing the same canonical body.
 
 ``locators``
-   Symbol locator metadata. ``markdown`` can include file, symbol-index, and
-   canonical markdown ranges; ``reconstructed`` points at the reconstructed file
-   span and body span.
+    Symbol locator metadata. ``markdown`` can include file, symbol-index, and
+    canonical markdown ranges; ``split_part`` points at the split artifact being
+    read; ``reconstructed`` points at the reconstructed file span and body span.
 
 ``purpose_text``
-   Deterministic short prose summarizing the symbol's role, ownership, and
-   signature hints.
+    Deterministic short prose summarizing the symbol's role, ownership, and
+    signature hints.
+
+``references_out`` / ``references_in`` / ``unresolved_references_count``
+    Optional conservative symbol-reference summaries.
 
 In normalized v3 payloads, symbol entries use compact indexed fields such as
 ``i`` (local machine ID), ``c`` (canonical machine ID when needed), ``p`` (path
@@ -424,6 +450,7 @@ In split output:
 
 * hrefs still point to the actual ``.index.md`` or ``.partN.md`` file
 * unsplit line ranges are omitted
+* ``locators.split_part`` provides stable line ranges inside the split artifact
 * consumers should follow ``part_path`` and hrefs instead of assuming a single
   markdown file
 
@@ -464,6 +491,42 @@ Example:
    errors = validate_index_payload(payload, base_dir=Path("."))
    if errors:
        raise SystemExit("\n".join(errors))
+
+
+Query recipes
+-------------
+
+The schema reference is only half of the consumer story. Common recipes:
+
+* find the file for a symbol:
+
+  .. code-block:: console
+
+     python examples/find_symbol_file.py context.index.json codecrate.cli:main
+
+* list entrypoints plus their reachable file counts:
+
+  .. code-block:: console
+
+     python examples/list_entrypoints.py context.index.json
+
+* locate related tests for a changed file:
+
+  .. code-block:: console
+
+     python examples/find_related_tests.py context.index.json codecrate/pack_pipeline.py
+
+* prefer reconstructed locators when they exist:
+
+  .. code-block:: console
+
+     python examples/prefer_reconstructed_locators.py context.index.json codecrate/cli.py
+
+* read normalized tables correctly:
+
+  .. code-block:: console
+
+     python examples/read_normalized_tables.py context.index.json
 
 
 Consumer guidance

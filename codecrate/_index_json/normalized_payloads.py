@@ -5,13 +5,16 @@ from typing import Any
 
 from ..analysis_metadata import build_class_purpose_text, build_symbol_purpose_text
 from ..markdown import _fence_lang_for
-from ..output_model import PackRun
 from .common import (
     _class_id_maps,
+    _file_reference_payload,
+    _focus_inclusion_payload,
     _locator_line_range_from_markdown,
     _should_include_canonical_ids,
     _strong_id_maps,
+    _symbol_reference_payload,
 )
+from .ir import RepositoryIR
 from .locators import _includes_locator_space
 from .repository import _repository_common_payload
 
@@ -340,18 +343,163 @@ def _normalized_relationships_payload(
     return payload or None
 
 
-def _normalized_file_payload(
-    run: PackRun,
+def _normalized_file_reference_payload(
     *,
-    file_to_part: dict[str, str],
-    markdown_path: str | None,
-    file_markdown_ranges: dict[str, dict[str, int]],
-    reconstructed_root: str | None,
-    imports_by_source: dict[str, list[dict[str, Any]]],
-    role_hints: dict[str, str | None],
-    relationship_summaries: dict[str, dict[str, list[str]]],
-    file_summaries: dict[str, dict[str, Any]],
-    analysis_metadata: bool,
+    ir: RepositoryIR,
+    rel: str,
+    path_table: list[str],
+    path_lookup: dict[str, int],
+) -> dict[str, Any] | None:
+    if not ir.run.options.index_json_include_symbol_references:
+        return None
+    reference_payload = _file_reference_payload(ir.reference_analysis, rel)
+    if reference_payload is None:
+        return None
+    encoded: dict[str, Any] = {}
+    if reference_payload.get("references_out"):
+        encoded["o"] = _indexed_values(
+            [str(value) for value in reference_payload["references_out"]],
+            table=path_table,
+            lookup=path_lookup,
+        )
+    if reference_payload.get("references_in"):
+        encoded["i"] = _indexed_values(
+            [str(value) for value in reference_payload["references_in"]],
+            table=path_table,
+            lookup=path_lookup,
+        )
+    encoded["u"] = int(reference_payload["unresolved_references_count"])
+    return encoded
+
+
+def _normalized_file_locators(
+    *,
+    ir: RepositoryIR,
+    rel: str,
+    line_count: int,
+    part_table: list[str],
+    part_lookup: dict[str, int],
+) -> dict[str, Any] | None:
+    normalized_locators: dict[str, Any] = {}
+    if _includes_locator_space(ir.run.options.locator_space, "markdown"):
+        markdown_lines = _locator_line_range_from_markdown(
+            ir.file_markdown_ranges.get(rel)
+        )
+        if ir.markdown_path is not None and markdown_lines is not None:
+            normalized_locators["m"] = [
+                markdown_lines["start"],
+                markdown_lines["end"],
+            ]
+    if _includes_locator_space(ir.run.options.locator_space, "reconstructed"):
+        normalized_locators["r"] = [1, line_count]
+    split_part = ir.split_file_ranges.get(rel)
+    if isinstance(split_part, dict):
+        split_lines = split_part.get("lines")
+        split_path_index = _table_index(
+            split_part.get("path"),
+            table=part_table,
+            lookup=part_lookup,
+        )
+        if split_path_index is not None and isinstance(split_lines, dict):
+            normalized_locators["sp"] = {
+                "part": split_path_index,
+                "l": [
+                    int(split_lines.get("start", 0) or 0),
+                    int(split_lines.get("end", 0) or 0),
+                ],
+            }
+    return normalized_locators or None
+
+
+def _normalized_symbol_reference_entry(
+    *,
+    ir: RepositoryIR,
+    local_id: str,
+    local_machine_ids: dict[str, str],
+) -> dict[str, Any] | None:
+    if not ir.run.options.index_json_include_symbol_references:
+        return None
+    references = _symbol_reference_payload(
+        ir.reference_analysis,
+        local_id=local_id,
+        local_machine_ids=local_machine_ids,
+    )
+    if references is None:
+        return None
+    return {
+        "o": list(references.get("references_out", [])),
+        "i": list(references.get("references_in", [])),
+        "u": int(references.get("unresolved_references_count", 0)),
+    }
+
+
+def _normalized_symbol_locators(
+    *,
+    ir: RepositoryIR,
+    rel: str,
+    defn: Any,
+    part_table: list[str],
+    part_lookup: dict[str, int],
+) -> dict[str, Any] | None:
+    normalized_locators: dict[str, Any] = {}
+    if (
+        ir.run.options.index_json_include_symbol_locators
+        and _includes_locator_space(ir.run.options.locator_space, "markdown")
+        and ir.markdown_path
+    ):
+        markdown_locator: dict[str, Any] = {}
+        file_lines = _locator_line_range_from_markdown(ir.file_markdown_ranges.get(rel))
+        if file_lines is not None:
+            markdown_locator["f"] = [file_lines["start"], file_lines["end"]]
+        index_lines = _locator_line_range_from_markdown(
+            ir.symbol_index_ranges.get(defn.local_id)
+        )
+        if index_lines is not None:
+            markdown_locator["i"] = [index_lines["start"], index_lines["end"]]
+        canonical_lines = _locator_line_range_from_markdown(
+            ir.canonical_markdown_ranges.get(defn.id)
+        )
+        if canonical_lines is not None:
+            markdown_locator["c"] = [canonical_lines["start"], canonical_lines["end"]]
+        if markdown_locator:
+            normalized_locators["m"] = markdown_locator
+    if ir.run.options.index_json_include_symbol_locators and _includes_locator_space(
+        ir.run.options.locator_space, "reconstructed"
+    ):
+        start_line = defn.decorator_start or defn.def_line
+        normalized_locators["r"] = {
+            "l": [start_line, defn.end_line],
+            "b": [defn.body_start, defn.end_line],
+        }
+    split_part = ir.split_symbol_ranges.get(defn.local_id)
+    if isinstance(split_part, dict):
+        split_path_index = _table_index(
+            split_part.get("path"),
+            table=part_table,
+            lookup=part_lookup,
+        )
+        if split_path_index is not None:
+            split_locator: dict[str, Any] = {"part": split_path_index}
+            for src_key, dst_key in (
+                ("lines", "l"),
+                ("body_lines", "b"),
+                ("file_lines", "f"),
+                ("symbol_index_lines", "i"),
+                ("canonical_lines", "c"),
+            ):
+                line_range = split_part.get(src_key)
+                if isinstance(line_range, dict):
+                    split_locator[dst_key] = [
+                        int(line_range.get("start", 0) or 0),
+                        int(line_range.get("end", 0) or 0),
+                    ]
+            normalized_locators["sp"] = split_locator
+    return normalized_locators or None
+
+
+def _normalized_file_payload(
+    ir: RepositoryIR,
+    *,
     path_table: list[str],
     path_lookup: dict[str, int],
     part_table: list[str],
@@ -361,6 +509,7 @@ def _normalized_file_payload(
     string_table: list[str],
     string_lookup: dict[str, int],
 ) -> list[dict[str, Any]]:
+    run = ir.run
     files_payload: list[dict[str, Any]] = []
     for file_pack in sorted(
         run.pack_result.files,
@@ -371,7 +520,7 @@ def _normalized_file_payload(
             "p": _table_index(rel, table=path_table, lookup=path_lookup),
         }
         part_index = _table_index(
-            file_to_part.get(rel),
+            ir.file_to_part.get(rel),
             table=part_table,
             lookup=part_lookup,
         )
@@ -391,9 +540,9 @@ def _normalized_file_payload(
         )
         if module is not None:
             file_entry["mod"] = module
-        if analysis_metadata:
+        if ir.file_analysis_metadata:
             if run.options.index_json_include_file_imports:
-                imports = imports_by_source.get(rel, [])
+                imports = ir.imports_by_source.get(rel, [])
                 if imports:
                     file_entry["imp"] = [
                         _normalized_import_entry(
@@ -416,14 +565,14 @@ def _normalized_file_payload(
                 if module_docstring is not None:
                     file_entry["doc"] = module_docstring
             role_hint = _table_index(
-                role_hints.get(rel),
+                ir.role_hints.get(rel),
                 table=string_table,
                 lookup=string_lookup,
             )
             if role_hint is not None:
                 file_entry["role"] = role_hint
             if run.options.index_json_include_file_summaries:
-                summary = dict(file_summaries.get(rel) or {})
+                summary = dict(ir.file_summaries.get(rel) or {})
                 if not run.options.index_json_include_exports:
                     summary["exports"] = []
                 normalized_summary = _normalized_summary_payload(
@@ -437,24 +586,30 @@ def _normalized_file_payload(
                     file_entry["sum"] = normalized_summary
             if run.options.index_json_include_relationships:
                 normalized_relationships = _normalized_relationships_payload(
-                    relationship_summaries.get(rel),
+                    ir.relationship_summaries.get(rel),
                     path_table=path_table,
                     path_lookup=path_lookup,
                 )
                 if normalized_relationships is not None:
                     file_entry["rel"] = normalized_relationships
-        normalized_locators: dict[str, Any] = {}
-        if _includes_locator_space(run.options.locator_space, "markdown"):
-            markdown_lines = _locator_line_range_from_markdown(
-                file_markdown_ranges.get(rel)
-            )
-            if markdown_path is not None and markdown_lines is not None:
-                normalized_locators["m"] = [
-                    markdown_lines["start"],
-                    markdown_lines["end"],
-                ]
-        if _includes_locator_space(run.options.locator_space, "reconstructed"):
-            normalized_locators["r"] = [1, file_pack.line_count]
+        inclusion_reason = _focus_inclusion_payload(run, rel)
+        if inclusion_reason is not None:
+            file_entry["inc"] = inclusion_reason
+        reference_payload = _normalized_file_reference_payload(
+            ir=ir,
+            rel=rel,
+            path_table=path_table,
+            path_lookup=path_lookup,
+        )
+        if reference_payload is not None:
+            file_entry["ref"] = reference_payload
+        normalized_locators = _normalized_file_locators(
+            ir=ir,
+            rel=rel,
+            line_count=file_pack.line_count,
+            part_table=part_table,
+            part_lookup=part_lookup,
+        )
         if normalized_locators:
             file_entry["loc"] = normalized_locators
         files_payload.append(file_entry)
@@ -462,9 +617,8 @@ def _normalized_file_payload(
 
 
 def _normalized_class_payload(
-    run: PackRun,
+    ir: RepositoryIR,
     *,
-    file_to_part: dict[str, str],
     path_table: list[str],
     path_lookup: dict[str, int],
     part_table: list[str],
@@ -475,6 +629,7 @@ def _normalized_class_payload(
     string_lookup: dict[str, int],
     include_purpose_text: bool,
 ) -> list[dict[str, Any]]:
+    run = ir.run
     class_machine_ids, _ = _class_id_maps(run)
     classes_payload: list[dict[str, Any]] = []
     for class_ref in sorted(
@@ -499,7 +654,7 @@ def _normalized_class_payload(
             "l2": class_ref.end_line,
         }
         part_index = _table_index(
-            file_to_part.get(rel),
+            ir.file_to_part.get(rel),
             table=part_table,
             lookup=part_lookup,
         )
@@ -532,17 +687,10 @@ def _normalized_class_payload(
 
 
 def _normalized_symbol_payload(
-    run: PackRun,
+    ir: RepositoryIR,
     *,
-    file_to_part: dict[str, str],
-    markdown_path: str | None,
-    file_markdown_ranges: dict[str, dict[str, int]],
-    symbol_index_ranges: dict[str, dict[str, int]],
-    canonical_markdown_ranges: dict[str, dict[str, int]],
-    reconstructed_root: str | None,
     class_ids_by_path_qualname: dict[tuple[str, str], dict[str, str]],
     include_canonical_ids: bool,
-    analysis_metadata: bool,
     path_table: list[str],
     path_lookup: dict[str, int],
     part_table: list[str],
@@ -552,6 +700,7 @@ def _normalized_symbol_payload(
     string_table: list[str],
     string_lookup: dict[str, int],
 ) -> list[dict[str, Any]]:
+    run = ir.run
     local_machine_ids, canonical_machine_ids = _strong_id_maps(run)
     symbols_payload: list[dict[str, Any]] = []
     for defn in sorted(
@@ -582,7 +731,7 @@ def _normalized_symbol_payload(
             "l2": defn.end_line,
         }
         part_index = _table_index(
-            file_to_part.get(rel),
+            ir.file_to_part.get(rel),
             table=part_table,
             lookup=part_lookup,
         )
@@ -590,7 +739,7 @@ def _normalized_symbol_payload(
             entry["part"] = part_index
         if include_canonical_ids:
             entry["c"] = canonical_machine_ids[defn.id]
-        if analysis_metadata:
+        if ir.symbol_analysis_metadata:
             owner_class = (
                 class_ids_by_path_qualname.get((rel, defn.owner_class), {}).get(
                     "local_id"
@@ -649,38 +798,20 @@ def _normalized_symbol_payload(
                 )
                 if purpose_text is not None:
                     entry["pt"] = purpose_text
-        normalized_locators: dict[str, Any] = {}
-        if (
-            _includes_locator_space(run.options.locator_space, "markdown")
-            and markdown_path
-        ):
-            markdown_locator: dict[str, Any] = {}
-            file_lines = _locator_line_range_from_markdown(
-                file_markdown_ranges.get(rel)
-            )
-            if file_lines is not None:
-                markdown_locator["f"] = [file_lines["start"], file_lines["end"]]
-            index_lines = _locator_line_range_from_markdown(
-                symbol_index_ranges.get(defn.local_id)
-            )
-            if index_lines is not None:
-                markdown_locator["i"] = [index_lines["start"], index_lines["end"]]
-            canonical_lines = _locator_line_range_from_markdown(
-                canonical_markdown_ranges.get(defn.id)
-            )
-            if canonical_lines is not None:
-                markdown_locator["c"] = [
-                    canonical_lines["start"],
-                    canonical_lines["end"],
-                ]
-            if markdown_locator:
-                normalized_locators["m"] = markdown_locator
-        if _includes_locator_space(run.options.locator_space, "reconstructed"):
-            start_line = defn.decorator_start or defn.def_line
-            normalized_locators["r"] = {
-                "l": [start_line, defn.end_line],
-                "b": [defn.body_start, defn.end_line],
-            }
+        references = _normalized_symbol_reference_entry(
+            ir=ir,
+            local_id=defn.local_id,
+            local_machine_ids=local_machine_ids,
+        )
+        if references is not None:
+            entry["ref"] = references
+        normalized_locators = _normalized_symbol_locators(
+            ir=ir,
+            rel=rel,
+            defn=defn,
+            part_table=part_table,
+            part_lookup=part_lookup,
+        )
         if normalized_locators:
             entry["loc"] = normalized_locators
         symbols_payload.append(entry)
@@ -688,29 +819,9 @@ def _normalized_symbol_payload(
 
 
 def _normalized_repository_payload(
-    run: PackRun,
-    *,
-    repo_markdown_path: str | None,
-    repo_count: int,
-    parts: list[dict[str, Any]],
-    file_to_part: dict[str, str],
-    markdown_path: str | None,
-    file_markdown_ranges: dict[str, dict[str, int]],
-    symbol_index_ranges: dict[str, dict[str, int]],
-    canonical_markdown_ranges: dict[str, dict[str, int]],
-    reconstructed_root: str | None,
-    import_edges: list[dict[str, Any]],
-    test_links: list[dict[str, Any]],
-    guide: dict[str, list[str]],
-    architecture: dict[str, list[str]],
-    imports_by_source: dict[str, list[dict[str, Any]]],
-    role_hints: dict[str, str | None],
-    relationship_summaries: dict[str, dict[str, list[str]]],
-    file_summaries: dict[str, dict[str, Any]],
-    file_analysis_metadata: bool,
-    symbol_analysis_metadata: bool,
-    repository_analysis_metadata: bool,
+    ir: RepositoryIR,
 ) -> dict[str, Any]:
+    run = ir.run
     path_table: list[str] = []
     path_lookup: dict[str, int] = {}
     part_table: list[str] = []
@@ -719,7 +830,7 @@ def _normalized_repository_payload(
     qualname_lookup: dict[str, int] = {}
     string_table: list[str] = []
     string_lookup: dict[str, int] = {}
-    for part in parts:
+    for part in ir.parts:
         _table_index(
             str(part.get("path") or ""),
             table=part_table,
@@ -729,16 +840,7 @@ def _normalized_repository_payload(
     _, class_ids_by_path_qualname = _class_id_maps(run)
     include_canonical_ids = _should_include_canonical_ids(run)
     files_payload = _normalized_file_payload(
-        run,
-        file_to_part=file_to_part,
-        markdown_path=markdown_path,
-        file_markdown_ranges=file_markdown_ranges,
-        reconstructed_root=reconstructed_root,
-        imports_by_source=imports_by_source,
-        role_hints=role_hints,
-        relationship_summaries=relationship_summaries,
-        file_summaries=file_summaries,
-        analysis_metadata=file_analysis_metadata,
+        ir,
         path_table=path_table,
         path_lookup=path_lookup,
         part_table=part_table,
@@ -750,8 +852,7 @@ def _normalized_repository_payload(
     )
     classes_payload = (
         _normalized_class_payload(
-            run,
-            file_to_part=file_to_part,
+            ir,
             path_table=path_table,
             path_lookup=path_lookup,
             part_table=part_table,
@@ -766,16 +867,9 @@ def _normalized_repository_payload(
         else []
     )
     symbols_payload = _normalized_symbol_payload(
-        run,
-        file_to_part=file_to_part,
-        markdown_path=markdown_path,
-        file_markdown_ranges=file_markdown_ranges,
-        symbol_index_ranges=symbol_index_ranges,
-        canonical_markdown_ranges=canonical_markdown_ranges,
-        reconstructed_root=reconstructed_root,
+        ir,
         class_ids_by_path_qualname=class_ids_by_path_qualname,
         include_canonical_ids=include_canonical_ids,
-        analysis_metadata=symbol_analysis_metadata,
         path_table=path_table,
         path_lookup=path_lookup,
         part_table=part_table,
@@ -787,17 +881,7 @@ def _normalized_repository_payload(
     )
 
     repository = {
-        **_repository_common_payload(
-            run,
-            repo_markdown_path=repo_markdown_path,
-            repo_count=repo_count,
-            parts=parts,
-            import_edges=[],
-            test_links=[],
-            guide={},
-            architecture={},
-            analysis_metadata=False,
-        ),
+        **_repository_common_payload(ir),
         "tables": {
             "paths": path_table,
             "parts": part_table,
@@ -809,13 +893,13 @@ def _normalized_repository_payload(
     }
     if run.options.index_json_include_classes:
         repository["classes"] = classes_payload
-    if repository_analysis_metadata:
+    if ir.repository_analysis_metadata:
         repository.update(
             _normalized_analysis_payload(
-                import_edges,
-                test_links,
-                guide,
-                architecture,
+                ir.import_edges,
+                ir.test_links,
+                ir.guide,
+                ir.architecture,
                 path_table=path_table,
                 path_lookup=path_lookup,
                 string_table=string_table,

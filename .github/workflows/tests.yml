@@ -31,8 +31,11 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e ".[dev]" build
+        pip install -r docs/requirements.txt
     - name: Run release check
       run: ./scripts/release-check.sh
+    - name: Verify docs build
+      run: sphinx-build -b dummy docs docs/_build/dummy
     - name: Smoke test wheel
       run: |
         python -m venv .venv-wheel

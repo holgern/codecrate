@@ -25,6 +25,7 @@ from .cli_pack_helpers import (
 )
 from .config import load_config
 from .discover import Discovery, discover_files
+from .focus import FocusSelectionResult, build_focus_selection
 from .manifest import manifest_sha256, to_manifest
 from .markdown import render_markdown_result
 from .model import PackResult
@@ -508,7 +509,7 @@ def _apply_focus_selection(
     root: Path,
     options: PackOptions,
     prepared_files: _PreparedPackFiles,
-) -> list[_MeasuredFile]:
+) -> tuple[list[_MeasuredFile], FocusSelectionResult | None]:
     if (
         not options.focus_file
         and not options.focus_symbol
@@ -518,7 +519,7 @@ def _apply_focus_selection(
         and not options.include_entrypoints
         and not options.include_tests
     ):
-        return prepared_files.kept_measured
+        return prepared_files.kept_measured, None
     if not options.focus_file and not options.focus_symbol:
         parser.error(
             "pack: focus expansion options require --focus-file or --focus-symbol"
@@ -537,46 +538,26 @@ def _apply_focus_selection(
     )
 
     try:
-        selected_paths = _resolve_focus_paths(analysis_pack, options)
-    except ValueError as e:
-        parser.error(f"pack: {e}")
-
-    selected_paths = _expand_import_neighbors(
-        selected_paths,
-        pack=analysis_pack,
-        depth=options.include_import_neighbors,
-    )
-    selected_paths = _expand_reverse_import_neighbors(
-        selected_paths,
-        pack=analysis_pack,
-        depth=options.include_reverse_import_neighbors,
-    )
-    if options.include_same_package:
-        selected_paths = _include_same_package_neighbors(
-            selected_paths, pack=analysis_pack
-        )
-    if options.include_entrypoints:
-        selected_paths = _include_entrypoint_context(
-            selected_paths,
+        focus_selection = build_focus_selection(
             root=root,
             pack=analysis_pack,
+            options=options,
+            available_paths={
+                item.path.relative_to(root).as_posix()
+                for item in prepared_files.kept_measured
+            },
         )
-    if options.include_tests:
-        selected_paths = _include_related_tests(selected_paths, pack=analysis_pack)
-
-    available_paths = {
-        item.path.relative_to(root).as_posix() for item in prepared_files.kept_measured
-    }
-    selected_paths = _include_related_context(selected_paths, available_paths)
+    except ValueError as e:
+        parser.error(f"pack: {e}")
 
     filtered = [
         item
         for item in prepared_files.kept_measured
-        if item.path.relative_to(root).as_posix() in selected_paths
+        if item.path.relative_to(root).as_posix() in focus_selection.selected_paths
     ]
     if not filtered:
         parser.error("pack: focus options produced an empty file set")
-    return filtered
+    return filtered, focus_selection
 
 
 def _build_single_pack_run(
@@ -613,7 +594,7 @@ def _build_single_pack_run(
         discovery_state=discovery_state,
     )
 
-    selected_measured = _apply_focus_selection(
+    selected_measured, focus_selection = _apply_focus_selection(
         parser,
         root=discovery_state.discovery.root,
         options=options,
@@ -703,6 +684,7 @@ def _build_single_pack_run(
         manifest_data=manifest_obj,
         repo_label=label,
         repo_slug=slug,
+        focus_selection=focus_selection,
     )
     md = rendered.markdown
 
@@ -756,4 +738,5 @@ def _build_single_pack_run(
         token_backend=prepared_files.token_backend,
         manifest=manifest_obj,
         manifest_sha256=manifest_checksum,
+        focus_selection=focus_selection,
     )

@@ -100,14 +100,23 @@ def _add_pack_parser(
     )
     pack.add_argument(
         "--profile",
-        choices=["human", "agent", "lean-agent", "hybrid", "portable"],
+        choices=[
+            "human",
+            "agent",
+            "lean-agent",
+            "hybrid",
+            "portable",
+            "portable-agent",
+        ],
         default=None,
         help=(
             "Output defaults profile: human keeps current behavior, "
             "agent implies compact nav + normalized v3 index-json, "
             "lean-agent implies compact nav + lean normalized v3 index-json, "
             "hybrid implies full index-json, "
-            "portable implies full layout with manifest for standalone unpack."
+            "portable implies full layout with manifest for standalone unpack, "
+            "portable-agent implies full layout plus standalone unpacker and "
+            "normalized index-json."
         ),
     )
     pack.add_argument(
@@ -487,6 +496,18 @@ def _add_pack_parser(
         action=argparse.BooleanOptionalAction,
         default=None,
         help="Include human-readable purpose text in index-json output.",
+    )
+    pack.add_argument(
+        "--index-json-symbol-locators",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include symbol locator payloads in index-json output.",
+    )
+    pack.add_argument(
+        "--index-json-symbol-references",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include symbol reference and call-like metadata in index-json output.",
     )
     pack.add_argument(
         "--index-json-file-summaries",

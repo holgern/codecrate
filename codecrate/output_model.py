@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .focus import FocusSelectionResult
 from .model import PackResult
 from .options import PackOptions
 from .security import SafetyFinding
@@ -56,3 +57,4 @@ class PackRun:
     token_backend: str
     manifest: dict[str, Any]
     manifest_sha256: str
+    focus_selection: FocusSelectionResult | None = None

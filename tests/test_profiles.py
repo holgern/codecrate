@@ -137,6 +137,24 @@ def test_pack_profile_portable_implies_full_layout_without_index_json(
     assert not (tmp_path / "context.index.json").exists()
 
 
+def test_pack_profile_portable_agent_emits_unpacker_and_normalized_sidecar(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path), "--profile", "portable-agent"])
+
+    text = out_path.read_text(encoding="utf-8")
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+
+    assert "Layout: `full`" in text
+    assert payload["mode"] == "normalized"
+    assert payload["repositories"][0]["locator_space"] == "reconstructed"
+    assert payload["repositories"][0]["secondary_locator_space"] == "markdown"
+    assert (tmp_path / "context.unpack.py").exists()
+
+
 def test_pack_profile_from_config_is_used(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     (tmp_path / "codecrate.toml").write_text(

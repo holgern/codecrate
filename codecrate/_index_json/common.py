@@ -9,6 +9,7 @@ from typing import Any
 from ..analysis_metadata import import_edges_payload, role_hint_for_file
 from ..ids import stable_machine_location_id
 from ..output_model import PackRun
+from ..reference_analysis import ReferenceAnalysis
 from ..token_budget import Part
 
 
@@ -223,6 +224,55 @@ def _semantic_symbol_payload(defn: Any) -> dict[str, Any]:
         "is_overload": defn.is_overload,
         "is_abstractmethod": defn.is_abstractmethod,
     }
+
+
+def _focus_inclusion_payload(run: PackRun, rel_path: str) -> dict[str, Any] | None:
+    if run.focus_selection is None:
+        return None
+    inclusion_reason = run.focus_selection.inclusion_reasons.get(rel_path)
+    if inclusion_reason is None:
+        return None
+    return inclusion_reason.to_payload()
+
+
+def _file_reference_payload(
+    reference_analysis: ReferenceAnalysis | None,
+    rel_path: str,
+) -> dict[str, Any] | None:
+    if reference_analysis is None:
+        return None
+    unresolved_count = reference_analysis.unresolved_references_by_file.get(rel_path, 0)
+    payload = {
+        "references_out": reference_analysis.file_references_out.get(rel_path, []),
+        "references_in": reference_analysis.file_references_in.get(rel_path, []),
+        "unresolved_references_count": unresolved_count,
+    }
+    return payload
+
+
+def _symbol_reference_payload(
+    reference_analysis: ReferenceAnalysis | None,
+    *,
+    local_id: str,
+    local_machine_ids: dict[str, str],
+) -> dict[str, Any] | None:
+    if reference_analysis is None:
+        return None
+    unresolved_count = reference_analysis.unresolved_references_by_symbol.get(
+        local_id, 0
+    )
+    payload = {
+        "references_out": [
+            local_machine_ids.get(target_id, target_id)
+            for target_id in reference_analysis.symbol_references_out.get(local_id, [])
+        ],
+        "references_in": [
+            local_machine_ids.get(source_id, source_id)
+            for source_id in reference_analysis.symbol_references_in.get(local_id, [])
+        ],
+        "unresolved_references_count": unresolved_count,
+    }
+    return payload
 
 
 def _safety_payload(run: PackRun) -> dict[str, Any]:

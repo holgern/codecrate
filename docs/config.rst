@@ -36,6 +36,9 @@ Profile chooser
    * - Portable reconstruction
      - ``portable``
      - Manifest-enabled ``full`` layout tuned for standalone unpacking.
+   * - Portable retrieval + reconstruction
+     - ``portable-agent``
+     - Full layout, standalone unpacker, dual locators, and normalized sidecar defaults.
 
 TOML versus CLI
 ---------------
@@ -81,7 +84,7 @@ Supported keys
    "split_strict", "boolean", "false", "both", "--split-strict, --no-split-strict", "none", "none", "Fail when a logical split block exceeds split_max_chars."
    "split_allow_cut_files", "boolean", "false", "both", "--split-allow-cut-files, --no-split-allow-cut-files", "none", "none", "Allow oversized files to be cut across split parts."
    "manifest", "boolean", "true", "both", "--manifest, --no-manifest", "include_manifest", "none", "Include the Manifest section in generated markdown."
-   "profile", "enum", """human""", "both", "--profile", "none", "human, agent, lean-agent, hybrid, portable", "Output defaults profile."
+   "profile", "enum", """human""", "both", "--profile", "none", "human, agent, lean-agent, hybrid, portable, portable-agent", "Output defaults profile."
    "layout", "enum", """auto""", "both", "--layout", "none", "auto, stubs, full", "Markdown layout mode."
    "token_count_encoding", "string", """o200k_base""", "both", "--token-count-encoding", "none", "none", "Tokenizer encoding for CLI token diagnostics."
    "token_count_tree", "boolean", "false", "both", "--token-count-tree", "none", "none", "Enable CLI token tree reporting."
@@ -121,6 +124,8 @@ Supported keys
    "index_json_include_module_docstrings", "boolean|null", "null", "both", "--index-json-module-docstrings, --no-index-json-module-docstrings", "none", "none", "Include module docstring line ranges in index-json output."
    "index_json_include_semantic", "boolean|null", "null", "both", "--index-json-semantic, --no-index-json-semantic", "none", "none", "Include semantic signature metadata in index-json output."
    "index_json_include_purpose_text", "boolean|null", "null", "both", "--index-json-purpose-text, --no-index-json-purpose-text", "none", "none", "Include human-readable purpose text in index-json output."
+   "index_json_include_symbol_locators", "boolean|null", "null", "both", "--index-json-symbol-locators, --no-index-json-symbol-locators", "none", "none", "Include symbol locator payloads in index-json output."
+   "index_json_include_symbol_references", "boolean|null", "null", "both", "--index-json-symbol-references, --no-index-json-symbol-references", "none", "none", "Include symbol reference and call-like metadata in index-json output."
    "index_json_include_file_summaries", "boolean|null", "null", "both", "--index-json-file-summaries, --no-index-json-file-summaries", "none", "none", "Include per-file summary payloads in index-json output."
    "index_json_include_relationships", "boolean|null", "null", "both", "--index-json-relationships, --no-index-json-relationships", "none", "none", "Include per-file relationship payloads in index-json output."
    "analysis_metadata", "boolean|null", "null", "both", "--analysis-metadata, --no-analysis-metadata", "none", "none", "Default on/off switch for analysis-oriented metadata in generated outputs."

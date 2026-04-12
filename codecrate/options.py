@@ -34,6 +34,8 @@ class PackOptions:
     index_json_include_module_docstrings: bool
     index_json_include_semantic: bool
     index_json_include_purpose_text: bool
+    index_json_include_symbol_locators: bool
+    index_json_include_symbol_references: bool
     index_json_include_file_summaries: bool
     index_json_include_relationships: bool
     markdown_include_repository_guide: bool
@@ -95,7 +97,8 @@ def resolve_profile(cfg: Config, cli_value: str | None) -> str:
     norm = str(value).strip().lower()
     return (
         norm
-        if norm in {"human", "agent", "lean-agent", "hybrid", "portable"}
+        if norm
+        in {"human", "agent", "lean-agent", "hybrid", "portable", "portable-agent"}
         else "human"
     )
 
@@ -129,17 +132,21 @@ def resolve_index_json_mode(
 
     if args.index_json is not None:
         return "full"
-    if profile in {"agent", "lean-agent"}:
+    if profile in {"agent", "lean-agent", "portable-agent"}:
         return "normalized"
     if profile == "hybrid":
         return "full"
     return None
 
 
-def resolve_emit_standalone_unpacker(cfg: Config, args: argparse.Namespace) -> bool:
+def resolve_emit_standalone_unpacker(
+    cfg: Config, args: argparse.Namespace, profile: str
+) -> bool:
     cli_value = getattr(args, "emit_standalone_unpacker", None)
     if cli_value is not None:
         return bool(cli_value)
+    if profile == "portable-agent":
+        return True
     return bool(getattr(cfg, "emit_standalone_unpacker", False)) or (
         getattr(cfg, "standalone_unpacker_output", None) is not None
     )
@@ -149,6 +156,7 @@ def resolve_locator_space(
     cfg: Config,
     args: argparse.Namespace,
     *,
+    profile: str,
     emit_standalone_unpacker: bool,
 ) -> str:
     cli_value = getattr(args, "locator_space", None)
@@ -159,6 +167,8 @@ def resolve_locator_space(
     if value not in {"auto", "markdown", "reconstructed", "dual"}:
         value = "auto"
     if value == "auto":
+        if profile == "portable-agent":
+            return "dual"
         return "reconstructed" if emit_standalone_unpacker else "markdown"
     return value
 
@@ -172,10 +182,11 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         raise ValueError("cannot combine --index-json-mode with --no-index-json")
 
     profile = resolve_profile(cfg, args.profile)
-    emit_standalone_unpacker = resolve_emit_standalone_unpacker(cfg, args)
+    emit_standalone_unpacker = resolve_emit_standalone_unpacker(cfg, args, profile)
     locator_space = resolve_locator_space(
         cfg,
         args,
+        profile=profile,
         emit_standalone_unpacker=emit_standalone_unpacker,
     )
     index_json_mode = resolve_index_json_mode(cfg, args, profile)
@@ -214,7 +225,12 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
     elif getattr(cfg, "index_json_mode", None) is not None:
         index_json_enabled = True
     else:
-        index_json_enabled = profile in {"agent", "lean-agent", "hybrid"}
+        index_json_enabled = profile in {
+            "agent",
+            "lean-agent",
+            "hybrid",
+            "portable-agent",
+        }
 
     default_analysis_metadata = not (
         index_json_mode == "minimal" or profile == "lean-agent"
@@ -283,6 +299,16 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
     index_json_include_purpose_text = _resolve_optional_bool(
         getattr(args, "index_json_purpose_text", None),
         getattr(cfg, "index_json_include_purpose_text", None),
+        default=default_compact_analysis,
+    )
+    index_json_include_symbol_locators = _resolve_optional_bool(
+        getattr(args, "index_json_symbol_locators", None),
+        getattr(cfg, "index_json_include_symbol_locators", None),
+        default=profile != "lean-agent",
+    )
+    index_json_include_symbol_references = _resolve_optional_bool(
+        getattr(args, "index_json_symbol_references", None),
+        getattr(cfg, "index_json_include_symbol_references", None),
         default=default_compact_analysis,
     )
     index_json_include_file_summaries = _resolve_optional_bool(
@@ -423,14 +449,16 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
     else:
         cfg_layout = str(getattr(cfg, "layout", "auto")).strip().lower()
         layout = (
-            "full" if profile == "portable" and cfg_layout == "auto" else cfg_layout
+            "full"
+            if profile in {"portable", "portable-agent"} and cfg_layout == "auto"
+            else cfg_layout
         )
     nav_mode = (
         str(args.nav_mode).strip().lower()
         if args.nav_mode is not None
         else (
             "compact"
-            if profile in {"agent", "lean-agent"}
+            if profile in {"agent", "lean-agent", "portable-agent"}
             else str(getattr(cfg, "nav_mode", "auto")).strip().lower()
         )
     )
@@ -530,6 +558,8 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         index_json_include_module_docstrings=index_json_include_module_docstrings,
         index_json_include_semantic=index_json_include_semantic,
         index_json_include_purpose_text=index_json_include_purpose_text,
+        index_json_include_symbol_locators=index_json_include_symbol_locators,
+        index_json_include_symbol_references=index_json_include_symbol_references,
         index_json_include_file_summaries=index_json_include_file_summaries,
         index_json_include_relationships=index_json_include_relationships,
         markdown_include_repository_guide=markdown_include_repository_guide,

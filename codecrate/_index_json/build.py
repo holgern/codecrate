@@ -6,8 +6,12 @@ from typing import Any
 
 from ..analysis_metadata import (
     build_architecture_map,
+    build_centrality_rank,
+    build_entrypoint_paths,
     build_file_relationships,
     build_file_summaries,
+    build_likely_edit_targets,
+    build_package_summaries,
     build_repository_guide,
     import_edges_payload,
     test_links_payload,
@@ -24,6 +28,7 @@ from ..ids import (
     SEMANTIC_ID_FORMAT_VERSION,
 )
 from ..output_model import PackRun
+from ..reference_analysis import analyze_references
 from ..token_budget import Part
 from .common import _imports_by_source, _role_hints_by_path, _sort_rel_paths
 from .compact_payloads import (
@@ -38,7 +43,12 @@ from .full_payloads import (
     _full_lookup_indexes,
     _full_symbol_payload,
 )
-from .locators import _repo_reconstructed_root, _unsplit_markdown_metadata
+from .ir import RepositoryIR
+from .locators import (
+    _repo_reconstructed_root,
+    _split_markdown_metadata,
+    _unsplit_markdown_metadata,
+)
 from .normalized_payloads import _normalized_repository_payload
 from .parts import _part_metadata
 from .repository import _repository_common_payload
@@ -100,6 +110,11 @@ def build_index_payload(
             repo_output_parts=parts_input,
             base_dir=base_dir,
         )
+        split_file_ranges, split_symbol_ranges = _split_markdown_metadata(
+            run,
+            repo_output_parts=parts_input,
+            base_dir=base_dir,
+        )
         import_edges = (
             import_edges_payload(run.pack_result)
             if run.options.index_json_include_graph
@@ -124,6 +139,26 @@ def build_index_payload(
             if run.options.index_json_include_guide
             else {}
         )
+        package_summaries = (
+            build_package_summaries(root=run.root, pack=run.pack_result)
+            if run.options.index_json_include_guide
+            else {}
+        )
+        entrypoint_paths = (
+            build_entrypoint_paths(root=run.root, pack=run.pack_result)
+            if run.options.index_json_include_guide
+            else []
+        )
+        centrality_rank = (
+            build_centrality_rank(pack=run.pack_result)
+            if run.options.index_json_include_guide
+            else []
+        )
+        likely_edit_targets = (
+            build_likely_edit_targets(pack=run.pack_result)
+            if run.options.index_json_include_guide
+            else []
+        )
         imports_by_source = (
             _imports_by_source(run)
             if run.options.index_json_include_file_imports
@@ -143,57 +178,60 @@ def build_index_payload(
             if run.options.index_json_include_file_summaries
             else {}
         )
+        reference_analysis = (
+            analyze_references(run.pack_result)
+            if run.options.index_json_include_symbol_references
+            else None
+        )
         all_output_files.extend(part["path"] for part in parts)
         repo_markdown_path = parts[0]["path"] if len(parts) == 1 else None
+        ir = RepositoryIR(
+            run=run,
+            repo_markdown_path=repo_markdown_path,
+            repo_count=len(pack_runs),
+            parts=parts,
+            file_to_part=file_to_part,
+            file_index_to_part=file_index_to_part,
+            func_to_part=func_to_part,
+            markdown_path=markdown_path,
+            file_markdown_ranges=file_markdown_ranges,
+            symbol_index_ranges=symbol_index_ranges,
+            canonical_markdown_ranges=canonical_markdown_ranges,
+            reconstructed_root=reconstructed_root,
+            split_file_ranges=split_file_ranges,
+            split_symbol_ranges=split_symbol_ranges,
+            import_edges=import_edges,
+            test_links=test_links,
+            guide=guide,
+            architecture=architecture,
+            package_summaries=package_summaries,
+            entrypoint_paths=entrypoint_paths,
+            centrality_rank=centrality_rank,
+            likely_edit_targets=likely_edit_targets,
+            imports_by_source=imports_by_source,
+            role_hints=role_hints,
+            relationship_summaries=relationship_summaries,
+            file_summaries=file_summaries,
+            reference_analysis=reference_analysis,
+            focus_selection=run.focus_selection,
+            repository_analysis_metadata=include_repository_analysis,
+            file_analysis_metadata=include_file_analysis,
+            symbol_analysis_metadata=include_symbol_analysis,
+        )
         if index_json_mode == "full":
-            files_payload = _full_file_payload(
-                run,
-                file_to_part=file_to_part,
-                file_index_to_part=file_index_to_part,
-                markdown_path=markdown_path,
-                file_markdown_ranges=file_markdown_ranges,
-                reconstructed_root=reconstructed_root,
-                imports_by_source=imports_by_source,
-                role_hints=role_hints,
-                relationship_summaries=relationship_summaries,
-                file_summaries=file_summaries,
-                analysis_metadata=include_file_analysis,
-            )
+            files_payload = _full_file_payload(ir)
             classes_payload = (
                 _class_payload(
-                    run,
-                    file_to_part=file_to_part,
-                    markdown_path=markdown_path,
-                    file_markdown_ranges=file_markdown_ranges,
+                    ir,
                     include_display_ids=True,
                     include_purpose_text=run.options.index_json_include_purpose_text,
                 )
                 if run.options.index_json_include_classes
                 else []
             )
-            symbols_payload = _full_symbol_payload(
-                run,
-                file_to_part=file_to_part,
-                func_to_part=func_to_part,
-                markdown_path=markdown_path,
-                file_markdown_ranges=file_markdown_ranges,
-                symbol_index_ranges=symbol_index_ranges,
-                canonical_markdown_ranges=canonical_markdown_ranges,
-                reconstructed_root=reconstructed_root,
-                analysis_metadata=include_symbol_analysis,
-            )
+            symbols_payload = _full_symbol_payload(ir)
             repository = {
-                **_repository_common_payload(
-                    run,
-                    repo_markdown_path=repo_markdown_path,
-                    repo_count=len(pack_runs),
-                    parts=parts,
-                    import_edges=import_edges,
-                    test_links=test_links,
-                    guide=guide,
-                    architecture=architecture,
-                    analysis_metadata=include_repository_analysis,
-                ),
+                **_repository_common_payload(ir),
                 "effective_layout": run.effective_layout,
                 "contains_manifest": run.options.include_manifest,
                 "files": files_payload,
@@ -203,51 +241,16 @@ def build_index_payload(
             if run.options.index_json_include_classes:
                 repository["classes"] = classes_payload
         elif index_json_mode == "normalized":
-            repository = _normalized_repository_payload(
-                run,
-                repo_markdown_path=repo_markdown_path,
-                repo_count=len(pack_runs),
-                parts=parts,
-                file_to_part=file_to_part,
-                markdown_path=markdown_path,
-                file_markdown_ranges=file_markdown_ranges,
-                symbol_index_ranges=symbol_index_ranges,
-                canonical_markdown_ranges=canonical_markdown_ranges,
-                reconstructed_root=reconstructed_root,
-                import_edges=import_edges,
-                test_links=test_links,
-                guide=guide,
-                architecture=architecture,
-                imports_by_source=imports_by_source,
-                role_hints=role_hints,
-                relationship_summaries=relationship_summaries,
-                file_summaries=file_summaries,
-                file_analysis_metadata=include_file_analysis,
-                symbol_analysis_metadata=include_symbol_analysis,
-                repository_analysis_metadata=include_repository_analysis,
-            )
+            repository = _normalized_repository_payload(ir)
         else:
             features = _v2_feature_payload(run, index_json_mode=index_json_mode)
             files_payload = _compact_file_payload(
-                run,
-                file_to_part=file_to_part,
-                file_index_to_part=file_index_to_part,
-                markdown_path=markdown_path,
-                file_markdown_ranges=file_markdown_ranges,
-                reconstructed_root=reconstructed_root,
+                ir,
                 index_json_mode=index_json_mode,
-                imports_by_source=imports_by_source,
-                role_hints=role_hints,
-                relationship_summaries=relationship_summaries,
-                file_summaries=file_summaries,
-                analysis_metadata=include_file_analysis,
             )
             classes_payload = (
                 _class_payload(
-                    run,
-                    file_to_part=file_to_part,
-                    markdown_path=markdown_path,
-                    file_markdown_ranges=file_markdown_ranges,
+                    ir,
                     include_display_ids=index_json_mode == "compact",
                     include_purpose_text=run.options.index_json_include_purpose_text,
                 )
@@ -255,30 +258,12 @@ def build_index_payload(
                 else []
             )
             symbols_payload = _compact_symbol_payload(
-                run,
-                file_to_part=file_to_part,
-                func_to_part=func_to_part,
-                markdown_path=markdown_path,
-                file_markdown_ranges=file_markdown_ranges,
-                symbol_index_ranges=symbol_index_ranges,
-                canonical_markdown_ranges=canonical_markdown_ranges,
-                reconstructed_root=reconstructed_root,
+                ir,
                 index_json_mode=index_json_mode,
                 include_symbol_index_lines=features["symbol_index_lines"],
-                analysis_metadata=include_symbol_analysis,
             )
             repository = {
-                **_repository_common_payload(
-                    run,
-                    repo_markdown_path=repo_markdown_path,
-                    repo_count=len(pack_runs),
-                    parts=parts,
-                    import_edges=import_edges,
-                    test_links=test_links,
-                    guide=guide,
-                    architecture=architecture,
-                    analysis_metadata=include_repository_analysis,
-                ),
+                **_repository_common_payload(ir),
                 "index_json_features": features,
                 "files": files_payload,
                 "symbols": symbols_payload,
@@ -334,7 +319,7 @@ def build_index_payload(
                     run.options.include_manifest for run in pack_runs
                 ),
                 "has_unsplit_line_ranges": not is_split,
-                "has_split_line_ranges": False,
+                "has_split_line_ranges": is_split,
             },
             "authority": {
                 "full_layout_source": "files",

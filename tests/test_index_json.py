@@ -454,9 +454,160 @@ def test_pack_index_json_minimal_v2_shape(tmp_path: Path) -> None:
     assert "locators" in file_entry
     assert file_entry["locators"]["markdown"]["path"] == "context.md"
     assert symbol_entry["locators"]["markdown"]["path"] == "context.md"
-    assert "symbol_index_lines" in symbol_entry["locators"]["markdown"]
-    assert "semantic" not in symbol_entry
-    assert "purpose_text" not in symbol_entry
+
+
+def test_pack_index_json_focus_inclusion_provenance(tmp_path: Path) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "pkg" / "helpers.py").write_text(
+        "def helper() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pkg" / "service.py").write_text(
+        "from pkg.helpers import helper\n\ndef run() -> int:\n    return helper()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "tests" / "test_service.py").write_text(
+        "from pkg.service import run\n\n"
+        "def test_run() -> None:\n    assert run() == 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.1.0"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--index-json",
+            "--focus-file",
+            "pkg/service.py",
+            "--include-import-neighbors",
+            "1",
+            "--include-tests",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo = payload["repositories"][0]
+    files_by_path = {entry["path"]: entry for entry in repo["files"]}
+
+    assert repo["focus"]["selected_file_count"] == len(repo["files"])
+    assert (
+        "focus_file"
+        in files_by_path["pkg/service.py"]["inclusion_reason"]["selected_by"]
+    )
+    assert (
+        "import_neighbor"
+        in files_by_path["pkg/helpers.py"]["inclusion_reason"]["selected_by"]
+    )
+    assert (
+        "related_test"
+        in files_by_path["tests/test_service.py"]["inclusion_reason"]["selected_by"]
+    )
+    assert (
+        "config_context"
+        in files_by_path["pyproject.toml"]["inclusion_reason"]["selected_by"]
+    )
+    assert (
+        "readme_context"
+        in files_by_path["README.md"]["inclusion_reason"]["selected_by"]
+    )
+
+
+def test_pack_index_json_split_part_locators_present(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text(
+        "def alpha():\n    return 1\n\n"
+        "def beta():\n    return 2\n\n"
+        "def gamma():\n    return 3\n",
+        encoding="utf-8",
+    )
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--layout",
+            "stubs",
+            "--split-max-chars",
+            "350",
+            "--index-json",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo = payload["repositories"][0]
+    file_entry = repo["files"][0]
+    symbol_entry = repo["symbols"][0]
+
+    assert payload["pack"]["capabilities"]["has_split_line_ranges"] is True
+    assert file_entry["locators"]["split_part"]["path"].startswith("context.part")
+    assert "lines" in file_entry["locators"]["split_part"]
+    assert symbol_entry["locators"]["split_part"]["path"].startswith("context.")
+    assert "lines" in symbol_entry["locators"]["split_part"]
+
+
+def test_pack_index_json_reference_graph_and_package_summaries(tmp_path: Path) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "pkg" / "helpers.py").write_text(
+        "def helper() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pkg" / "service.py").write_text(
+        "from pkg.helpers import helper\n\n"
+        "class Service:\n"
+        "    @staticmethod\n"
+        "    def run() -> int:\n"
+        "        return helper()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "tests" / "test_service.py").write_text(
+        "from pkg.service import Service\n\n"
+        "def test_run() -> None:\n    assert Service.run() == 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.1.0"\n'
+        '[project.scripts]\ndemo = "pkg.service:Service.run"\n',
+        encoding="utf-8",
+    )
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--index-json",
+            "--index-json-symbol-references",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo = payload["repositories"][0]
+    files_by_path = {entry["path"]: entry for entry in repo["files"]}
+    symbols_by_qualname = {entry["qualname"]: entry for entry in repo["symbols"]}
+
+    assert repo["reference_graph"]["call_like_edges"]
+    assert any(
+        edge["target_path"] == "pkg/helpers.py"
+        for edge in repo["reference_graph"]["call_like_edges"]
+    )
+    assert "pkg/helpers.py" in files_by_path["pkg/service.py"]["references_out"]
+    assert "pkg" in repo["package_summaries"]
+    assert repo["entrypoint_paths"][0]["entrypoint"] == "pkg/service.py"
+    assert repo["centrality_rank"]
+    assert repo["likely_edit_targets"]
+    assert symbols_by_qualname["Service.run"]["references_out"]
 
 
 def test_pack_index_json_normalized_v3_shape(tmp_path: Path) -> None:

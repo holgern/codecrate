@@ -41,6 +41,8 @@ def test_resolve_pack_options_uses_profile_defaults(tmp_path: Path) -> None:
     assert options.index_json_include_module_docstrings is True
     assert options.index_json_include_semantic is True
     assert options.index_json_include_purpose_text is True
+    assert options.index_json_include_symbol_locators is True
+    assert options.index_json_include_symbol_references is True
     assert options.index_json_include_file_summaries is True
     assert options.index_json_include_relationships is True
     assert options.markdown_include_repository_guide is True
@@ -81,6 +83,8 @@ def test_resolve_pack_options_lean_agent_profile_defaults(tmp_path: Path) -> Non
     assert options.index_json_include_module_docstrings is False
     assert options.index_json_include_semantic is False
     assert options.index_json_include_purpose_text is False
+    assert options.index_json_include_symbol_locators is False
+    assert options.index_json_include_symbol_references is False
     assert options.index_json_include_file_summaries is False
     assert options.index_json_include_relationships is False
     assert options.markdown_include_repository_guide is False
@@ -170,6 +174,8 @@ def test_resolve_pack_options_index_json_mode_enables_sidecar(tmp_path: Path) ->
     assert options.analysis_metadata is False
     assert options.index_json_include_semantic is False
     assert options.index_json_include_purpose_text is False
+    assert options.index_json_include_symbol_locators is True
+    assert options.index_json_include_symbol_references is False
     assert options.index_json_include_file_summaries is False
     assert options.index_json_include_relationships is False
 
@@ -204,6 +210,28 @@ def test_resolve_pack_options_portable_profile_defaults_to_full_without_index_js
     assert options.layout == "full"
     assert options.include_manifest is True
     assert options.index_json_enabled is False
+
+
+def test_resolve_pack_options_portable_agent_profile_defaults(
+    tmp_path: Path,
+) -> None:
+    cfg = Config()
+
+    options = resolve_pack_options(
+        cfg,
+        _parse_pack_args(tmp_path, "--profile", "portable-agent"),
+    )
+
+    assert options.profile == "portable-agent"
+    assert options.emit_standalone_unpacker is True
+    assert options.locator_space == "dual"
+    assert options.layout == "full"
+    assert options.nav_mode == "compact"
+    assert options.include_manifest is True
+    assert options.index_json_enabled is True
+    assert options.index_json_mode == "normalized"
+    assert options.index_json_include_symbol_locators is True
+    assert options.index_json_include_symbol_references is True
 
 
 def test_resolve_pack_options_config_index_json_mode_enables_sidecar(

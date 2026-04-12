@@ -13,29 +13,24 @@ from ..markdown import _fence_lang_for
 from ..output_model import PackRun
 from .common import (
     _class_id_maps,
+    _file_reference_payload,
+    _focus_inclusion_payload,
     _line_range,
     _semantic_symbol_payload,
     _should_include_canonical_ids,
     _strong_id_maps,
+    _symbol_reference_payload,
 )
+from .ir import RepositoryIR
 from .locators import _file_locator_payload, _symbol_locator_payload
 
 
 def _compact_file_payload(
-    run: PackRun,
+    ir: RepositoryIR,
     *,
-    file_to_part: dict[str, str],
-    file_index_to_part: dict[str, str],
-    markdown_path: str | None,
-    file_markdown_ranges: dict[str, dict[str, int]],
-    reconstructed_root: str | None,
     index_json_mode: str,
-    imports_by_source: dict[str, list[dict[str, Any]]],
-    role_hints: dict[str, str | None],
-    relationship_summaries: dict[str, dict[str, list[str]]],
-    file_summaries: dict[str, dict[str, Any]],
-    analysis_metadata: bool,
 ) -> list[dict[str, Any]]:
+    run = ir.run
     payload: list[dict[str, Any]] = []
     for file_pack in sorted(
         run.pack_result.files,
@@ -43,14 +38,14 @@ def _compact_file_payload(
     ):
         rel = file_pack.path.relative_to(run.pack_result.root).as_posix()
         hrefs = {
-            "source": href(file_to_part.get(rel), anchor_for_file_source(rel)),
+            "source": href(ir.file_to_part.get(rel), anchor_for_file_source(rel)),
         }
-        index_href = href(file_index_to_part.get(rel), anchor_for_file_index(rel))
+        index_href = href(ir.file_index_to_part.get(rel), anchor_for_file_index(rel))
         if index_href is not None:
             hrefs["index"] = index_href
         file_entry: dict[str, Any] = {
             "path": rel,
-            "part_path": file_to_part.get(rel),
+            "part_path": ir.file_to_part.get(rel),
             "hrefs": hrefs,
             "language": _fence_lang_for(rel),
             "language_detected": file_pack.language_detected,
@@ -58,18 +53,18 @@ def _compact_file_payload(
             "symbol_backend_used": file_pack.symbol_backend_used,
             "symbol_extraction_status": file_pack.symbol_extraction_status,
         }
-        if analysis_metadata:
+        if ir.file_analysis_metadata:
             file_entry["module"] = file_pack.module or None
-            file_entry["role_hint"] = role_hints.get(rel)
+            file_entry["role_hint"] = ir.role_hints.get(rel)
             if run.options.index_json_include_file_summaries:
-                summary = dict(file_summaries.get(rel) or {})
+                summary = dict(ir.file_summaries.get(rel) or {})
                 if not run.options.index_json_include_exports:
                     summary["exports"] = []
                 file_entry["summary"] = summary or None
             if run.options.index_json_include_relationships:
-                file_entry["relationships"] = relationship_summaries.get(rel)
+                file_entry["relationships"] = ir.relationship_summaries.get(rel)
             if run.options.index_json_include_file_imports:
-                file_entry["imports"] = imports_by_source.get(rel, [])
+                file_entry["imports"] = ir.imports_by_source.get(rel, [])
             if run.options.index_json_include_exports:
                 file_entry["exports"] = list(file_pack.exports)
             if run.options.index_json_include_module_docstrings:
@@ -82,36 +77,35 @@ def _compact_file_payload(
             file_entry["language_family"] = (
                 file_pack.language_detected or _fence_lang_for(rel)
             )
-        if markdown_path is not None and rel in file_markdown_ranges:
-            file_entry["markdown_lines"] = file_markdown_ranges[rel]
+        if ir.markdown_path is not None and rel in ir.file_markdown_ranges:
+            file_entry["markdown_lines"] = ir.file_markdown_ranges[rel]
         locators = _file_locator_payload(
             run,
             rel_path=rel,
             line_count=file_pack.line_count,
-            markdown_path=markdown_path,
-            file_markdown_ranges=file_markdown_ranges,
-            reconstructed_root=reconstructed_root,
+            markdown_path=ir.markdown_path,
+            file_markdown_ranges=ir.file_markdown_ranges,
+            reconstructed_root=ir.reconstructed_root,
+            split_file_ranges=ir.split_file_ranges,
         )
         if locators:
             file_entry["locators"] = locators
+        inclusion_reason = _focus_inclusion_payload(run, rel)
+        if inclusion_reason is not None:
+            file_entry["inclusion_reason"] = inclusion_reason
+        if run.options.index_json_include_symbol_references:
+            file_entry.update(_file_reference_payload(ir.reference_analysis, rel) or {})
         payload.append(file_entry)
     return payload
 
 
 def _compact_symbol_payload(
-    run: PackRun,
+    ir: RepositoryIR,
     *,
-    file_to_part: dict[str, str],
-    func_to_part: dict[str, str],
-    markdown_path: str | None,
-    file_markdown_ranges: dict[str, dict[str, int]],
-    symbol_index_ranges: dict[str, dict[str, int]],
-    canonical_markdown_ranges: dict[str, dict[str, int]],
-    reconstructed_root: str | None,
     index_json_mode: str,
     include_symbol_index_lines: bool,
-    analysis_metadata: bool,
 ) -> list[dict[str, Any]]:
+    run = ir.run
     local_machine_ids, canonical_machine_ids = _strong_id_maps(run)
     _class_machine_ids, class_ids_by_path_qualname = _class_id_maps(run)
     include_canonical_ids = _should_include_canonical_ids(run)
@@ -134,10 +128,10 @@ def _compact_symbol_payload(
             "kind": defn.kind,
             "def_line": defn.def_line,
             "end_line": defn.end_line,
-            "file_part": file_to_part.get(rel),
-            "file_href": href(file_to_part.get(rel), anchor_for_file_source(rel)),
+            "file_part": ir.file_to_part.get(rel),
+            "file_href": href(ir.file_to_part.get(rel), anchor_for_file_source(rel)),
         }
-        if analysis_metadata:
+        if ir.symbol_analysis_metadata:
             symbol_entry["owner_class"] = (
                 class_ids_by_path_qualname.get(
                     (rel, defn.owner_class),
@@ -153,46 +147,57 @@ def _compact_symbol_payload(
                 symbol_entry["purpose_text"] = build_symbol_purpose_text(defn)
         if include_canonical_ids:
             symbol_entry["canonical_id"] = canonical_machine_ids[defn.id]
-        locators = _symbol_locator_payload(
-            run,
-            rel_path=rel,
-            def_line=defn.def_line,
-            decorator_start=defn.decorator_start,
-            body_start=defn.body_start,
-            end_line=defn.end_line,
-            local_id=defn.local_id,
-            canonical_id=defn.id,
-            markdown_path=markdown_path,
-            file_markdown_ranges=file_markdown_ranges,
-            symbol_index_ranges=symbol_index_ranges,
-            canonical_markdown_ranges=canonical_markdown_ranges,
-            reconstructed_root=reconstructed_root,
-        )
-        if locators:
-            symbol_entry["locators"] = locators
+        if run.options.index_json_include_symbol_locators:
+            locators = _symbol_locator_payload(
+                run,
+                rel_path=rel,
+                def_line=defn.def_line,
+                decorator_start=defn.decorator_start,
+                body_start=defn.body_start,
+                end_line=defn.end_line,
+                local_id=defn.local_id,
+                canonical_id=defn.id,
+                markdown_path=ir.markdown_path,
+                file_markdown_ranges=ir.file_markdown_ranges,
+                symbol_index_ranges=ir.symbol_index_ranges,
+                canonical_markdown_ranges=ir.canonical_markdown_ranges,
+                reconstructed_root=ir.reconstructed_root,
+                split_symbol_ranges=ir.split_symbol_ranges,
+            )
+            if locators:
+                symbol_entry["locators"] = locators
         if (
             index_json_mode == "compact"
             and include_symbol_index_lines
-            and markdown_path is not None
+            and ir.markdown_path is not None
         ):
-            if defn.local_id in symbol_index_ranges:
-                symbol_entry["index_markdown_lines"] = symbol_index_ranges[
+            if defn.local_id in ir.symbol_index_ranges:
+                symbol_entry["index_markdown_lines"] = ir.symbol_index_ranges[
                     defn.local_id
                 ]
+        if run.options.index_json_include_symbol_references:
+            symbol_entry.update(
+                _symbol_reference_payload(
+                    ir.reference_analysis,
+                    local_id=defn.local_id,
+                    local_machine_ids=local_machine_ids,
+                )
+                or {}
+            )
         if run.effective_layout == "stubs" and defn.id in run.canonical_sources:
-            symbol_entry["canonical_part"] = func_to_part.get(
+            symbol_entry["canonical_part"] = ir.func_to_part.get(
                 canonical_machine_ids[defn.id]
             )
             symbol_entry["canonical_href"] = href(
-                func_to_part.get(canonical_machine_ids[defn.id]),
+                ir.func_to_part.get(canonical_machine_ids[defn.id]),
                 anchor_for_symbol(defn.id),
             )
             if (
                 index_json_mode == "compact"
-                and markdown_path is not None
-                and defn.id in canonical_markdown_ranges
+                and ir.markdown_path is not None
+                and defn.id in ir.canonical_markdown_ranges
             ):
-                symbol_entry["canonical_markdown_lines"] = canonical_markdown_ranges[
+                symbol_entry["canonical_markdown_lines"] = ir.canonical_markdown_ranges[
                     defn.id
                 ]
         symbols.append(symbol_entry)

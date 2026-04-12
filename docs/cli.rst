@@ -62,7 +62,8 @@ When using ``--repo``, omit the positional ``ROOT``. Specifying both is an error
 Useful flags:
 
 * ``--dedupe / --no-dedupe``: enable or disable deduplication
-* ``--profile human|agent|hybrid|portable``: choose output defaults profile
+* ``--profile human|agent|lean-agent|hybrid|portable|portable-agent``: choose
+  output defaults profile
 * ``--layout auto|stubs|full``: choose layout (auto selects best token efficiency)
 * ``--nav-mode auto|compact|full``: navigation density; auto uses compact for
   unsplit output and full when split outputs are requested
@@ -118,6 +119,10 @@ Useful flags:
     in compact/minimal v2 sidecars
 * ``--index-json-symbol-index-lines / --no-index-json-symbol-index-lines``:
     include or trim compact v2 symbol index line ranges
+* ``--index-json-symbol-locators / --no-index-json-symbol-locators``: include or
+    trim symbol locator payloads
+* ``--index-json-symbol-references / --no-index-json-symbol-references``:
+    include or trim conservative symbol reference and call-like metadata
 * ``--index-json-graph / --no-index-json-graph``, ``--index-json-test-links /
   --no-index-json-test-links``, ``--index-json-guide / --no-index-json-guide``,
   ``--index-json-file-imports / --no-index-json-file-imports``,
@@ -139,8 +144,11 @@ Profile defaults:
 
 * ``human``: current markdown-first behavior
 * ``agent``: compact navigation plus normalized v3 ``index-json`` output
+* ``lean-agent``: smaller normalized v3 sidecars with lean analysis defaults
 * ``hybrid``: current markdown behavior plus full ``index-json`` output
 * ``portable``: manifest-enabled ``full`` layout intended for standalone unpack
+* ``portable-agent``: ``full`` layout, standalone unpacker, normalized sidecar,
+  and dual locators by default
 
 Portable reconstruction example:
 

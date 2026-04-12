@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from .analysis_metadata import build_repository_guide
 from .fences import choose_backtick_fence, is_fence_close, parse_fence_open
+from .focus import FocusSelectionResult
 from .formats import FENCE_MACHINE_HEADER, FENCE_MANIFEST, PACK_FORMAT_VERSION
 from .locators import (
     anchor_for_file_index,
@@ -57,6 +58,7 @@ def _range_token(kind: str, key: str) -> str:
 
 
 _SECTION_TITLES: tuple[str, ...] = (
+    "Focus Selection",
     "Directory Tree",
     "Repository Guide",
     "Symbol Index",
@@ -512,6 +514,31 @@ def _render_repository_guide_section(*, root: Path, pack: PackResult) -> str:
     return "".join(lines)
 
 
+def _render_focus_selection_section(
+    focus_selection: FocusSelectionResult | None,
+) -> str:
+    if focus_selection is None or not focus_selection.inclusion_reasons:
+        return ""
+    lines = ["## Focus Selection\n\n"]
+    lines.append(f"- Selected files: {len(focus_selection.selected_paths)}\n")
+    reasons = sorted(
+        {
+            reason
+            for item in focus_selection.inclusion_reasons.values()
+            for reason in item.selected_by
+        }
+    )
+    if reasons:
+        lines.append(
+            "- Inclusion reasons: " + ", ".join(f"`{item}`" for item in reasons) + "\n"
+        )
+    preview = list(focus_selection.selected_paths[:8])
+    if preview:
+        lines.append("- Preview: " + ", ".join(f"`{item}`" for item in preview) + "\n")
+    lines.append("\n")
+    return "".join(lines)
+
+
 def render_markdown_result(  # noqa: C901
     pack: PackResult,
     canonical_sources: dict[str, str],
@@ -532,6 +559,7 @@ def render_markdown_result(  # noqa: C901
     manifest_data: dict[str, Any] | None = None,
     repo_label: str = "repo",
     repo_slug: str = "repo",
+    focus_selection: FocusSelectionResult | None = None,
 ) -> RenderedMarkdown:
     lines: list[str] = []
     lines.append("# Codecrate Context Pack\n\n")
@@ -633,6 +661,7 @@ def render_markdown_result(  # noqa: C901
     if include_environment_setup:
         lines.append(_render_environment_setup_section(pack.root))
     lines.append(guide_section)
+    lines.append(_render_focus_selection_section(focus_selection))
 
     if include_manifest:
         manifest_obj = manifest_data or to_manifest(pack, minimal=not use_stubs)

@@ -11,7 +11,7 @@ retrieve, validate, diff, and apply changes safely.
 Choose A Profile
 ----------------
 
-Codecrate supports five output profiles:
+Codecrate supports six output profiles:
 
 * ``human``: keep the current markdown-first behavior
 * ``agent``: compact navigation plus normalized ``codecrate.index-json.v3``
@@ -19,6 +19,8 @@ Codecrate supports five output profiles:
   markdown defaults
 * ``hybrid``: current markdown richness plus full ``codecrate.index-json.v1``
 * ``portable``: manifest-enabled ``full`` layout for standalone reconstruction
+* ``portable-agent``: reconstructable ``full`` layout plus normalized retrieval
+  metadata and dual locators
 
 Example:
 
@@ -26,6 +28,7 @@ Example:
 
    codecrate pack . -o context.md --profile agent
    codecrate pack . -o context.md --profile lean-agent
+   codecrate pack . -o context.md --profile portable-agent
 
 If you relied on compact-only lookup convenience fields, request them
 explicitly:
@@ -55,6 +58,13 @@ tree, keep the default ``--locator-space auto`` and add a sidecar mode:
 
    codecrate pack . -o context.md --profile portable \
      --emit-standalone-unpacker --index-json-mode normalized
+
+Use ``portable-agent`` when you want those reconstruction and retrieval defaults
+in one preset:
+
+.. code-block:: console
+
+   codecrate pack . -o context.md --profile portable-agent
 
 
 Authority Model

@@ -14,35 +14,15 @@
 
 ## Features
 
-- **Markdown-native output**: Generates self-contained Markdown files with syntax highlighting
-- **Symbol index**: Quick navigation to functions and classes
-- **Versioned retrieval sidecar**: Optional JSON index output with full v1, compact/minimal v2, and normalized v3 modes
-- **Deduplication**: Optionally deduplicate identical function bodies to save tokens
-- **Two layout modes**:
-  - `stubs`: Compact file stubs with function bodies in a separate "Function Library"
-  - `full`: Complete file contents (no stubbing)
-- **Output profiles**: `human`, `agent`, `lean-agent`, `hybrid`, and `portable`
-- **Portable reconstruction**: Optional generated standalone unpacker script using only the Python standard library
-- **Round-trip support**: Reconstruct original files exactly from Markdown packs
-- **Diff generation**: Create minimal patch Markdown files showing only changed code
-- **Baseline-aware patches**: Patch metadata binds diffs to baseline file hashes; `apply` refuses mismatched baselines
-- **Strict validation policies**: Optional fail-on-warning, fail-on-root-drift, fail-on-redaction, and fail-on-safety-skip checks
-- **Gitignore support**: Respect `.gitignore` when scanning files
-- **Tool ignore support**: Respect `.codecrateignore` (always)
-- **Targeted packing**: Optional `--stdin` / `--stdin0` mode to pack an explicit file list
-- **Focused packs**: Narrow output to selected files or symbols and optionally expand to import neighbors and related tests
-- **Include presets**: `python-only`, `python+docs` (default), `everything`
-- **Debug visibility**: Optional `--print-files` and `--print-skipped` diagnostics
-- **Token diagnostics**: Optional CLI token reports (encoding, tree, top files)
-- **Scale controls**: Per-file skip budgets and hard total budgets (bytes/tokens)
-- **Machine header**: Compact checksum block for fast manifest validation
-- **Tooling manifests**: Optional JSON manifest sidecar output (`--manifest-json`)
-- **Split retrieval metadata**: Split parts carry direct file/symbol membership in `index-json`
-- **Safety controls**: Configurable path/content scanning rules, optional redaction, optional safety report
-- **Mixed-language reporting**: Per-file language detection plus requested/used backend and extraction status
-- **Dual ID strategy**: Markdown keeps short display IDs while `index-json` exposes stronger machine IDs for tooling
-- **Environment diagnostics**: `codecrate doctor` reports config precedence, ignore files, and backend availability
-- **CLI ergonomics**: `--version`, `pack --print-rules`, `config show --effective`, `config schema --json`, and baseline policy flags for `apply`
+- Markdown packs for reading, review, patch/apply, and exact reconstruction
+- Optional retrieval sidecars in full v1, compact/minimal v2, and normalized v3 modes
+- Output profiles for `human`, `agent`, `lean-agent`, `hybrid`, `portable`, and `portable-agent`
+- Focused packs with inclusion provenance, import-neighbor expansion, and related-test expansion
+- Split-output aware locators for unsplit markdown, split markdown parts, and reconstructed files
+- Conservative symbol reference and call-like metadata for impact analysis
+- Package summaries, entrypoint paths, centrality ranking, and likely edit targets
+- Optional standalone unpacker, manifest sidecars, and strict validation policies
+- Safety filtering, budgets, token diagnostics, mixed-language symbol extraction, and environment diagnostics
 
 ## Installation
 
@@ -104,6 +84,16 @@ codecrate pack . -o context.md --profile hybrid
 See `docs/index_json.rst` for the sidecar contract and lookup model.
 
 This keeps the full v1-compatible sidecar.
+
+Pack for retrieval plus zero-install reconstruction workflows:
+
+```bash
+codecrate pack . -o context.md --profile portable-agent
+python context.unpack.py -o reconstructed/
+```
+
+This keeps a reconstructable `full` pack, emits a normalized sidecar, and adds
+dual markdown/reconstructed locators by default.
 
 Pack for zero-install reconstruction workflows:
 
@@ -213,6 +203,7 @@ Use this quick chooser for profile defaults:
 | Lean agent retrieval     | `lean-agent` | Compact nav plus lean normalized v3 `index-json`           |
 | Review plus tooling      | `hybrid`     | Rich markdown plus full v1-compatible `index-json`         |
 | Portable reconstruction  | `portable`   | Manifest-enabled `full` layout for standalone unpacking    |
+| Portable + retrieval     | `portable-agent` | `full` layout, standalone unpacker, normalized sidecar |
 
 See `docs/config.rst` for the generated config reference, or run `codecrate config schema --json` for the machine-readable schema.
 
