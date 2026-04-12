@@ -16,6 +16,7 @@ from .model import ClassRef, FilePack, PackResult
 from .ordering import sort_paths
 from .output_model import LineRange, RenderedMarkdown, RenderMetadata
 from .parse import parse_symbols
+from .setup_metadata import detect_setup_metadata
 
 
 def _file_range(line_count: int) -> str:
@@ -424,6 +425,37 @@ def _render_how_to_use_section(*, use_stubs: bool) -> str:
     return "".join(lines)
 
 
+def _render_dependency_list(items: list[str]) -> str:
+    return ", ".join(f"`{item}`" for item in items)
+
+
+def _render_environment_setup_section(root: Path) -> str:
+    setup = detect_setup_metadata(root)
+    if setup is None:
+        return ""
+
+    lines: list[str] = []
+    lines.append("## Environment Setup\n\n")
+    lines.append(f"- Ecosystem: {setup.ecosystem}\n")
+    lines.append(f"- Detected from: `{setup.source_file}`\n")
+    lines.append(f"- Prepare command: `{setup.prepare_command}`\n")
+    if setup.dev_prepare_command:
+        lines.append(f"- Optional dev command: `{setup.dev_prepare_command}`\n")
+    if setup.runtime_dependencies:
+        lines.append(
+            f"- Runtime dependencies: {_render_dependency_list(setup.runtime_dependencies)}\n"
+        )
+    if setup.dev_dependencies:
+        lines.append(
+            f"- Dev dependencies: {_render_dependency_list(setup.dev_dependencies)}\n"
+        )
+    lines.append(
+        "- If dependencies or tools are missing at runtime, run the prepare command "
+        "before executing project code or tests.\n\n"
+    )
+    return "".join(lines)
+
+
 def render_markdown_result(  # noqa: C901
     pack: PackResult,
     canonical_sources: dict[str, str],
@@ -528,6 +560,7 @@ def render_markdown_result(  # noqa: C901
             use_stubs=use_stubs,
         )
     )
+    lines.append(_render_environment_setup_section(pack.root))
 
     if include_manifest:
         manifest_obj = manifest_data or to_manifest(pack, minimal=not use_stubs)

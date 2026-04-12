@@ -208,3 +208,4 @@ __marimo__/
 codecrate/_version.py
 context_codecrate.index.json
 context_codecrate.md
+*.unpack.py
