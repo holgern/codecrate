@@ -196,14 +196,14 @@ Codecrate reads config from the repository root with this precedence:
 
 Use this quick chooser for profile defaults:
 
-| Use case                 | Profile      | Behavior                                                   |
-| ------------------------ | ------------ | ---------------------------------------------------------- |
-| Review-only markdown     | `human`      | Markdown-first output without profile-implied `index-json` |
-| Retrieval / agent lookup | `agent`      | Compact nav plus normalized v3 `index-json`                |
-| Lean agent retrieval     | `lean-agent` | Compact nav plus lean normalized v3 `index-json`           |
-| Review plus tooling      | `hybrid`     | Rich markdown plus full v1-compatible `index-json`         |
-| Portable reconstruction  | `portable`   | Manifest-enabled `full` layout for standalone unpacking    |
-| Portable + retrieval     | `portable-agent` | `full` layout, standalone unpacker, normalized sidecar |
+| Use case                 | Profile          | Behavior                                                   |
+| ------------------------ | ---------------- | ---------------------------------------------------------- |
+| Review-only markdown     | `human`          | Markdown-first output without profile-implied `index-json` |
+| Retrieval / agent lookup | `agent`          | Compact nav plus normalized v3 `index-json`                |
+| Lean agent retrieval     | `lean-agent`     | Compact nav plus lean normalized v3 `index-json`           |
+| Review plus tooling      | `hybrid`         | Rich markdown plus full v1-compatible `index-json`         |
+| Portable reconstruction  | `portable`       | Manifest-enabled `full` layout for standalone unpacking    |
+| Portable + retrieval     | `portable-agent` | `full` layout, standalone unpacker, normalized sidecar     |
 
 See `docs/config.rst` for the generated config reference, or run `codecrate config schema --json` for the machine-readable schema.
 
