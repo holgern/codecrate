@@ -194,8 +194,8 @@ def _run_config_show(root: Path, *, effective: bool, as_json: bool) -> None:
         print(f"- {_format_config_provenance(key, value)}")
     print()
     print("Effective values:")
-    for key, value in values.items():
-        print(f"{key} = {json.dumps(value, ensure_ascii=True)}")
+    for key, rendered_value in values.items():
+        print(f"{key} = {json.dumps(rendered_value, ensure_ascii=True)}")
 
 
 def _run_doctor(root: Path) -> None:

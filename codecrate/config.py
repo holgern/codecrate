@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import MISSING, dataclass, field, fields
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from .security import (
     DEFAULT_SENSITIVE_CONTENT_PATTERNS,
@@ -38,6 +38,15 @@ INCLUDE_PRESETS: dict[str, list[str]] = {
 }
 DEFAULT_INCLUDE_PRESET: Literal["python+docs"] = "python+docs"
 
+ProfileValue = Literal["human", "agent", "hybrid", "portable"]
+LayoutValue = Literal["auto", "stubs", "full"]
+IncludePresetValue = Literal["python-only", "python+docs", "everything"]
+NavModeValue = Literal["auto", "compact", "full"]
+IndexJsonModeValue = Literal["full", "compact", "minimal", "normalized"]
+LocatorSpaceValue = Literal["auto", "markdown", "reconstructed", "dual"]
+SymbolBackendValue = Literal["auto", "python", "tree-sitter", "none"]
+EncodingErrorsValue = Literal["replace", "strict"]
+
 _SECTION_MISSING = object()
 
 
@@ -53,9 +62,7 @@ class Config:
     dedupe: bool = False
     respect_gitignore: bool = True
     include: list[str] = field(default_factory=lambda: DEFAULT_INCLUDES.copy())
-    include_preset: Literal["python-only", "python+docs", "everything"] = (
-        DEFAULT_INCLUDE_PRESET
-    )
+    include_preset: IncludePresetValue = DEFAULT_INCLUDE_PRESET
     exclude: list[str] = field(default_factory=list)
     split_max_chars: int = 0  # 0 means no splitting
     # Split policy for oversized logical blocks.
@@ -70,13 +77,13 @@ class Config:
     # - "agent": emit compact navigation and normalized v3 sidecar defaults
     # - "hybrid": preserve current markdown behavior but emit index-json by default
     # - "portable": prefer manifest-enabled full-layout output for standalone unpack
-    profile: Literal["human", "agent", "hybrid", "portable"] = "human"
+    profile: ProfileValue = "human"
     # Output layout:
     # - "stubs": always emit stubbed files + Function Library (current format)
     # - "full":  emit full file contents (no Function Library)
     # - "auto":  use "stubs" only if dedupe actually collapses something,
     #            otherwise use "full" (best token efficiency when no duplicates)
-    layout: Literal["auto", "stubs", "full"] = "auto"
+    layout: LayoutValue = "auto"
     # Token counting (CLI diagnostics; not included in pack output).
     token_count_encoding: str = "o200k_base"
     token_count_tree: bool = False
@@ -107,13 +114,13 @@ class Config:
     # - "compact": omit file-level jump anchors/back-links to save tokens
     # - "full": keep all navigation helpers
     # - "auto": compact for unsplit packs, full when split outputs are requested
-    nav_mode: Literal["auto", "compact", "full"] = "auto"
+    nav_mode: NavModeValue = "auto"
     # Retrieval sidecar mode for index-json output.
     # - None: let profile/default behavior decide whether to emit it
     # - "full": current v1-compatible sidecar
     # - "compact": slimmer v2 retrieval sidecar
     # - "minimal": smallest practical v2 retrieval sidecar
-    index_json_mode: Literal["full", "compact", "minimal", "normalized"] | None = None
+    index_json_mode: IndexJsonModeValue | None = None
     # Optional explicit sidecar enablement, independent of mode/profile defaults.
     index_json_enabled: bool | None = None
     # Optional config-driven sidecar output paths.
@@ -130,7 +137,7 @@ class Config:
     # - "markdown": locators target the rendered markdown pack
     # - "reconstructed": locators target reconstructed output files
     # - "dual": emit both locator families
-    locator_space: Literal["auto", "markdown", "reconstructed", "dual"] = "auto"
+    locator_space: LocatorSpaceValue = "auto"
     # Optional v2 payload trimming controls.
     # - index_json_include_lookup: include lookup maps in v2 sidecars
     # - index_json_include_symbol_index_lines: include unsplit symbol index lines
@@ -154,11 +161,11 @@ class Config:
     include_tests: bool = False
     # Optional symbol extraction backend for non-Python files.
     # Python files always use the built-in AST parser.
-    symbol_backend: Literal["auto", "python", "tree-sitter", "none"] = "auto"
+    symbol_backend: SymbolBackendValue = "auto"
     # Text decoding behavior when reading repository/markdown files.
     # - "replace": preserve operation by replacing invalid bytes (default)
     # - "strict": fail on invalid UTF-8 bytes
-    encoding_errors: Literal["replace", "strict"] = "replace"
+    encoding_errors: EncodingErrorsValue = "replace"
 
 
 @dataclass(frozen=True)
@@ -412,8 +419,7 @@ CONFIG_FIELD_METADATA: dict[str, ConfigFieldMetadata] = {
     "index_json_include_symbol_index_lines": ConfigFieldMetadata(
         type_name="boolean",
         description=(
-            "Include unsplit symbol index line ranges in compact v2 "
-            "index-json output."
+            "Include unsplit symbol index line ranges in compact v2 index-json output."
         ),
         cli_flags=(
             "--index-json-symbol-index-lines",
@@ -483,8 +489,7 @@ CONFIG_FIELD_METADATA: dict[str, ConfigFieldMetadata] = {
     "include_reverse_import_neighbors": ConfigFieldMetadata(
         type_name="integer",
         description=(
-            "Include this many reverse local import-neighbor hops around "
-            "focused files."
+            "Include this many reverse local import-neighbor hops around focused files."
         ),
         cli_flags=("--include-reverse-import-neighbors",),
     ),
@@ -1118,29 +1123,38 @@ def load_config_details(root: Path) -> LoadedConfig:  # noqa: C901
         provenance=provenance,
         source=source,
     )
-    cfg.profile = _load_string_choice(
-        section,
-        "profile",
-        cfg.profile,
-        warnings=warnings,
-        provenance=provenance,
-        source=source,
+    cfg.profile = cast(
+        ProfileValue,
+        _load_string_choice(
+            section,
+            "profile",
+            cfg.profile,
+            warnings=warnings,
+            provenance=provenance,
+            source=source,
+        ),
     )
-    cfg.layout = _load_string_choice(
-        section,
-        "layout",
-        cfg.layout,
-        warnings=warnings,
-        provenance=provenance,
-        source=source,
+    cfg.layout = cast(
+        LayoutValue,
+        _load_string_choice(
+            section,
+            "layout",
+            cfg.layout,
+            warnings=warnings,
+            provenance=provenance,
+            source=source,
+        ),
     )
-    cfg.include_preset = _load_string_choice(
-        section,
-        "include_preset",
-        cfg.include_preset,
-        warnings=warnings,
-        provenance=provenance,
-        source=source,
+    cfg.include_preset = cast(
+        IncludePresetValue,
+        _load_string_choice(
+            section,
+            "include_preset",
+            cfg.include_preset,
+            warnings=warnings,
+            provenance=provenance,
+            source=source,
+        ),
     )
 
     include_key, include_value = _raw_section_value(section, "include")
@@ -1348,21 +1362,27 @@ def load_config_details(root: Path) -> LoadedConfig:  # noqa: C901
         provenance=provenance,
         source=source,
     )
-    cfg.nav_mode = _load_string_choice(
-        section,
-        "nav_mode",
-        cfg.nav_mode,
-        warnings=warnings,
-        provenance=provenance,
-        source=source,
+    cfg.nav_mode = cast(
+        NavModeValue,
+        _load_string_choice(
+            section,
+            "nav_mode",
+            cfg.nav_mode,
+            warnings=warnings,
+            provenance=provenance,
+            source=source,
+        ),
     )
-    cfg.index_json_mode = _load_optional_string_choice(
-        section,
-        "index_json_mode",
-        cfg.index_json_mode,
-        warnings=warnings,
-        provenance=provenance,
-        source=source,
+    cfg.index_json_mode = cast(
+        IndexJsonModeValue | None,
+        _load_optional_string_choice(
+            section,
+            "index_json_mode",
+            cfg.index_json_mode,
+            warnings=warnings,
+            provenance=provenance,
+            source=source,
+        ),
     )
     cfg.index_json_enabled = _load_optional_bool_value(
         section,
@@ -1404,13 +1424,16 @@ def load_config_details(root: Path) -> LoadedConfig:  # noqa: C901
         provenance=provenance,
         source=source,
     )
-    cfg.locator_space = _load_string_choice(
-        section,
-        "locator_space",
-        cfg.locator_space,
-        warnings=warnings,
-        provenance=provenance,
-        source=source,
+    cfg.locator_space = cast(
+        LocatorSpaceValue,
+        _load_string_choice(
+            section,
+            "locator_space",
+            cfg.locator_space,
+            warnings=warnings,
+            provenance=provenance,
+            source=source,
+        ),
     )
     cfg.index_json_include_lookup = _load_bool_value(
         section,
@@ -1548,21 +1571,27 @@ def load_config_details(root: Path) -> LoadedConfig:  # noqa: C901
         provenance=provenance,
         source=source,
     )
-    cfg.symbol_backend = _load_string_choice(
-        section,
-        "symbol_backend",
-        cfg.symbol_backend,
-        warnings=warnings,
-        provenance=provenance,
-        source=source,
+    cfg.symbol_backend = cast(
+        SymbolBackendValue,
+        _load_string_choice(
+            section,
+            "symbol_backend",
+            cfg.symbol_backend,
+            warnings=warnings,
+            provenance=provenance,
+            source=source,
+        ),
     )
-    cfg.encoding_errors = _load_string_choice(
-        section,
-        "encoding_errors",
-        cfg.encoding_errors,
-        warnings=warnings,
-        provenance=provenance,
-        source=source,
+    cfg.encoding_errors = cast(
+        EncodingErrorsValue,
+        _load_string_choice(
+            section,
+            "encoding_errors",
+            cfg.encoding_errors,
+            warnings=warnings,
+            provenance=provenance,
+            source=source,
+        ),
     )
 
     return LoadedConfig(
