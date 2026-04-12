@@ -56,6 +56,25 @@ def _line_range(start_line: int, end_line: int) -> dict[str, int]:
     }
 
 
+def _locator_line_range(start_line: int, end_line: int) -> dict[str, int]:
+    return {
+        "start": start_line,
+        "end": end_line,
+    }
+
+
+def _locator_line_range_from_markdown(
+    line_range: dict[str, Any] | None,
+) -> dict[str, int] | None:
+    if not isinstance(line_range, dict):
+        return None
+    start_line = int(line_range.get("start_line", 0) or 0)
+    end_line = int(line_range.get("end_line", 0) or 0)
+    if start_line <= 0 or end_line < start_line:
+        return None
+    return _locator_line_range(start_line, end_line)
+
+
 def _line_ranges_from_metadata(ranges: dict[str, Any]) -> dict[str, dict[str, int]]:
     return {
         key: _line_range(value.start_line, value.end_line)
@@ -204,6 +223,115 @@ def _role_hints_by_path(run: PackRun) -> dict[str, str | None]:
         )
         for file_pack in run.pack_result.files
     }
+
+
+def _locator_space_order(locator_space: str) -> tuple[str, str | None]:
+    if locator_space == "dual":
+        return "reconstructed", "markdown"
+    if locator_space == "reconstructed":
+        return "reconstructed", None
+    return "markdown", None
+
+
+def _includes_locator_space(locator_space: str, space: str) -> bool:
+    if locator_space == "dual":
+        return space in {"markdown", "reconstructed"}
+    return locator_space == space
+
+
+def _repo_reconstructed_root(run: PackRun, *, repo_count: int) -> str | None:
+    if repo_count <= 1:
+        return None
+    if not _includes_locator_space(run.options.locator_space, "reconstructed"):
+        return None
+    return run.slug
+
+
+def _reconstructed_locator_path(
+    rel_path: str, *, reconstructed_root: str | None
+) -> str:
+    if not reconstructed_root:
+        return rel_path
+    return Path(reconstructed_root, rel_path).as_posix()
+
+
+def _file_locator_payload(
+    run: PackRun,
+    *,
+    rel_path: str,
+    line_count: int,
+    markdown_path: str | None,
+    file_markdown_ranges: dict[str, dict[str, int]],
+    reconstructed_root: str | None,
+) -> dict[str, Any]:
+    locators: dict[str, Any] = {}
+    if _includes_locator_space(run.options.locator_space, "markdown"):
+        markdown_lines = _locator_line_range_from_markdown(
+            file_markdown_ranges.get(rel_path)
+        )
+        if markdown_path is not None and markdown_lines is not None:
+            locators["markdown"] = {
+                "path": markdown_path,
+                "lines": markdown_lines,
+            }
+    if _includes_locator_space(run.options.locator_space, "reconstructed"):
+        locators["reconstructed"] = {
+            "path": _reconstructed_locator_path(
+                rel_path, reconstructed_root=reconstructed_root
+            ),
+            "lines": _locator_line_range(1, line_count),
+        }
+    return locators
+
+
+def _symbol_locator_payload(
+    run: PackRun,
+    *,
+    rel_path: str,
+    def_line: int,
+    decorator_start: int,
+    body_start: int,
+    end_line: int,
+    local_id: str,
+    canonical_id: str,
+    markdown_path: str | None,
+    file_markdown_ranges: dict[str, dict[str, int]],
+    symbol_index_ranges: dict[str, dict[str, int]],
+    canonical_markdown_ranges: dict[str, dict[str, int]],
+    reconstructed_root: str | None,
+) -> dict[str, Any]:
+    locators: dict[str, Any] = {}
+    if _includes_locator_space(run.options.locator_space, "markdown") and markdown_path:
+        markdown_locator: dict[str, Any] = {
+            "path": markdown_path,
+        }
+        file_lines = _locator_line_range_from_markdown(
+            file_markdown_ranges.get(rel_path)
+        )
+        if file_lines is not None:
+            markdown_locator["file_lines"] = file_lines
+        index_lines = _locator_line_range_from_markdown(
+            symbol_index_ranges.get(local_id)
+        )
+        if index_lines is not None:
+            markdown_locator["symbol_index_lines"] = index_lines
+        canonical_lines = _locator_line_range_from_markdown(
+            canonical_markdown_ranges.get(canonical_id)
+        )
+        if canonical_lines is not None:
+            markdown_locator["canonical_lines"] = canonical_lines
+        if len(markdown_locator) > 1:
+            locators["markdown"] = markdown_locator
+    if _includes_locator_space(run.options.locator_space, "reconstructed"):
+        start_line = decorator_start or def_line
+        locators["reconstructed"] = {
+            "path": _reconstructed_locator_path(
+                rel_path, reconstructed_root=reconstructed_root
+            ),
+            "lines": _locator_line_range(start_line, end_line),
+            "body_lines": _locator_line_range(body_start, end_line),
+        }
+    return locators
 
 
 def _repo_scope(markdown_text: str, label: str) -> tuple[list[str], int, int]:
@@ -610,6 +738,7 @@ def _full_file_payload(
     file_index_to_part: dict[str, str],
     markdown_path: str | None,
     file_markdown_ranges: dict[str, dict[str, int]],
+    reconstructed_root: str | None,
     imports_by_source: dict[str, list[dict[str, Any]]],
     role_hints: dict[str, str | None],
     analysis_metadata: bool,
@@ -671,6 +800,14 @@ def _full_file_payload(
                 "index_anchor_available": True,
                 "part_line_ranges_available": False,
                 "unsplit_line_ranges_available": markdown_path is not None,
+                **_file_locator_payload(
+                    run,
+                    rel_path=rel,
+                    line_count=file_pack.line_count,
+                    markdown_path=markdown_path,
+                    file_markdown_ranges=file_markdown_ranges,
+                    reconstructed_root=reconstructed_root,
+                ),
             },
             "sizes": {
                 "original": {
@@ -788,6 +925,7 @@ def _full_symbol_payload(
     file_markdown_ranges: dict[str, dict[str, int]],
     symbol_index_ranges: dict[str, dict[str, int]],
     canonical_markdown_ranges: dict[str, dict[str, int]],
+    reconstructed_root: str | None,
     analysis_metadata: bool,
 ) -> list[dict[str, Any]]:
     manifest_defs_by_local_id = _manifest_defs_by_local_id(run)
@@ -846,6 +984,21 @@ def _full_symbol_payload(
                 "index_anchor_available": defn.local_id in symbol_index_ranges,
                 "part_line_ranges_available": False,
                 "unsplit_line_ranges_available": markdown_path is not None,
+                **_symbol_locator_payload(
+                    run,
+                    rel_path=rel,
+                    def_line=defn.def_line,
+                    decorator_start=defn.decorator_start,
+                    body_start=defn.body_start,
+                    end_line=defn.end_line,
+                    local_id=defn.local_id,
+                    canonical_id=defn.id,
+                    markdown_path=markdown_path,
+                    file_markdown_ranges=file_markdown_ranges,
+                    symbol_index_ranges=symbol_index_ranges,
+                    canonical_markdown_ranges=canonical_markdown_ranges,
+                    reconstructed_root=reconstructed_root,
+                ),
             },
         }
         if analysis_metadata:
@@ -970,6 +1123,7 @@ def _compact_file_payload(
     file_index_to_part: dict[str, str],
     markdown_path: str | None,
     file_markdown_ranges: dict[str, dict[str, int]],
+    reconstructed_root: str | None,
     index_json_mode: str,
     imports_by_source: dict[str, list[dict[str, Any]]],
     role_hints: dict[str, str | None],
@@ -1013,6 +1167,16 @@ def _compact_file_payload(
             )
         if markdown_path is not None and rel in file_markdown_ranges:
             file_entry["markdown_lines"] = file_markdown_ranges[rel]
+        locators = _file_locator_payload(
+            run,
+            rel_path=rel,
+            line_count=file_pack.line_count,
+            markdown_path=markdown_path,
+            file_markdown_ranges=file_markdown_ranges,
+            reconstructed_root=reconstructed_root,
+        )
+        if locators:
+            file_entry["locators"] = locators
         payload.append(file_entry)
     return payload
 
@@ -1023,8 +1187,10 @@ def _compact_symbol_payload(
     file_to_part: dict[str, str],
     func_to_part: dict[str, str],
     markdown_path: str | None,
+    file_markdown_ranges: dict[str, dict[str, int]],
     symbol_index_ranges: dict[str, dict[str, int]],
     canonical_markdown_ranges: dict[str, dict[str, int]],
+    reconstructed_root: str | None,
     index_json_mode: str,
     include_symbol_index_lines: bool,
     analysis_metadata: bool,
@@ -1065,6 +1231,23 @@ def _compact_symbol_payload(
             symbol_entry["decorators"] = list(defn.decorators)
         if include_canonical_ids:
             symbol_entry["canonical_id"] = canonical_machine_ids[defn.id]
+        locators = _symbol_locator_payload(
+            run,
+            rel_path=rel,
+            def_line=defn.def_line,
+            decorator_start=defn.decorator_start,
+            body_start=defn.body_start,
+            end_line=defn.end_line,
+            local_id=defn.local_id,
+            canonical_id=defn.id,
+            markdown_path=markdown_path,
+            file_markdown_ranges=file_markdown_ranges,
+            symbol_index_ranges=symbol_index_ranges,
+            canonical_markdown_ranges=canonical_markdown_ranges,
+            reconstructed_root=reconstructed_root,
+        )
+        if locators:
+            symbol_entry["locators"] = locators
         if (
             index_json_mode == "compact"
             and include_symbol_index_lines
@@ -1369,6 +1552,9 @@ def _normalized_file_payload(
     run: PackRun,
     *,
     file_to_part: dict[str, str],
+    markdown_path: str | None,
+    file_markdown_ranges: dict[str, dict[str, int]],
+    reconstructed_root: str | None,
     imports_by_source: dict[str, list[dict[str, Any]]],
     role_hints: dict[str, str | None],
     analysis_metadata: bool,
@@ -1438,6 +1624,20 @@ def _normalized_file_payload(
             )
             if role_hint is not None:
                 file_entry["role"] = role_hint
+        normalized_locators: dict[str, Any] = {}
+        if _includes_locator_space(run.options.locator_space, "markdown"):
+            markdown_lines = _locator_line_range_from_markdown(
+                file_markdown_ranges.get(rel)
+            )
+            if markdown_path is not None and markdown_lines is not None:
+                normalized_locators["m"] = [
+                    markdown_lines["start"],
+                    markdown_lines["end"],
+                ]
+        if _includes_locator_space(run.options.locator_space, "reconstructed"):
+            normalized_locators["r"] = [1, file_pack.line_count]
+        if normalized_locators:
+            file_entry["loc"] = normalized_locators
         files_payload.append(file_entry)
     return files_payload
 
@@ -1504,6 +1704,11 @@ def _normalized_symbol_payload(
     run: PackRun,
     *,
     file_to_part: dict[str, str],
+    markdown_path: str | None,
+    file_markdown_ranges: dict[str, dict[str, int]],
+    symbol_index_ranges: dict[str, dict[str, int]],
+    canonical_markdown_ranges: dict[str, dict[str, int]],
+    reconstructed_root: str | None,
     class_ids_by_path_qualname: dict[tuple[str, str], dict[str, str]],
     include_canonical_ids: bool,
     analysis_metadata: bool,
@@ -1569,6 +1774,40 @@ def _normalized_symbol_payload(
                     table=string_table,
                     lookup=string_lookup,
                 )
+        normalized_locators: dict[str, Any] = {}
+        if (
+            _includes_locator_space(run.options.locator_space, "markdown")
+            and markdown_path
+        ):
+            markdown_locator: dict[str, Any] = {}
+            file_lines = _locator_line_range_from_markdown(
+                file_markdown_ranges.get(rel)
+            )
+            if file_lines is not None:
+                markdown_locator["f"] = [file_lines["start"], file_lines["end"]]
+            index_lines = _locator_line_range_from_markdown(
+                symbol_index_ranges.get(defn.local_id)
+            )
+            if index_lines is not None:
+                markdown_locator["i"] = [index_lines["start"], index_lines["end"]]
+            canonical_lines = _locator_line_range_from_markdown(
+                canonical_markdown_ranges.get(defn.id)
+            )
+            if canonical_lines is not None:
+                markdown_locator["c"] = [
+                    canonical_lines["start"],
+                    canonical_lines["end"],
+                ]
+            if markdown_locator:
+                normalized_locators["m"] = markdown_locator
+        if _includes_locator_space(run.options.locator_space, "reconstructed"):
+            start_line = defn.decorator_start or defn.def_line
+            normalized_locators["r"] = {
+                "l": [start_line, defn.end_line],
+                "b": [defn.body_start, defn.end_line],
+            }
+        if normalized_locators:
+            entry["loc"] = normalized_locators
         symbols_payload.append(entry)
     return symbols_payload
 
@@ -1577,8 +1816,14 @@ def _normalized_repository_payload(
     run: PackRun,
     *,
     repo_markdown_path: str | None,
+    repo_count: int,
     parts: list[dict[str, Any]],
     file_to_part: dict[str, str],
+    markdown_path: str | None,
+    file_markdown_ranges: dict[str, dict[str, int]],
+    symbol_index_ranges: dict[str, dict[str, int]],
+    canonical_markdown_ranges: dict[str, dict[str, int]],
+    reconstructed_root: str | None,
     import_edges: list[dict[str, Any]],
     test_links: list[dict[str, str]],
     guide: dict[str, list[str]],
@@ -1606,6 +1851,9 @@ def _normalized_repository_payload(
     files_payload = _normalized_file_payload(
         run,
         file_to_part=file_to_part,
+        markdown_path=markdown_path,
+        file_markdown_ranges=file_markdown_ranges,
+        reconstructed_root=reconstructed_root,
         imports_by_source=imports_by_source,
         role_hints=role_hints,
         analysis_metadata=analysis_metadata,
@@ -1635,6 +1883,11 @@ def _normalized_repository_payload(
     symbols_payload = _normalized_symbol_payload(
         run,
         file_to_part=file_to_part,
+        markdown_path=markdown_path,
+        file_markdown_ranges=file_markdown_ranges,
+        symbol_index_ranges=symbol_index_ranges,
+        canonical_markdown_ranges=canonical_markdown_ranges,
+        reconstructed_root=reconstructed_root,
         class_ids_by_path_qualname=class_ids_by_path_qualname,
         include_canonical_ids=include_canonical_ids,
         analysis_metadata=analysis_metadata,
@@ -1652,6 +1905,7 @@ def _normalized_repository_payload(
         **_repository_common_payload(
             run,
             repo_markdown_path=repo_markdown_path,
+            repo_count=repo_count,
             parts=parts,
             import_edges=[],
             test_links=[],
@@ -1687,16 +1941,21 @@ def _repository_common_payload(
     run: PackRun,
     *,
     repo_markdown_path: str | None,
+    repo_count: int,
     parts: list[dict[str, Any]],
     import_edges: list[dict[str, Any]],
     test_links: list[dict[str, str]],
     guide: dict[str, list[str]],
     analysis_metadata: bool,
 ) -> dict[str, Any]:
+    locator_space, secondary_locator_space = _locator_space_order(
+        run.options.locator_space
+    )
     payload = {
         "label": run.label,
         "slug": run.slug,
         "profile": run.options.profile,
+        "locator_space": locator_space,
         "split_policy": _split_policy(run),
         "layout": run.effective_layout,
         "nav_mode": run.effective_nav_mode,
@@ -1710,6 +1969,11 @@ def _repository_common_payload(
         "parts": parts,
         "safety": _safety_payload(run),
     }
+    if secondary_locator_space is not None:
+        payload["secondary_locator_space"] = secondary_locator_space
+    reconstructed_root = _repo_reconstructed_root(run, repo_count=repo_count)
+    if reconstructed_root is not None:
+        payload["reconstructed_root"] = reconstructed_root
     if analysis_metadata:
         payload["graph"] = {"import_edges": import_edges}
         payload["test_links"] = test_links
@@ -1732,6 +1996,7 @@ def build_index_payload(
     all_output_files: list[str] = []
     for run in pack_runs:
         parts_input = repo_output_parts.get(run.slug, [])
+        reconstructed_root = _repo_reconstructed_root(run, repo_count=len(pack_runs))
         (
             markdown_path,
             file_markdown_ranges,
@@ -1777,17 +2042,22 @@ def build_index_payload(
                 file_index_to_part=file_index_to_part,
                 markdown_path=markdown_path,
                 file_markdown_ranges=file_markdown_ranges,
+                reconstructed_root=reconstructed_root,
                 imports_by_source=imports_by_source,
                 role_hints=role_hints,
                 analysis_metadata=run.options.analysis_metadata,
             )
-            classes_payload = _class_payload(
-                run,
-                file_to_part=file_to_part,
-                markdown_path=markdown_path,
-                file_markdown_ranges=file_markdown_ranges,
-                include_display_ids=True,
-            ) if run.options.analysis_metadata else []
+            classes_payload = (
+                _class_payload(
+                    run,
+                    file_to_part=file_to_part,
+                    markdown_path=markdown_path,
+                    file_markdown_ranges=file_markdown_ranges,
+                    include_display_ids=True,
+                )
+                if run.options.analysis_metadata
+                else []
+            )
             symbols_payload = _full_symbol_payload(
                 run,
                 file_to_part=file_to_part,
@@ -1796,12 +2066,14 @@ def build_index_payload(
                 file_markdown_ranges=file_markdown_ranges,
                 symbol_index_ranges=symbol_index_ranges,
                 canonical_markdown_ranges=canonical_markdown_ranges,
+                reconstructed_root=reconstructed_root,
                 analysis_metadata=run.options.analysis_metadata,
             )
             repository = {
                 **_repository_common_payload(
                     run,
                     repo_markdown_path=repo_markdown_path,
+                    repo_count=len(pack_runs),
                     parts=parts,
                     import_edges=import_edges,
                     test_links=test_links,
@@ -1820,8 +2092,14 @@ def build_index_payload(
             repository = _normalized_repository_payload(
                 run,
                 repo_markdown_path=repo_markdown_path,
+                repo_count=len(pack_runs),
                 parts=parts,
                 file_to_part=file_to_part,
+                markdown_path=markdown_path,
+                file_markdown_ranges=file_markdown_ranges,
+                symbol_index_ranges=symbol_index_ranges,
+                canonical_markdown_ranges=canonical_markdown_ranges,
+                reconstructed_root=reconstructed_root,
                 import_edges=import_edges,
                 test_links=test_links,
                 guide=guide,
@@ -1837,25 +2115,32 @@ def build_index_payload(
                 file_index_to_part=file_index_to_part,
                 markdown_path=markdown_path,
                 file_markdown_ranges=file_markdown_ranges,
+                reconstructed_root=reconstructed_root,
                 index_json_mode=index_json_mode,
                 imports_by_source=imports_by_source,
                 role_hints=role_hints,
                 analysis_metadata=run.options.analysis_metadata,
             )
-            classes_payload = _class_payload(
-                run,
-                file_to_part=file_to_part,
-                markdown_path=markdown_path,
-                file_markdown_ranges=file_markdown_ranges,
-                include_display_ids=index_json_mode == "compact",
-            ) if run.options.analysis_metadata else []
+            classes_payload = (
+                _class_payload(
+                    run,
+                    file_to_part=file_to_part,
+                    markdown_path=markdown_path,
+                    file_markdown_ranges=file_markdown_ranges,
+                    include_display_ids=index_json_mode == "compact",
+                )
+                if run.options.analysis_metadata
+                else []
+            )
             symbols_payload = _compact_symbol_payload(
                 run,
                 file_to_part=file_to_part,
                 func_to_part=func_to_part,
                 markdown_path=markdown_path,
+                file_markdown_ranges=file_markdown_ranges,
                 symbol_index_ranges=symbol_index_ranges,
                 canonical_markdown_ranges=canonical_markdown_ranges,
+                reconstructed_root=reconstructed_root,
                 index_json_mode=index_json_mode,
                 include_symbol_index_lines=features["symbol_index_lines"],
                 analysis_metadata=run.options.analysis_metadata,
@@ -1864,6 +2149,7 @@ def build_index_payload(
                 **_repository_common_payload(
                     run,
                     repo_markdown_path=repo_markdown_path,
+                    repo_count=len(pack_runs),
                     parts=parts,
                     import_edges=import_edges,
                     test_links=test_links,

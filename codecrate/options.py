@@ -13,6 +13,7 @@ class PackOptions:
     exclude: list[str] | None
     keep_docstrings: bool
     profile: str
+    locator_space: str
     include_manifest: bool
     index_json_enabled: bool
     index_json_mode: str | None
@@ -94,6 +95,23 @@ def resolve_index_json_mode(
     return None
 
 
+def resolve_locator_space(cfg: Config, args: argparse.Namespace) -> str:
+    cli_value = getattr(args, "locator_space", None)
+    if cli_value is not None:
+        value = str(cli_value).strip().lower()
+    else:
+        value = str(getattr(cfg, "locator_space", "auto")).strip().lower()
+    if value not in {"auto", "markdown", "reconstructed", "dual"}:
+        value = "auto"
+    if value == "auto":
+        return (
+            "reconstructed"
+            if bool(getattr(args, "emit_standalone_unpacker", False))
+            else "markdown"
+        )
+    return value
+
+
 def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
     if args.index_json is not None and bool(getattr(args, "no_index_json", False)):
         raise ValueError("cannot combine --index-json with --no-index-json")
@@ -103,6 +121,7 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         raise ValueError("cannot combine --index-json-mode with --no-index-json")
 
     profile = resolve_profile(cfg, args.profile)
+    locator_space = resolve_locator_space(cfg, args)
     index_json_mode = resolve_index_json_mode(cfg, args, profile)
     if args.include is not None:
         include = args.include
@@ -321,6 +340,7 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         exclude=exclude,
         keep_docstrings=keep_docstrings,
         profile=profile,
+        locator_space=locator_space,
         include_manifest=include_manifest,
         index_json_enabled=index_json_enabled,
         index_json_mode=index_json_mode,

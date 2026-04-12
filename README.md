@@ -110,6 +110,16 @@ The generated standalone unpacker now reconstructs both manifest-enabled
 `full` and `stubs` packs. The `portable` profile remains the recommended
 default when you want a reconstruction-first `full` pack.
 
+If you also want a retrieval sidecar for the reconstructed tree, add
+`--index-json` or `--index-json-mode ...`. With the default
+`--locator-space auto`, standalone-enabled packs switch the sidecar to
+reconstructed locators automatically:
+
+```bash
+codecrate pack . -o context.md --profile portable \
+  --emit-standalone-unpacker --index-json-mode minimal
+```
+
 Pack with specific output file and write the sidecars explicitly:
 
 ```bash
@@ -201,6 +211,11 @@ profile = "human"
 # - agent defaults to "minimal"
 # - hybrid defaults to "full"
 index_json_mode = "minimal"
+
+# Sidecar locator targets: "auto" | "markdown" | "reconstructed" | "dual"
+# - auto resolves to reconstructed when a standalone unpacker is emitted
+# - otherwise auto resolves to markdown
+locator_space = "auto"
 
 # Include or omit analysis-oriented sidecar/markdown metadata
 analysis_metadata = true
@@ -347,6 +362,8 @@ codecrate pack <root> [OPTIONS]
 - `--index-json-lookup` / `--no-index-json-lookup`: Include or trim v2 lookup maps
 - `--index-json-symbol-index-lines` / `--no-index-json-symbol-index-lines`: Include or trim compact v2 symbol index line ranges
 - `--no-index-json`: Disable index JSON output, including profile-implied defaults
+- `--emit-standalone-unpacker`: Write `<output>.unpack.py` for zero-install reconstruction
+- `--locator-space {auto,markdown,reconstructed,dual}`: Choose whether sidecar locators point into the markdown pack, the reconstructed file tree, or both (`auto` switches to reconstructed when `--emit-standalone-unpacker` is enabled)
 - `--encoding-errors {replace,strict}`: UTF-8 decode policy for input files
 
 When `--stdin`/`--stdin0` is used, only explicitly listed files are considered.

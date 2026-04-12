@@ -46,6 +46,7 @@ def test_config_defaults() -> None:
     assert isinstance(cfg.security_content_patterns, list)
     assert cfg.security_content_patterns
     assert cfg.nav_mode == "auto"
+    assert cfg.locator_space == "auto"
     assert cfg.index_json_include_lookup is True
     assert cfg.index_json_include_symbol_index_lines is True
     assert cfg.analysis_metadata is True
@@ -191,6 +192,7 @@ security_content_patterns = ["api-key=(?i)api[_-]?key[:=][A-Za-z0-9]{8,}"]
 nav_mode = "compact"
 index_json_include_lookup = false
 index_json_include_symbol_index_lines = false
+locator_space = "dual"
 symbol_backend = "tree-sitter"
 encoding_errors = "strict"
 """,
@@ -219,6 +221,7 @@ encoding_errors = "strict"
         "api-key=(?i)api[_-]?key[:=][A-Za-z0-9]{8,}"
     ]
     assert cfg.nav_mode == "compact"
+    assert cfg.locator_space == "dual"
     assert cfg.index_json_include_lookup is False
     assert cfg.index_json_include_symbol_index_lines is False
     assert cfg.symbol_backend == "tree-sitter"
@@ -230,6 +233,7 @@ def test_load_config_invalid_nav_mode_keeps_default(tmp_path: Path) -> None:
     (tmp_path / "codecrate.toml").write_text(
         """[codecrate]
 nav_mode = "invalid"
+locator_space = "bad"
 symbol_backend = "bad"
 """,
         encoding="utf-8",
@@ -237,6 +241,7 @@ symbol_backend = "bad"
 
     cfg = load_config(tmp_path)
     assert cfg.nav_mode == "auto"
+    assert cfg.locator_space == "auto"
     assert cfg.symbol_backend == "auto"
 
 

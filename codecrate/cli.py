@@ -459,6 +459,15 @@ def _add_pack_parser(
             "Requires a manifest-enabled pack."
         ),
     )
+    pack.add_argument(
+        "--locator-space",
+        choices=["auto", "markdown", "reconstructed", "dual"],
+        default=None,
+        help=(
+            "Locator targets for index-json: auto resolves to reconstructed when "
+            "--emit-standalone-unpacker is enabled, otherwise markdown."
+        ),
+    )
 
 
 def _add_unpack_parser(

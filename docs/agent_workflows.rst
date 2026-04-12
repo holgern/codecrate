@@ -45,6 +45,14 @@ Use ``portable`` when reconstruction is the priority rather than retrieval:
 
    codecrate pack . -o context.md --profile portable --emit-standalone-unpacker
 
+If you also want an ``index-json`` sidecar that points at the reconstructed
+tree, keep the default ``--locator-space auto`` and add a sidecar mode:
+
+.. code-block:: console
+
+   codecrate pack . -o context.md --profile portable \
+     --emit-standalone-unpacker --index-json-mode minimal
+
 
 Authority Model
 ---------------
@@ -125,6 +133,8 @@ The sidecar includes:
 * direct href-style navigation fields
 * reverse lookup indexes appropriate to the chosen mode
 * unsplit markdown line ranges for review-oriented jumps
+* locator-space metadata describing whether the primary machine-facing locators
+  point to markdown, reconstructed files, or both
 * safety findings
 * language and backend reporting
 * short display IDs and stronger machine IDs
@@ -155,6 +165,7 @@ Then inspect ``repositories[].files[]`` for:
 * ``part_path``
 * ``hrefs.index`` / ``hrefs.source``
 * ``markdown_lines`` on unsplit packs
+* ``locators.markdown`` and/or ``locators.reconstructed``
 
 In full/v1 mode you also get ``anchors`` and richer size/hash metadata.
 
@@ -174,6 +185,11 @@ Then inspect ``repositories[].symbols[]`` for:
 * ``canonical_href``
 * ``index_markdown_lines`` on unsplit packs
 * ``canonical_markdown_lines`` on unsplit stub packs
+* ``locators.markdown`` and/or ``locators.reconstructed``
+
+By default, review-oriented packs keep markdown locators. When
+``--emit-standalone-unpacker`` is enabled, ``--locator-space auto`` switches the
+primary sidecar locator space to reconstructed files instead.
 
 If you need explicit reverse indexes instead of scanning arrays, inspect
 ``repositories[].lookup`` for:

@@ -40,6 +40,7 @@ def test_pack_profile_agent_implies_compact_nav_and_minimal_index_json(
     assert payload["format"] == "codecrate.index-json.v2"
     assert payload["mode"] == "minimal"
     assert payload["pack"]["index_json_mode"] == "minimal"
+    assert payload["repositories"][0]["locator_space"] == "markdown"
 
 
 def test_pack_profile_agent_explicit_overrides_win(tmp_path: Path) -> None:
@@ -112,3 +113,4 @@ def test_pack_profile_from_config_is_used(tmp_path: Path) -> None:
 
     payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
     assert payload["mode"] == "minimal"
+    assert payload["repositories"][0]["locator_space"] == "markdown"

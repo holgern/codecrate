@@ -111,6 +111,12 @@ class Config:
     # - "compact": slimmer v2 retrieval sidecar
     # - "minimal": smallest practical v2 retrieval sidecar
     index_json_mode: Literal["full", "compact", "minimal", "normalized"] | None = None
+    # Preferred locator targets for index-json output.
+    # - "auto": reconstructed when a standalone unpacker is emitted, else markdown
+    # - "markdown": locators target the rendered markdown pack
+    # - "reconstructed": locators target reconstructed output files
+    # - "dual": emit both locator families
+    locator_space: Literal["auto", "markdown", "reconstructed", "dual"] = "auto"
     # Optional v2 payload trimming controls.
     # - index_json_include_lookup: include lookup maps in v2 sidecars
     # - index_json_include_symbol_index_lines: include unsplit symbol index lines
@@ -357,6 +363,11 @@ def load_config_with_warnings(root: Path) -> tuple[Config, list[ConfigWarning]]:
         index_json_mode = index_json_mode.strip().lower()
         if index_json_mode in {"full", "compact", "minimal", "normalized"}:
             cfg.index_json_mode = index_json_mode  # type: ignore[assignment]
+    locator_space = section.get("locator_space", cfg.locator_space)
+    if isinstance(locator_space, str):
+        locator_space = locator_space.strip().lower()
+        if locator_space in {"auto", "markdown", "reconstructed", "dual"}:
+            cfg.locator_space = locator_space  # type: ignore[assignment]
     cfg.index_json_include_lookup = bool(
         section.get("index_json_include_lookup", cfg.index_json_include_lookup)
     )

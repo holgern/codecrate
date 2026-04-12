@@ -55,3 +55,6 @@ def test_pack_help_clarifies_explicit_file_behavior(capsys) -> None:
     assert "--index-json-lookup" in captured.out
     assert "--index-json-symbol-index-lines" in captured.out
     assert "--emit-standalone-unpacker" in captured.out
+    assert "--locator-space" in captured.out
+    assert "reconstructed when --emit-standalone-unpacker" in captured.out
+    assert "enabled, otherwise markdown" in captured.out

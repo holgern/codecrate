@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import re
 import subprocess
 import sys
@@ -244,6 +245,36 @@ def test_standalone_unpacker_reconstructs_multi_repo_pack(tmp_path: Path) -> Non
     assert (tmp_path / "out" / "repo2" / "b.py").read_text(encoding="utf-8") == (
         repo2 / "b.py"
     ).read_text(encoding="utf-8")
+
+
+def test_standalone_enabled_agent_sidecar_defaults_to_reconstructed_locators(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo, {"a.py": "def alpha():\n    return 1\n"})
+
+    packed = tmp_path / "context.md"
+    main(
+        [
+            "pack",
+            str(repo),
+            "-o",
+            str(packed),
+            "--profile",
+            "agent",
+            "--emit-standalone-unpacker",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo_entry = payload["repositories"][0]
+
+    assert repo_entry["locator_space"] == "reconstructed"
+    assert repo_entry["files"][0]["locators"]["reconstructed"]["path"] == "a.py"
+    assert repo_entry["symbols"][0]["locators"]["reconstructed"]["lines"] == {
+        "start": 1,
+        "end": 2,
+    }
 
 
 def test_standalone_unpacker_matches_codecrate_unpack_for_full_packs(

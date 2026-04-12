@@ -66,6 +66,7 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     assert repo["layout"] == "full"
     assert repo["effective_layout"] == "full"
     assert repo["nav_mode"] == "compact"
+    assert repo["locator_space"] == "markdown"
     assert repo["locator_mode"] == "anchors+line-ranges"
     assert repo["has_manifest"] is True
     assert repo["has_machine_header"] is True
@@ -112,6 +113,13 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
         "index_anchor_available": True,
         "part_line_ranges_available": False,
         "unsplit_line_ranges_available": True,
+        "markdown": {
+            "path": "context.md",
+            "lines": {
+                "start": files[0]["markdown_lines"]["start_line"],
+                "end": files[0]["markdown_lines"]["end_line"],
+            },
+        },
     }
     assert files[0]["sizes"]["original"]["chars"] > 0
     assert files[0]["sizes"]["original"]["bytes"] > 0
@@ -156,6 +164,17 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
         "index_anchor_available": True,
         "part_line_ranges_available": False,
         "unsplit_line_ranges_available": True,
+        "markdown": {
+            "path": "context.md",
+            "file_lines": {
+                "start": files[0]["markdown_lines"]["start_line"],
+                "end": files[0]["markdown_lines"]["end_line"],
+            },
+            "symbol_index_lines": {
+                "start": symbols[0]["index_markdown_lines"]["start_line"],
+                "end": symbols[0]["index_markdown_lines"]["end_line"],
+            },
+        },
     }
     assert symbols[0]["index_markdown_path"] == "context.md"
     assert symbols[0]["index_markdown_lines"]["start_line"] > 0
@@ -311,18 +330,40 @@ def test_pack_index_json_compact_v2_shape(tmp_path: Path) -> None:
         "part_by_file",
         "symbol_by_local_id",
     }
+    assert repo["locator_space"] == "markdown"
     assert "effective_layout" not in repo
     assert "contains_manifest" not in repo
     assert "symbol_ids" not in file_entry
     assert "display_symbol_ids" not in file_entry
     assert "symbol_canonical_ids" not in file_entry
-    assert "locators" not in file_entry
+    assert file_entry["locators"] == {
+        "markdown": {
+            "path": "context.md",
+            "lines": {
+                "start": file_entry["markdown_lines"]["start_line"],
+                "end": file_entry["markdown_lines"]["end_line"],
+            },
+        }
+    }
     assert "anchors" not in file_entry
     assert "canonical_id" not in symbol_entry
     assert "display_id" not in symbol_entry
     assert "display_local_id" not in symbol_entry
     assert "ids" not in symbol_entry
     assert "index_markdown_lines" in symbol_entry
+    assert symbol_entry["locators"] == {
+        "markdown": {
+            "path": "context.md",
+            "file_lines": {
+                "start": file_entry["markdown_lines"]["start_line"],
+                "end": file_entry["markdown_lines"]["end_line"],
+            },
+            "symbol_index_lines": {
+                "start": symbol_entry["index_markdown_lines"]["start_line"],
+                "end": symbol_entry["index_markdown_lines"]["end_line"],
+            },
+        }
+    }
 
 
 def test_pack_index_json_minimal_v2_shape(tmp_path: Path) -> None:
@@ -353,9 +394,14 @@ def test_pack_index_json_minimal_v2_shape(tmp_path: Path) -> None:
         "symbol_index_lines": False,
     }
     assert set(repo["lookup"]) == {"file_by_path", "symbol_by_local_id"}
+    assert repo["locator_space"] == "markdown"
     assert "language_family" not in file_entry
     assert "index_markdown_lines" not in symbol_entry
     assert "canonical_id" not in symbol_entry
+    assert "locators" in file_entry
+    assert file_entry["locators"]["markdown"]["path"] == "context.md"
+    assert symbol_entry["locators"]["markdown"]["path"] == "context.md"
+    assert "symbol_index_lines" in symbol_entry["locators"]["markdown"]
 
 
 def test_pack_index_json_normalized_v3_shape(tmp_path: Path) -> None:
@@ -406,6 +452,7 @@ def test_pack_index_json_normalized_v3_shape(tmp_path: Path) -> None:
     assert payload["format"] == "codecrate.index-json.v3"
     assert payload["mode"] == "normalized"
     assert payload["pack"]["index_json_mode"] == "normalized"
+    assert repo["locator_space"] == "markdown"
     assert set(tables) == {"paths", "parts", "qualnames", "strings"}
     assert tables["paths"][file_entry["p"]] == "pkg/service.py"
     assert tables["strings"][file_entry["lang"]] == "python"
@@ -419,7 +466,111 @@ def test_pack_index_json_normalized_v3_shape(tmp_path: Path) -> None:
     assert tables["qualnames"][symbol_entry["q"]] == "Service.run"
     assert symbol_entry["o"] == class_entry["i"]
     assert tables["strings"][symbol_entry["d"][0]] == "staticmethod"
+    assert len(file_entry["loc"]["m"]) == 2
+    assert file_entry["loc"]["m"][0] <= file_entry["loc"]["m"][1]
+    assert symbol_entry["loc"]["m"]["f"] == file_entry["loc"]["m"]
+    assert "i" in symbol_entry["loc"]["m"]
     assert repo["graph"]["import_edges"]
+
+
+def test_pack_index_json_dual_locator_space_includes_markdown_and_reconstructed(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text(
+        "@dec\ndef alpha():\n    return 1\n",
+        encoding="utf-8",
+    )
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--index-json",
+            "--locator-space",
+            "dual",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo = payload["repositories"][0]
+    file_entry = repo["files"][0]
+    symbol_entry = repo["symbols"][0]
+
+    assert repo["locator_space"] == "reconstructed"
+    assert repo["secondary_locator_space"] == "markdown"
+    assert set(file_entry["locators"]) >= {
+        "mode",
+        "source_anchor_available",
+        "index_anchor_available",
+        "part_line_ranges_available",
+        "unsplit_line_ranges_available",
+        "markdown",
+        "reconstructed",
+    }
+    assert file_entry["locators"]["reconstructed"]["path"] == "a.py"
+    assert symbol_entry["locators"]["reconstructed"]["lines"] == {"start": 1, "end": 3}
+    assert symbol_entry["locators"]["reconstructed"]["body_lines"] == {
+        "start": 3,
+        "end": 3,
+    }
+    assert symbol_entry["locators"]["markdown"]["path"] == "context.md"
+
+
+def test_pack_index_json_auto_locator_space_uses_reconstructed_with_unpacker(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--profile",
+            "agent",
+            "--emit-standalone-unpacker",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo = payload["repositories"][0]
+
+    assert repo["locator_space"] == "reconstructed"
+    assert "secondary_locator_space" not in repo
+    assert repo["files"][0]["locators"]["reconstructed"]["path"] == "a.py"
+    assert repo["symbols"][0]["locators"]["reconstructed"]["lines"] == {
+        "start": 1,
+        "end": 2,
+    }
+
+
+def test_pack_index_json_portable_with_unpacker_and_sidecar_uses_reconstructed_locators(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--profile",
+            "portable",
+            "--emit-standalone-unpacker",
+            "--index-json-mode",
+            "minimal",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo = payload["repositories"][0]
+
+    assert repo["locator_space"] == "reconstructed"
+    assert repo["files"][0]["locators"]["reconstructed"]["path"] == "a.py"
 
 
 def test_pack_index_json_compact_without_lookup_shape(tmp_path: Path) -> None:

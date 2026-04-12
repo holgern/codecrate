@@ -33,6 +33,7 @@ Or choose a specific sidecar mode:
    codecrate pack . -o context.md --index-json-mode compact
    codecrate pack . -o context.md --index-json-mode minimal
    codecrate pack . -o context.md --index-json-mode normalized
+   codecrate pack . -o context.md --index-json-mode minimal --locator-space dual
 
 ``--index-json`` alone defaults to the full compatibility surface. Use
 ``--index-json-mode compact``, ``--index-json-mode minimal``, or
@@ -68,6 +69,14 @@ Compatibility rules:
 The pack and sidecar are generated from the same export model, so repository,
 file, symbol, and split-part metadata describe the markdown that was actually
 written.
+
+Locator targets are configurable independently from sidecar mode:
+
+* ``--locator-space markdown`` keeps locators pointed at the markdown pack
+* ``--locator-space reconstructed`` points locators at the reconstructed file tree
+* ``--locator-space dual`` emits both families
+* ``--locator-space auto`` resolves to ``reconstructed`` when
+  ``--emit-standalone-unpacker`` is enabled and otherwise to ``markdown``
 
 
 Top-level shape
@@ -142,6 +151,15 @@ Useful fields include:
 
    * ``anchors+line-ranges`` for unsplit markdown
    * ``anchors`` for split output
+
+``locator_space`` / ``secondary_locator_space``
+   The primary machine-facing locator family, plus an optional secondary family
+   when both markdown and reconstructed locators are emitted.
+
+``reconstructed_root``
+   Present for combined multi-repo packs when reconstructed locators are
+   enabled. Reconstructed paths are relative to the unpack output root, so
+   combined packs use ``<slug>/...`` paths.
 
 ``markdown_path``
    Present for unsplit output; ``null`` for split output.
@@ -265,8 +283,9 @@ Useful fields include:
    Direct markdown targets for the file index entry and source body.
 
 ``locators``
-   Declares whether source anchors, index anchors, unsplit line ranges, and
-   part-relative line ranges are available.
+   Locator metadata for the file entry. In v1 payloads this still includes the
+   legacy availability booleans plus ``markdown`` and/or ``reconstructed``
+   locator objects. In v2 payloads it carries the locator objects directly.
 
 ``markdown_lines``
    Unsplit line range for the file section when line ranges are available.
@@ -323,7 +342,9 @@ Useful fields include:
    Number of source occurrences sharing the same canonical body.
 
 ``locators``
-   Same locator-availability contract used by file entries.
+   Symbol locator metadata. ``markdown`` can include file, symbol-index, and
+   canonical markdown ranges; ``reconstructed`` points at the reconstructed file
+   span and body span.
 
 In normalized v3 payloads, symbol entries use compact indexed fields such as
 ``i`` (local machine ID), ``c`` (canonical machine ID when needed), ``p`` (path
@@ -378,6 +399,7 @@ In unsplit output:
 * anchor hrefs are available
 * line ranges are also available
 * compact navigation still preserves machine-targetable anchors
+* ``locator_space = markdown`` points ``locators.markdown`` into ``context.md``
 
 In split output:
 
@@ -385,6 +407,12 @@ In split output:
 * unsplit line ranges are omitted
 * consumers should follow ``part_path`` and hrefs instead of assuming a single
   markdown file
+
+When ``--emit-standalone-unpacker`` is enabled:
+
+* ``locator_space = auto`` resolves to reconstructed locators
+* file and symbol ``locators.reconstructed`` point at the unpacked file tree
+* combined multi-repo packs prefix reconstructed paths with the repository slug
 
 If a locator field is present, it should resolve against the written output.
 

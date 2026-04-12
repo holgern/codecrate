@@ -62,6 +62,88 @@ def _validate_line_range(
         _append_error(errors, repo_label, f"invalid {detail}")
 
 
+def _validate_locator_line_range(
+    errors: list[str],
+    *,
+    repo_label: str,
+    line_range: dict[str, Any] | None,
+    detail: str,
+) -> None:
+    if line_range is None:
+        return
+    if not isinstance(line_range, dict):
+        _append_error(errors, repo_label, f"invalid {detail}")
+        return
+    start_line = int(line_range.get("start", 0) or 0)
+    end_line = int(line_range.get("end", 0) or 0)
+    if start_line <= 0 or end_line < start_line:
+        _append_error(errors, repo_label, f"invalid {detail}")
+
+
+def _validate_normalized_locator_line_range(
+    errors: list[str],
+    *,
+    repo_label: str,
+    line_range: Any,
+    detail: str,
+) -> None:
+    if line_range is None:
+        return
+    if (
+        not isinstance(line_range, list)
+        or len(line_range) != 2
+        or not all(isinstance(item, int) for item in line_range)
+        or line_range[0] <= 0
+        or line_range[1] < line_range[0]
+    ):
+        _append_error(errors, repo_label, f"invalid {detail}")
+
+
+def _is_normalized_relative_path(path: str) -> bool:
+    normalized = Path(path).as_posix()
+    if not path or normalized != path or Path(path).is_absolute():
+        return False
+    return all(part not in {"", ".", ".."} for part in Path(path).parts)
+
+
+def _reconstructed_locator_path(repo: dict[str, Any], rel_path: str) -> str:
+    reconstructed_root = repo.get("reconstructed_root")
+    if isinstance(reconstructed_root, str) and reconstructed_root:
+        return Path(reconstructed_root, rel_path).as_posix()
+    return rel_path
+
+
+def _validate_repository_locator_metadata(
+    errors: list[str],
+    *,
+    repo: dict[str, Any],
+    repo_label: str,
+) -> None:
+    locator_space = repo.get("locator_space")
+    secondary_locator_space = repo.get("secondary_locator_space")
+    reconstructed_root = repo.get("reconstructed_root")
+    if locator_space is not None and locator_space not in {
+        "markdown",
+        "reconstructed",
+        "dual",
+    }:
+        _append_error(errors, repo_label, "invalid locator_space")
+    if secondary_locator_space is not None:
+        if secondary_locator_space not in {"markdown", "reconstructed"}:
+            _append_error(errors, repo_label, "invalid secondary_locator_space")
+        elif secondary_locator_space == locator_space:
+            _append_error(
+                errors,
+                repo_label,
+                "secondary_locator_space must differ from locator_space",
+            )
+    if reconstructed_root is not None:
+        if not isinstance(reconstructed_root, str) or not _is_normalized_relative_path(
+            reconstructed_root
+        ):
+            _append_error(errors, repo_label, "invalid reconstructed_root")
+
+
 def _validate_parts(
     errors: list[str],
     *,
@@ -97,6 +179,7 @@ def _validate_parts(
 def _validate_files(
     errors: list[str],
     *,
+    repo: dict[str, Any],
     repo_label: str,
     output_files: set[str],
     anchors_by_path: dict[str, set[str]],
@@ -141,11 +224,76 @@ def _validate_files(
                         repo_label,
                         f"file references unknown symbol id: {symbol_id}",
                     )
+        locators = file_entry.get("locators")
+        if not isinstance(locators, dict):
+            continue
+        markdown_locator = locators.get("markdown")
+        if markdown_locator is not None:
+            if not isinstance(markdown_locator, dict):
+                _append_error(
+                    errors, repo_label, f"invalid file markdown locator for {path}"
+                )
+            else:
+                markdown_path = markdown_locator.get("path")
+                if (
+                    not isinstance(markdown_path, str)
+                    or markdown_path not in output_files
+                    or markdown_path != repo.get("markdown_path")
+                ):
+                    _append_error(
+                        errors,
+                        repo_label,
+                        f"invalid file markdown locator path for {path}",
+                    )
+                _validate_locator_line_range(
+                    errors,
+                    repo_label=repo_label,
+                    line_range=markdown_locator.get("lines"),
+                    detail=f"file markdown locator lines for {path}",
+                )
+        reconstructed_locator = locators.get("reconstructed")
+        if reconstructed_locator is not None:
+            if not isinstance(reconstructed_locator, dict):
+                _append_error(
+                    errors,
+                    repo_label,
+                    f"invalid file reconstructed locator for {path}",
+                )
+            else:
+                reconstructed_path = reconstructed_locator.get("path")
+                expected_path = _reconstructed_locator_path(repo, str(path or ""))
+                if (
+                    not isinstance(reconstructed_path, str)
+                    or not _is_normalized_relative_path(reconstructed_path)
+                    or reconstructed_path != expected_path
+                ):
+                    _append_error(
+                        errors,
+                        repo_label,
+                        f"invalid file reconstructed locator path for {path}",
+                    )
+                _validate_locator_line_range(
+                    errors,
+                    repo_label=repo_label,
+                    line_range=reconstructed_locator.get("lines"),
+                    detail=f"file reconstructed locator lines for {path}",
+                )
+                lines = reconstructed_locator.get("lines")
+                line_count = file_entry.get("line_count")
+                if isinstance(lines, dict) and isinstance(line_count, int):
+                    end_line = int(lines.get("end", 0) or 0)
+                    if end_line > line_count:
+                        _append_error(
+                            errors,
+                            repo_label,
+                            f"file reconstructed locator exceeds line count for {path}",
+                        )
 
 
 def _validate_symbols(
     errors: list[str],
     *,
+    repo: dict[str, Any],
     repo_label: str,
     output_files: set[str],
     anchors_by_path: dict[str, set[str]],
@@ -205,6 +353,94 @@ def _validate_symbols(
                 detail=f"{href_key} for {symbol_entry.get('local_id')}",
                 check_anchors=check_anchors,
             )
+        locators = symbol_entry.get("locators")
+        if not isinstance(locators, dict):
+            continue
+        markdown_locator = locators.get("markdown")
+        if markdown_locator is not None:
+            if not isinstance(markdown_locator, dict):
+                _append_error(
+                    errors,
+                    repo_label,
+                    "invalid symbol markdown locator for "
+                    f"{symbol_entry.get('local_id')}",
+                )
+            else:
+                markdown_path = markdown_locator.get("path")
+                if (
+                    not isinstance(markdown_path, str)
+                    or markdown_path not in output_files
+                    or markdown_path != repo.get("markdown_path")
+                ):
+                    _append_error(
+                        errors,
+                        repo_label,
+                        "invalid symbol markdown locator path for "
+                        f"{symbol_entry.get('local_id')}",
+                    )
+                for key in ("file_lines", "symbol_index_lines", "canonical_lines"):
+                    _validate_locator_line_range(
+                        errors,
+                        repo_label=repo_label,
+                        line_range=markdown_locator.get(key),
+                        detail=f"{key} for symbol {symbol_entry.get('local_id')}",
+                    )
+        reconstructed_locator = locators.get("reconstructed")
+        if reconstructed_locator is not None:
+            if not isinstance(reconstructed_locator, dict):
+                _append_error(
+                    errors,
+                    repo_label,
+                    "invalid symbol reconstructed locator for "
+                    f"{symbol_entry.get('local_id')}",
+                )
+            else:
+                reconstructed_path = reconstructed_locator.get("path")
+                expected_path = _reconstructed_locator_path(
+                    repo, str(symbol_entry.get("path") or "")
+                )
+                if (
+                    not isinstance(reconstructed_path, str)
+                    or not _is_normalized_relative_path(reconstructed_path)
+                    or reconstructed_path != expected_path
+                ):
+                    _append_error(
+                        errors,
+                        repo_label,
+                        "invalid symbol reconstructed locator path "
+                        f"for {symbol_entry.get('local_id')}",
+                    )
+                _validate_locator_line_range(
+                    errors,
+                    repo_label=repo_label,
+                    line_range=reconstructed_locator.get("lines"),
+                    detail=(
+                        f"reconstructed lines for symbol {symbol_entry.get('local_id')}"
+                    ),
+                )
+                _validate_locator_line_range(
+                    errors,
+                    repo_label=repo_label,
+                    line_range=reconstructed_locator.get("body_lines"),
+                    detail=(
+                        "reconstructed body lines for symbol "
+                        f"{symbol_entry.get('local_id')}"
+                    ),
+                )
+                lines = reconstructed_locator.get("lines")
+                body_lines = reconstructed_locator.get("body_lines")
+                if isinstance(lines, dict) and isinstance(body_lines, dict):
+                    line_start = int(lines.get("start", 0) or 0)
+                    line_end = int(lines.get("end", 0) or 0)
+                    body_start = int(body_lines.get("start", 0) or 0)
+                    body_end = int(body_lines.get("end", 0) or 0)
+                    if body_start < line_start or body_end > line_end:
+                        _append_error(
+                            errors,
+                            repo_label,
+                            "symbol reconstructed body lines must be within "
+                            "reconstructed lines",
+                        )
     return symbols_by_local_id
 
 
@@ -364,6 +600,7 @@ def _normalized_tables(
 def _validate_normalized_file_entries(
     errors: list[str],
     *,
+    repo: dict[str, Any],
     repo_label: str,
     files: list[dict[str, Any]],
     paths: list[Any],
@@ -436,12 +673,27 @@ def _validate_normalized_file_entries(
                 table_size=len(strings),
                 detail="file export",
             )
+        locators = file_entry.get("loc")
+        if isinstance(locators, dict):
+            _validate_normalized_locator_line_range(
+                errors,
+                repo_label=repo_label,
+                line_range=locators.get("m"),
+                detail=f"normalized file markdown locator for {path}",
+            )
+            _validate_normalized_locator_line_range(
+                errors,
+                repo_label=repo_label,
+                line_range=locators.get("r"),
+                detail=f"normalized file reconstructed locator for {path}",
+            )
     return files_by_path
 
 
 def _validate_normalized_symbol_entries(
     errors: list[str],
     *,
+    repo: dict[str, Any],
     repo_label: str,
     symbols: list[dict[str, Any]],
     classes: list[dict[str, Any]],
@@ -499,6 +751,48 @@ def _validate_normalized_symbol_entries(
                     repo_label,
                     "symbol path missing from files array",
                 )
+            path = paths[path_index]
+        else:
+            path = ""
+        locators = symbol_entry.get("loc")
+        if isinstance(locators, dict):
+            markdown_locator = locators.get("m")
+            if markdown_locator is not None:
+                if not isinstance(markdown_locator, dict):
+                    _append_error(
+                        errors,
+                        repo_label,
+                        "invalid normalized symbol markdown locator",
+                    )
+                else:
+                    for key in ("f", "i", "c"):
+                        _validate_normalized_locator_line_range(
+                            errors,
+                            repo_label=repo_label,
+                            line_range=markdown_locator.get(key),
+                            detail=f"normalized symbol {key} locator",
+                        )
+            reconstructed_locator = locators.get("r")
+            if reconstructed_locator is not None:
+                if not isinstance(reconstructed_locator, dict):
+                    _append_error(
+                        errors,
+                        repo_label,
+                        "invalid normalized symbol reconstructed locator",
+                    )
+                else:
+                    _validate_normalized_locator_line_range(
+                        errors,
+                        repo_label=repo_label,
+                        line_range=reconstructed_locator.get("l"),
+                        detail=f"normalized symbol reconstructed lines for {path}",
+                    )
+                    _validate_normalized_locator_line_range(
+                        errors,
+                        repo_label=repo_label,
+                        line_range=reconstructed_locator.get("b"),
+                        detail=f"normalized symbol reconstructed body lines for {path}",
+                    )
 
 
 def _validate_normalized_class_entries(
@@ -631,6 +925,7 @@ def _validate_normalized_repo(
     parts = repo.get("parts", [])
     files_by_path = _validate_normalized_file_entries(
         errors,
+        repo=repo,
         repo_label=repo_label,
         files=files,
         paths=paths,
@@ -660,6 +955,7 @@ def _validate_normalized_repo(
 
     _validate_normalized_symbol_entries(
         errors,
+        repo=repo,
         repo_label=repo_label,
         symbols=symbols,
         classes=classes,
@@ -725,6 +1021,7 @@ def validate_index_payload(
 
     for repo in payload.get("repositories", []):
         repo_label = str(repo.get("label") or repo.get("slug") or "repo")
+        _validate_repository_locator_metadata(errors, repo=repo, repo_label=repo_label)
         if format_version == INDEX_JSON_FORMAT_VERSION_V3:
             _validate_normalized_repo(
                 errors,
@@ -763,6 +1060,7 @@ def validate_index_payload(
         )
         symbols_by_local_id = _validate_symbols(
             errors,
+            repo=repo,
             repo_label=repo_label,
             output_files=output_files,
             anchors_by_path=anchors_by_path,
@@ -773,6 +1071,7 @@ def validate_index_payload(
         )
         _validate_files(
             errors,
+            repo=repo,
             repo_label=repo_label,
             output_files=output_files,
             anchors_by_path=anchors_by_path,

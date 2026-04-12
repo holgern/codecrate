@@ -99,6 +99,45 @@ def test_unpack_combined_pack_duplicate_labels_use_unique_slug_dirs(
     ).read_text(encoding="utf-8")
 
 
+def test_combined_pack_index_json_reconstructed_locators_use_slug_prefixes(
+    tmp_path: Path,
+) -> None:
+    repo1 = tmp_path / "repo1"
+    repo2 = tmp_path / "repo2"
+    _write_repo(repo1, "a.py", "def alpha():\n    return 1\n")
+    _write_repo(repo2, "b.py", "def beta():\n    return 2\n")
+
+    packed = tmp_path / "combined.md"
+    main(
+        [
+            "pack",
+            "--repo",
+            str(repo1),
+            "--repo",
+            str(repo2),
+            "-o",
+            str(packed),
+            "--profile",
+            "agent",
+            "--emit-standalone-unpacker",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "combined.index.json").read_text(encoding="utf-8"))
+    repo_entries = {entry["slug"]: entry for entry in payload["repositories"]}
+
+    assert repo_entries["repo1"]["locator_space"] == "reconstructed"
+    assert repo_entries["repo1"]["reconstructed_root"] == "repo1"
+    assert repo_entries["repo1"]["files"][0]["locators"]["reconstructed"]["path"] == (
+        "repo1/a.py"
+    )
+    assert repo_entries["repo2"]["locator_space"] == "reconstructed"
+    assert repo_entries["repo2"]["reconstructed_root"] == "repo2"
+    assert repo_entries["repo2"]["files"][0]["locators"]["reconstructed"]["path"] == (
+        "repo2/b.py"
+    )
+
+
 def test_patch_combined_requires_repo(tmp_path: Path) -> None:
     repo1 = tmp_path / "repo1"
     repo2 = tmp_path / "repo2"
