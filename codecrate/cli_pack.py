@@ -374,7 +374,9 @@ def _write_pack_outputs(
     pack_runs: list[PackRun],
 ) -> None:
     out_path = args.output if args.output is not None else pack_runs[0].default_output
-    emit_standalone_unpacker = bool(getattr(args, "emit_standalone_unpacker", False))
+    emit_standalone_unpacker = any(
+        run.options.emit_standalone_unpacker for run in pack_runs
+    )
     _require_manifest_for_standalone(
         parser,
         emit_standalone_unpacker=emit_standalone_unpacker,

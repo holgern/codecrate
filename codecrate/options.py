@@ -13,6 +13,7 @@ class PackOptions:
     exclude: list[str] | None
     keep_docstrings: bool
     profile: str
+    emit_standalone_unpacker: bool
     locator_space: str
     include_manifest: bool
     index_json_enabled: bool
@@ -95,7 +96,19 @@ def resolve_index_json_mode(
     return None
 
 
-def resolve_locator_space(cfg: Config, args: argparse.Namespace) -> str:
+def resolve_emit_standalone_unpacker(cfg: Config, args: argparse.Namespace) -> bool:
+    cli_value = getattr(args, "emit_standalone_unpacker", None)
+    if cli_value is not None:
+        return bool(cli_value)
+    return bool(getattr(cfg, "emit_standalone_unpacker", False))
+
+
+def resolve_locator_space(
+    cfg: Config,
+    args: argparse.Namespace,
+    *,
+    emit_standalone_unpacker: bool,
+) -> str:
     cli_value = getattr(args, "locator_space", None)
     if cli_value is not None:
         value = str(cli_value).strip().lower()
@@ -104,11 +117,7 @@ def resolve_locator_space(cfg: Config, args: argparse.Namespace) -> str:
     if value not in {"auto", "markdown", "reconstructed", "dual"}:
         value = "auto"
     if value == "auto":
-        return (
-            "reconstructed"
-            if bool(getattr(args, "emit_standalone_unpacker", False))
-            else "markdown"
-        )
+        return "reconstructed" if emit_standalone_unpacker else "markdown"
     return value
 
 
@@ -121,7 +130,12 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         raise ValueError("cannot combine --index-json-mode with --no-index-json")
 
     profile = resolve_profile(cfg, args.profile)
-    locator_space = resolve_locator_space(cfg, args)
+    emit_standalone_unpacker = resolve_emit_standalone_unpacker(cfg, args)
+    locator_space = resolve_locator_space(
+        cfg,
+        args,
+        emit_standalone_unpacker=emit_standalone_unpacker,
+    )
     index_json_mode = resolve_index_json_mode(cfg, args, profile)
     if args.include is not None:
         include = args.include
@@ -340,6 +354,7 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         exclude=exclude,
         keep_docstrings=keep_docstrings,
         profile=profile,
+        emit_standalone_unpacker=emit_standalone_unpacker,
         locator_space=locator_space,
         include_manifest=include_manifest,
         index_json_enabled=index_json_enabled,

@@ -260,6 +260,27 @@ def test_pack_include_overrides_include_preset(tmp_path: Path) -> None:
     assert "### `notes.txt`" not in text
 
 
+def test_pack_uses_config_for_index_json_mode_and_standalone_unpacker(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+index_json_mode = "minimal"
+emit_standalone_unpacker = true
+""",
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path)])
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    assert payload["mode"] == "minimal"
+    assert payload["repositories"][0]["locator_space"] == "reconstructed"
+    assert (tmp_path / "context.unpack.py").exists()
+
+
 def test_pack_stdin_applies_excludes(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
     (tmp_path / "b.py").write_text("def b():\n    return 2\n", encoding="utf-8")

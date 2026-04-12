@@ -31,6 +31,8 @@ Supported keys include (non-exhaustive):
    profile = "human"
    layout = "auto"
    nav_mode = "auto"
+   index_json_mode = "minimal"
+   emit_standalone_unpacker = false
    locator_space = "auto"
    split_max_chars = 0
    split_strict = false

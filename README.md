@@ -212,6 +212,9 @@ profile = "human"
 # - hybrid defaults to "full"
 index_json_mode = "minimal"
 
+# Write a standard-library-only <output>.unpack.py next to the pack
+emit_standalone_unpacker = false
+
 # Sidecar locator targets: "auto" | "markdown" | "reconstructed" | "dual"
 # - auto resolves to reconstructed when a standalone unpacker is emitted
 # - otherwise auto resolves to markdown

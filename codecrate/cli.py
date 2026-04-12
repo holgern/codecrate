@@ -454,6 +454,7 @@ def _add_pack_parser(
     pack.add_argument(
         "--emit-standalone-unpacker",
         action="store_true",
+        default=None,
         help=(
             "Write a standard-library-only <output>.unpack.py next to the pack. "
             "Requires a manifest-enabled pack."

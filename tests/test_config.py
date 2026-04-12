@@ -46,6 +46,7 @@ def test_config_defaults() -> None:
     assert isinstance(cfg.security_content_patterns, list)
     assert cfg.security_content_patterns
     assert cfg.nav_mode == "auto"
+    assert cfg.emit_standalone_unpacker is False
     assert cfg.locator_space == "auto"
     assert cfg.index_json_include_lookup is True
     assert cfg.index_json_include_symbol_index_lines is True
@@ -192,6 +193,7 @@ security_content_patterns = ["api-key=(?i)api[_-]?key[:=][A-Za-z0-9]{8,}"]
 nav_mode = "compact"
 index_json_include_lookup = false
 index_json_include_symbol_index_lines = false
+emit_standalone_unpacker = true
 locator_space = "dual"
 symbol_backend = "tree-sitter"
 encoding_errors = "strict"
@@ -221,6 +223,7 @@ encoding_errors = "strict"
         "api-key=(?i)api[_-]?key[:=][A-Za-z0-9]{8,}"
     ]
     assert cfg.nav_mode == "compact"
+    assert cfg.emit_standalone_unpacker is True
     assert cfg.locator_space == "dual"
     assert cfg.index_json_include_lookup is False
     assert cfg.index_json_include_symbol_index_lines is False

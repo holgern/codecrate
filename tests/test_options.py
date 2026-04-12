@@ -23,6 +23,7 @@ def test_resolve_pack_options_uses_profile_defaults(tmp_path: Path) -> None:
     )
 
     assert options.profile == "agent"
+    assert options.emit_standalone_unpacker is False
     assert options.locator_space == "markdown"
     assert options.nav_mode == "compact"
     assert options.index_json_enabled is True
@@ -46,6 +47,7 @@ def test_resolve_pack_options_cli_overrides_profile_defaults(tmp_path: Path) -> 
     )
 
     assert options.profile == "agent"
+    assert options.emit_standalone_unpacker is False
     assert options.locator_space == "markdown"
     assert options.nav_mode == "full"
     assert options.index_json_enabled is False
@@ -57,6 +59,7 @@ def test_resolve_pack_options_config_overrides_defaults(tmp_path: Path) -> None:
     options = resolve_pack_options(cfg, _parse_pack_args(tmp_path))
 
     assert options.profile == "hybrid"
+    assert options.emit_standalone_unpacker is False
     assert options.locator_space == "markdown"
     assert options.index_json_enabled is True
     assert options.index_json_mode == "full"
@@ -81,6 +84,7 @@ def test_resolve_pack_options_cli_overrides_config(tmp_path: Path) -> None:
     )
 
     assert options.profile == "agent"
+    assert options.emit_standalone_unpacker is False
     assert options.locator_space == "markdown"
     assert options.nav_mode == "full"
     assert options.include == ["**/*"]
@@ -135,6 +139,7 @@ def test_resolve_pack_options_portable_profile_defaults_to_full_without_index_js
     )
 
     assert options.profile == "portable"
+    assert options.emit_standalone_unpacker is False
     assert options.locator_space == "markdown"
     assert options.layout == "full"
     assert options.include_manifest is True
@@ -204,6 +209,26 @@ def test_resolve_pack_options_locator_space_auto_uses_reconstructed_with_unpacke
         _parse_pack_args(tmp_path, "--emit-standalone-unpacker"),
     )
 
+    assert options.emit_standalone_unpacker is True
+    assert options.locator_space == "reconstructed"
+
+
+def test_resolve_pack_options_config_emits_standalone_unpacker(tmp_path: Path) -> None:
+    cfg = Config(emit_standalone_unpacker=True)
+
+    options = resolve_pack_options(cfg, _parse_pack_args(tmp_path))
+
+    assert options.emit_standalone_unpacker is True
+
+
+def test_resolve_pack_options_config_standalone_unpacker_drives_auto_locator_space(
+    tmp_path: Path,
+) -> None:
+    cfg = Config(locator_space="auto", emit_standalone_unpacker=True)
+
+    options = resolve_pack_options(cfg, _parse_pack_args(tmp_path))
+
+    assert options.emit_standalone_unpacker is True
     assert options.locator_space == "reconstructed"
 
 
