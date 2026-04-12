@@ -273,6 +273,45 @@ def _add_pack_parser(
         "--exclude", action="append", default=None, help="Exclude glob (repeatable)"
     )
     pack.add_argument(
+        "--analysis-metadata",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Include analysis-oriented metadata such as repository guide, import "
+            "graph, test links, and richer file/symbol facts (default: on via config)."
+        ),
+    )
+    pack.add_argument(
+        "--focus-file",
+        action="append",
+        default=None,
+        help=(
+            "Focus packing on a repo-relative file path. Repeatable. Can be combined "
+            "with import-neighbor and test expansion."
+        ),
+    )
+    pack.add_argument(
+        "--focus-symbol",
+        action="append",
+        default=None,
+        help=(
+            "Focus packing on a symbol, typically MODULE:QUALNAME (for example "
+            "codecrate.cli:main). Repeatable."
+        ),
+    )
+    pack.add_argument(
+        "--include-import-neighbors",
+        type=int,
+        default=None,
+        help="Expand focused packs by this many local import-graph hops (default: 0).",
+    )
+    pack.add_argument(
+        "--include-tests",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Include heuristically related test files when focus options are used.",
+    )
+    pack.add_argument(
         "--split-max-chars",
         type=int,
         default=None,
@@ -381,10 +420,11 @@ def _add_pack_parser(
     )
     pack.add_argument(
         "--index-json-mode",
-        choices=["full", "compact", "minimal"],
+        choices=["full", "compact", "minimal", "normalized"],
         default=None,
         help=(
-            "Index JSON mode: full (v1-compatible), compact (v2), or minimal (v2). "
+            "Index JSON mode: full (v1-compatible), compact/minimal (v2), or "
+            "normalized (v3). "
             "Specifying a mode enables index-json output."
         ),
     )

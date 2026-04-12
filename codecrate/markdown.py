@@ -5,6 +5,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal
 
+from .analysis_metadata import build_repository_guide
 from .fences import choose_backtick_fence, is_fence_close, parse_fence_open
 from .formats import FENCE_MACHINE_HEADER, FENCE_MANIFEST, PACK_FORMAT_VERSION
 from .locators import (
@@ -57,6 +58,7 @@ def _range_token(kind: str, key: str) -> str:
 
 _SECTION_TITLES: tuple[str, ...] = (
     "Directory Tree",
+    "Repository Guide",
     "Symbol Index",
     "Function Library",
     "Files",
@@ -394,7 +396,9 @@ def _render_tree(paths: list[str]) -> str:
     return "\n".join(walk(root))
 
 
-def _render_how_to_use_section(*, use_stubs: bool) -> str:
+def _render_how_to_use_section(
+    *, use_stubs: bool, include_repository_guide: bool
+) -> str:
     lines: list[str] = []
     lines.append("## How to Use This Pack\n\n")
     lines.append(
@@ -402,19 +406,35 @@ def _render_how_to_use_section(*, use_stubs: bool) -> str:
         "proposals.\n\n"
     )
     lines.append("**Quick workflow**\n")
-    lines.append(f"1. **Directory Tree** {_range_token('SECTION', 'Directory Tree')}\n")
-    lines.append(f"2. **Symbol Index** {_range_token('SECTION', 'Symbol Index')}\n")
+    step = 1
+    lines.append(
+        f"{step}. **Directory Tree** {_range_token('SECTION', 'Directory Tree')}\n"
+    )
+    step += 1
+    if include_repository_guide:
+        lines.append(
+            f"{step}. **Repository Guide** "
+            f"{_range_token('SECTION', 'Repository Guide')}\n"
+        )
+        step += 1
+    lines.append(
+        f"{step}. **Symbol Index** {_range_token('SECTION', 'Symbol Index')}\n"
+    )
+    step += 1
     if use_stubs:
         lines.append(
-            f"3. **Function Library** {_range_token('SECTION', 'Function Library')}\n"
+            f"{step}. **Function Library** "
+            f"{_range_token('SECTION', 'Function Library')}\n"
         )
-        lines.append(f"4. **Files** {_range_token('SECTION', 'Files')}\n")
+        step += 1
+        lines.append(f"{step}. **Files** {_range_token('SECTION', 'Files')}\n")
         lines.append(
-            "5. For stubbed functions (`...  # ↪ FUNC:v1:XXXXXXXX`), use **Function "
+            f"{step + 1}. For stubbed functions (`...  # ↪ FUNC:v1:XXXXXXXX`), "
+            "use **Function "
             "Library** to read full bodies by ID.\n"
         )
     else:
-        lines.append(f"3. **Files** {_range_token('SECTION', 'Files')}\n")
+        lines.append(f"{step}. **Files** {_range_token('SECTION', 'Files')}\n")
     lines.append("\n")
 
     lines.append(
@@ -458,6 +478,34 @@ def _render_environment_setup_section(root: Path) -> str:
     return "".join(lines)
 
 
+def _render_repository_guide_section(*, root: Path, pack: PackResult) -> str:
+    guide = build_repository_guide(root=root, pack=pack)
+    if not any(guide.values()):
+        return ""
+
+    label_map = {
+        "entrypoints": "Entrypoints",
+        "main_workflows": "Main workflows",
+        "key_config_files": "Key config files",
+        "central_modules": "Central modules",
+        "test_clusters": "Primary test clusters",
+    }
+    lines = ["## Repository Guide\n\n"]
+    for key in (
+        "entrypoints",
+        "main_workflows",
+        "key_config_files",
+        "central_modules",
+        "test_clusters",
+    ):
+        values = guide.get(key, [])
+        if not values:
+            continue
+        lines.append(f"- {label_map[key]}: {_render_dependency_list(values)}\n")
+    lines.append("\n")
+    return "".join(lines)
+
+
 def render_markdown_result(  # noqa: C901
     pack: PackResult,
     canonical_sources: dict[str, str],
@@ -470,6 +518,7 @@ def render_markdown_result(  # noqa: C901
     include_safety_report: bool = False,
     safety_report_entries: list[dict[str, str]] | None = None,
     include_manifest: bool = True,
+    include_repository_guide: bool = True,
     manifest_data: dict[str, Any] | None = None,
     repo_label: str = "repo",
     repo_slug: str = "repo",
@@ -538,9 +587,9 @@ def render_markdown_result(  # noqa: C901
         for fp in pack.files:
             by_qualname: dict[str, list[ClassRef]] = defaultdict(list)
             try:
-                parsed_classes, _ = parse_symbols(
+                parsed_classes = parse_symbols(
                     path=fp.path, root=pack.root, text=fp.stubbed_text
-                )
+                ).classes
             except SyntaxError:
                 parsed_classes = []
             for c in parsed_classes:
@@ -557,12 +606,19 @@ def render_markdown_result(  # noqa: C901
             for c in fp.classes:
                 class_line_map[c.id] = (c.class_line, c.end_line)
 
+    guide_section = (
+        _render_repository_guide_section(root=pack.root, pack=pack)
+        if include_repository_guide
+        else ""
+    )
     lines.append(
         _render_how_to_use_section(
             use_stubs=use_stubs,
+            include_repository_guide=bool(guide_section),
         )
     )
     lines.append(_render_environment_setup_section(pack.root))
+    lines.append(guide_section)
 
     if include_manifest:
         manifest_obj = manifest_data or to_manifest(pack, minimal=not use_stubs)
@@ -696,6 +752,7 @@ def render_markdown(  # noqa: C901
     include_safety_report: bool = False,
     safety_report_entries: list[dict[str, str]] | None = None,
     include_manifest: bool = True,
+    include_repository_guide: bool = True,
     manifest_data: dict[str, Any] | None = None,
     repo_label: str = "repo",
     repo_slug: str = "repo",
@@ -711,6 +768,7 @@ def render_markdown(  # noqa: C901
         include_safety_report=include_safety_report,
         safety_report_entries=safety_report_entries,
         include_manifest=include_manifest,
+        include_repository_guide=include_repository_guide,
         manifest_data=manifest_data,
         repo_label=repo_label,
         repo_slug=repo_slug,

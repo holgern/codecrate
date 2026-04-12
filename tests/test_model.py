@@ -2,14 +2,82 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codecrate.model import ClassRef, DefRef, FilePack, PackResult
+from codecrate.model import (
+    ClassRef,
+    DefRef,
+    FilePack,
+    ImportRef,
+    PackResult,
+    ParseResult,
+)
 
 
-def test_defref_dataclass_frozen() -> None:
-    """Test that DefRef is frozen (dataclass immutability)."""
-    path = Path("test.py")
+def test_defref_supports_semantic_fields() -> None:
     def_ref = DefRef(
-        path=path,
+        path=Path("test.py"),
+        module="test",
+        qualname="MyClass.func",
+        id="ID123",
+        local_id="LOCAL123",
+        kind="function",
+        decorator_start=1,
+        def_line=2,
+        body_start=3,
+        end_line=4,
+        doc_start=3,
+        doc_end=3,
+        is_single_line=False,
+        decorators=["cached_property"],
+        owner_class="MyClass",
+    )
+
+    assert def_ref.decorators == ["cached_property"]
+    assert def_ref.owner_class == "MyClass"
+
+
+def test_classref_supports_semantic_fields() -> None:
+    class_ref = ClassRef(
+        path=Path("test.py"),
+        module="test",
+        qualname="MyClass",
+        id="CLASS123",
+        decorator_start=1,
+        class_line=2,
+        end_line=6,
+        base_classes=["Base"],
+        decorators=["dataclass"],
+    )
+
+    assert class_ref.base_classes == ["Base"]
+    assert class_ref.decorators == ["dataclass"]
+
+
+def test_importref_fields() -> None:
+    import_ref = ImportRef(
+        module="pkg.sub",
+        imported_name="thing",
+        alias="alias",
+        line=3,
+        kind="from",
+    )
+
+    assert import_ref.module == "pkg.sub"
+    assert import_ref.imported_name == "thing"
+    assert import_ref.alias == "alias"
+    assert import_ref.line == 3
+    assert import_ref.kind == "from"
+
+
+def test_filepack_and_parse_result_defaults() -> None:
+    import_ref = ImportRef(
+        module="os",
+        imported_name=None,
+        alias=None,
+        line=1,
+        kind="import",
+    )
+    def_ref = DefRef(
+        path=Path("test.py"),
         module="test",
         qualname="func",
         id="ID123",
@@ -19,107 +87,50 @@ def test_defref_dataclass_frozen() -> None:
         def_line=1,
         body_start=2,
         end_line=2,
-        doc_start=2,
-        doc_end=2,
-        is_single_line=False,
     )
-
-    # Verify that creating a new instance with different values works
-    new_def = def_ref.__class__(
-        path=path,
+    class_ref = ClassRef(
+        path=Path("test.py"),
         module="test",
-        qualname="func",
-        id="ID123",
-        local_id="LOCAL123",
-        kind="function",
+        qualname="MyClass",
+        id="CLASS123",
         decorator_start=1,
-        def_line=1,
-        body_start=2,
-        end_line=2,
-        doc_start=2,
-        doc_end=2,
-        is_single_line=False,
+        class_line=3,
+        end_line=5,
     )
-    assert new_def is not def_ref  # Different instances
 
-
-def test_filepack_dataclass_frozen() -> None:
-    """Test that FilePack is frozen (dataclass immutability)."""
     file_pack = FilePack(
         path=Path("test.py"),
         module="test",
         original_text="original",
         stubbed_text="stubbed",
         line_count=1,
-        classes=[],
-        defs=[],
+        classes=[class_ref],
+        defs=[def_ref],
+        imports=[import_ref],
+        exports=["func"],
+        module_docstring=(1, 1),
+    )
+    parse_result = ParseResult(
+        module="test",
+        classes=[class_ref],
+        defs=[def_ref],
+        imports=[import_ref],
+        exports=["func"],
+        module_docstring=(1, 1),
     )
 
-    # Verify that all fields are set correctly
-    assert file_pack.path == Path("test.py")
-    assert file_pack.module == "test"
-    assert file_pack.original_text == "original"
-    assert file_pack.stubbed_text == "stubbed"
-    assert file_pack.line_count == 1
-    assert file_pack.classes == []
-    assert file_pack.defs == []
+    assert file_pack.imports == [import_ref]
+    assert file_pack.exports == ["func"]
+    assert file_pack.module_docstring == (1, 1)
+    assert parse_result.imports == [import_ref]
+    assert parse_result.exports == ["func"]
+    assert parse_result.module_docstring == (1, 1)
 
 
-def test_packresult_dataclass_frozen() -> None:
-    """Test that PackResult is frozen (dataclass immutability)."""
-    pack = PackResult(
-        root=Path("/"),
-        files=[],
-        classes=[],
-        defs=[],
-    )
+def test_packresult_dataclass_fields() -> None:
+    pack = PackResult(root=Path("/"), files=[], classes=[], defs=[])
 
-    # Verify that all fields are set correctly
     assert pack.root == Path("/")
     assert pack.files == []
     assert pack.classes == []
     assert pack.defs == []
-
-
-def test_defref_required_fields() -> None:
-    """Test that all required DefRef fields are present."""
-    path = Path("test.py")
-    def_ref = DefRef(
-        path=path,
-        module="test",
-        qualname="func",
-        id="ID123",
-        local_id="LOCAL123",
-        kind="function",
-        decorator_start=1,
-        def_line=1,
-        body_start=2,
-        end_line=2,
-    )
-
-    # Optional fields should have defaults
-    assert def_ref.doc_start is None
-    assert def_ref.doc_end is None
-    assert def_ref.is_single_line is False
-
-
-def test_classref_required_fields() -> None:
-    """Test that all required ClassRef fields are present."""
-    path = Path("test.py")
-    class_ref = ClassRef(
-        path=path,
-        module="test",
-        qualname="MyClass",
-        id="CLASS123",
-        decorator_start=1,
-        class_line=1,
-        end_line=5,
-    )
-
-    assert class_ref.path == path
-    assert class_ref.module == "test"
-    assert class_ref.qualname == "MyClass"
-    assert class_ref.id == "CLASS123"
-    assert class_ref.decorator_start == 1
-    assert class_ref.class_line == 1
-    assert class_ref.end_line == 5

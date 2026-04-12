@@ -8,9 +8,16 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from .analysis_metadata import (
+    build_repository_guide,
+    import_edges_payload,
+    role_hint_for_file,
+    test_links_payload,
+)
 from .formats import (
     INDEX_JSON_FORMAT_VERSION_V1,
     INDEX_JSON_FORMAT_VERSION_V2,
+    INDEX_JSON_FORMAT_VERSION_V3,
     PACK_FORMAT_VERSION,
 )
 from .ids import (
@@ -147,6 +154,56 @@ def _strong_id_maps(run: PackRun) -> tuple[dict[str, str], dict[str, str]]:
         )
 
     return local_machine_ids, canonical_machine_ids
+
+
+def _class_id_maps(
+    run: PackRun,
+) -> tuple[dict[str, str], dict[tuple[str, str], dict[str, str]]]:
+    machine_ids: dict[str, str] = {}
+    by_path_qualname: dict[tuple[str, str], dict[str, str]] = {}
+    for class_ref in run.pack_result.classes:
+        rel = class_ref.path.relative_to(run.pack_result.root).as_posix()
+        machine_id = stable_machine_location_id(
+            Path(rel),
+            f"class:{class_ref.qualname}",
+            class_ref.class_line,
+        )
+        machine_ids[class_ref.id] = machine_id
+        by_path_qualname[(rel, class_ref.qualname)] = {
+            "display_local_id": class_ref.id,
+            "local_id": machine_id,
+        }
+    return machine_ids, by_path_qualname
+
+
+def _imports_by_source(run: PackRun) -> dict[str, list[dict[str, Any]]]:
+    by_source: dict[str, list[dict[str, Any]]] = {}
+    for edge in import_edges_payload(run.pack_result):
+        source_path = str(edge.get("source_path") or "")
+        if not source_path:
+            continue
+        by_source.setdefault(source_path, []).append(
+            {
+                "module": edge.get("import_module"),
+                "resolved_module": edge.get("resolved_module"),
+                "imported_name": edge.get("imported_name"),
+                "alias": edge.get("alias"),
+                "line": edge.get("line"),
+                "kind": edge.get("kind"),
+                "target_module": edge.get("target_module"),
+                "target_path": edge.get("target_path"),
+            }
+        )
+    return by_source
+
+
+def _role_hints_by_path(run: PackRun) -> dict[str, str | None]:
+    return {
+        file_pack.path.relative_to(run.pack_result.root).as_posix(): role_hint_for_file(
+            file_pack.path.relative_to(run.pack_result.root).as_posix()
+        )
+        for file_pack in run.pack_result.files
+    }
 
 
 def _repo_scope(markdown_text: str, label: str) -> tuple[list[str], int, int]:
@@ -553,6 +610,9 @@ def _full_file_payload(
     file_index_to_part: dict[str, str],
     markdown_path: str | None,
     file_markdown_ranges: dict[str, dict[str, int]],
+    imports_by_source: dict[str, list[dict[str, Any]]],
+    role_hints: dict[str, str | None],
+    analysis_metadata: bool,
 ) -> list[dict[str, Any]]:
     manifest_by_path = _manifest_files_by_path(run)
     safety_by_path = _safety_flags_by_path(run)
@@ -660,6 +720,15 @@ def _full_file_payload(
                 )
             ],
         }
+        if analysis_metadata:
+            file_entry["imports"] = imports_by_source.get(rel, [])
+            file_entry["exports"] = list(file_pack.exports)
+            file_entry["module_docstring_lines"] = (
+                _line_range(*file_pack.module_docstring)
+                if file_pack.module_docstring is not None
+                else None
+            )
+            file_entry["role_hint"] = role_hints.get(rel)
         if markdown_path is not None and rel in file_markdown_ranges:
             file_entry["markdown_path"] = markdown_path
             file_entry["markdown_lines"] = file_markdown_ranges[rel]
@@ -667,6 +736,46 @@ def _full_file_payload(
         if isinstance(sha256_stubbed, str) and sha256_stubbed:
             file_entry["sha256_stubbed"] = sha256_stubbed
         payload.append(file_entry)
+    return payload
+
+
+def _class_payload(
+    run: PackRun,
+    *,
+    file_to_part: dict[str, str],
+    markdown_path: str | None,
+    file_markdown_ranges: dict[str, dict[str, int]],
+    include_display_ids: bool,
+) -> list[dict[str, Any]]:
+    class_machine_ids, _ = _class_id_maps(run)
+    payload: list[dict[str, Any]] = []
+    for class_ref in sorted(
+        run.pack_result.classes,
+        key=lambda item: (
+            item.path.relative_to(run.pack_result.root).as_posix(),
+            item.class_line,
+            item.qualname,
+        ),
+    ):
+        rel = class_ref.path.relative_to(run.pack_result.root).as_posix()
+        entry: dict[str, Any] = {
+            "local_id": class_machine_ids[class_ref.id],
+            "path": rel,
+            "module": class_ref.module or None,
+            "qualname": class_ref.qualname,
+            "class_line": class_ref.class_line,
+            "end_line": class_ref.end_line,
+            "base_classes": list(class_ref.base_classes),
+            "decorators": list(class_ref.decorators),
+            "file_part": file_to_part.get(rel),
+            "file_href": href(file_to_part.get(rel), anchor_for_file_source(rel)),
+        }
+        if include_display_ids:
+            entry["display_local_id"] = class_ref.id
+        if markdown_path is not None and rel in file_markdown_ranges:
+            entry["file_markdown_path"] = markdown_path
+            entry["file_markdown_lines"] = file_markdown_ranges[rel]
+        payload.append(entry)
     return payload
 
 
@@ -679,9 +788,11 @@ def _full_symbol_payload(
     file_markdown_ranges: dict[str, dict[str, int]],
     symbol_index_ranges: dict[str, dict[str, int]],
     canonical_markdown_ranges: dict[str, dict[str, int]],
+    analysis_metadata: bool,
 ) -> list[dict[str, Any]]:
     manifest_defs_by_local_id = _manifest_defs_by_local_id(run)
     local_machine_ids, canonical_machine_ids = _strong_id_maps(run)
+    _class_machine_ids, class_ids_by_path_qualname = _class_id_maps(run)
     occurrence_counts: dict[str, int] = {}
     for defn in run.pack_result.defs:
         machine_canonical_id = canonical_machine_ids[defn.id]
@@ -737,6 +848,16 @@ def _full_symbol_payload(
                 "unsplit_line_ranges_available": markdown_path is not None,
             },
         }
+        if analysis_metadata:
+            symbol_entry["owner_class"] = (
+                class_ids_by_path_qualname.get(
+                    (rel, defn.owner_class),
+                    {},
+                ).get("local_id")
+                if defn.owner_class
+                else None
+            )
+            symbol_entry["decorators"] = list(defn.decorators)
         if markdown_path is not None:
             if defn.local_id in symbol_index_ranges:
                 symbol_entry["index_markdown_path"] = markdown_path
@@ -850,6 +971,9 @@ def _compact_file_payload(
     markdown_path: str | None,
     file_markdown_ranges: dict[str, dict[str, int]],
     index_json_mode: str,
+    imports_by_source: dict[str, list[dict[str, Any]]],
+    role_hints: dict[str, str | None],
+    analysis_metadata: bool,
 ) -> list[dict[str, Any]]:
     payload: list[dict[str, Any]] = []
     for file_pack in sorted(
@@ -873,6 +997,16 @@ def _compact_file_payload(
             "symbol_backend_used": file_pack.symbol_backend_used,
             "symbol_extraction_status": file_pack.symbol_extraction_status,
         }
+        if analysis_metadata:
+            file_entry["module"] = file_pack.module or None
+            file_entry["imports"] = imports_by_source.get(rel, [])
+            file_entry["exports"] = list(file_pack.exports)
+            file_entry["module_docstring_lines"] = (
+                _line_range(*file_pack.module_docstring)
+                if file_pack.module_docstring is not None
+                else None
+            )
+            file_entry["role_hint"] = role_hints.get(rel)
         if index_json_mode == "compact":
             file_entry["language_family"] = (
                 file_pack.language_detected or _fence_lang_for(rel)
@@ -893,8 +1027,10 @@ def _compact_symbol_payload(
     canonical_markdown_ranges: dict[str, dict[str, int]],
     index_json_mode: str,
     include_symbol_index_lines: bool,
+    analysis_metadata: bool,
 ) -> list[dict[str, Any]]:
     local_machine_ids, canonical_machine_ids = _strong_id_maps(run)
+    _class_machine_ids, class_ids_by_path_qualname = _class_id_maps(run)
     include_canonical_ids = _should_include_canonical_ids(run)
     symbols: list[dict[str, Any]] = []
     for defn in sorted(
@@ -917,6 +1053,16 @@ def _compact_symbol_payload(
             "file_part": file_to_part.get(rel),
             "file_href": href(file_to_part.get(rel), anchor_for_file_source(rel)),
         }
+        if analysis_metadata:
+            symbol_entry["owner_class"] = (
+                class_ids_by_path_qualname.get(
+                    (rel, defn.owner_class),
+                    {},
+                ).get("local_id")
+                if defn.owner_class
+                else None
+            )
+            symbol_entry["decorators"] = list(defn.decorators)
         if include_canonical_ids:
             symbol_entry["canonical_id"] = canonical_machine_ids[defn.id]
         if (
@@ -1017,13 +1163,537 @@ def _v2_feature_payload(run: PackRun, *, index_json_mode: str) -> dict[str, bool
     }
 
 
+def _table_index(
+    value: str | None,
+    *,
+    table: list[str],
+    lookup: dict[str, int],
+) -> int | None:
+    if not value:
+        return None
+    existing = lookup.get(value)
+    if existing is not None:
+        return existing
+    index = len(table)
+    table.append(value)
+    lookup[value] = index
+    return index
+
+
+def _normalized_line_range(range_: tuple[int, int] | None) -> list[int] | None:
+    if range_ is None:
+        return None
+    return [range_[0], range_[1]]
+
+
+def _normalized_import_entry(
+    import_entry: dict[str, Any],
+    *,
+    path_table: list[str],
+    path_lookup: dict[str, int],
+    string_table: list[str],
+    string_lookup: dict[str, int],
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {}
+    kind = _table_index(
+        str(import_entry.get("kind") or ""),
+        table=string_table,
+        lookup=string_lookup,
+    )
+    if kind is not None:
+        entry["k"] = kind
+    module = _table_index(
+        str(import_entry.get("module") or ""),
+        table=string_table,
+        lookup=string_lookup,
+    )
+    if module is not None:
+        entry["m"] = module
+    resolved_module = _table_index(
+        str(import_entry.get("resolved_module") or ""),
+        table=string_table,
+        lookup=string_lookup,
+    )
+    if resolved_module is not None:
+        entry["r"] = resolved_module
+    imported_name = _table_index(
+        str(import_entry.get("imported_name") or ""),
+        table=string_table,
+        lookup=string_lookup,
+    )
+    if imported_name is not None:
+        entry["n"] = imported_name
+    alias = _table_index(
+        str(import_entry.get("alias") or ""),
+        table=string_table,
+        lookup=string_lookup,
+    )
+    if alias is not None:
+        entry["a"] = alias
+    line = import_entry.get("line")
+    if isinstance(line, int):
+        entry["l"] = line
+    target_path = _table_index(
+        str(import_entry.get("target_path") or ""),
+        table=path_table,
+        lookup=path_lookup,
+    )
+    if target_path is not None:
+        entry["t"] = target_path
+    return entry
+
+
+def _normalized_analysis_payload(
+    import_edges: list[dict[str, Any]],
+    test_links: list[dict[str, str]],
+    guide: dict[str, list[str]],
+    *,
+    path_table: list[str],
+    path_lookup: dict[str, int],
+    string_table: list[str],
+    string_lookup: dict[str, int],
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    if import_edges:
+        payload["graph"] = {
+            "import_edges": [
+                {
+                    key: value
+                    for key, value in {
+                        "s": _table_index(
+                            str(edge.get("source_path") or ""),
+                            table=path_table,
+                            lookup=path_lookup,
+                        ),
+                        "t": _table_index(
+                            str(edge.get("target_path") or ""),
+                            table=path_table,
+                            lookup=path_lookup,
+                        ),
+                        "m": _table_index(
+                            str(edge.get("import_module") or ""),
+                            table=string_table,
+                            lookup=string_lookup,
+                        ),
+                        "r": _table_index(
+                            str(edge.get("resolved_module") or ""),
+                            table=string_table,
+                            lookup=string_lookup,
+                        ),
+                        "n": _table_index(
+                            str(edge.get("imported_name") or ""),
+                            table=string_table,
+                            lookup=string_lookup,
+                        ),
+                        "a": _table_index(
+                            str(edge.get("alias") or ""),
+                            table=string_table,
+                            lookup=string_lookup,
+                        ),
+                        "k": _table_index(
+                            str(edge.get("kind") or ""),
+                            table=string_table,
+                            lookup=string_lookup,
+                        ),
+                        "l": edge.get("line")
+                        if isinstance(edge.get("line"), int)
+                        else None,
+                    }.items()
+                    if value is not None
+                }
+                for edge in import_edges
+            ]
+        }
+    if test_links:
+        payload["test_links"] = [
+            {
+                key: value
+                for key, value in {
+                    "s": _table_index(
+                        link.get("source"),
+                        table=path_table,
+                        lookup=path_lookup,
+                    ),
+                    "t": _table_index(
+                        link.get("test"),
+                        table=path_table,
+                        lookup=path_lookup,
+                    ),
+                    "r": _table_index(
+                        link.get("reason"),
+                        table=string_table,
+                        lookup=string_lookup,
+                    ),
+                }.items()
+                if value is not None
+            }
+            for link in test_links
+        ]
+    if guide:
+        guide_payload: dict[str, list[int]] = {}
+        for key, values in guide.items():
+            if key == "main_workflows":
+                indexed = _indexed_values(
+                    values,
+                    table=string_table,
+                    lookup=string_lookup,
+                )
+            else:
+                indexed = _indexed_values(
+                    values,
+                    table=path_table,
+                    lookup=path_lookup,
+                )
+            if indexed:
+                guide_payload[key] = indexed
+        if guide_payload:
+            payload["guide"] = guide_payload
+    return payload
+
+
+def _indexed_values(
+    values: Iterable[str],
+    *,
+    table: list[str],
+    lookup: dict[str, int],
+) -> list[int]:
+    indexed: list[int] = []
+    for value in values:
+        index = _table_index(value, table=table, lookup=lookup)
+        if index is not None:
+            indexed.append(index)
+    return indexed
+
+
+def _normalized_file_payload(
+    run: PackRun,
+    *,
+    file_to_part: dict[str, str],
+    imports_by_source: dict[str, list[dict[str, Any]]],
+    role_hints: dict[str, str | None],
+    analysis_metadata: bool,
+    path_table: list[str],
+    path_lookup: dict[str, int],
+    part_table: list[str],
+    part_lookup: dict[str, int],
+    string_table: list[str],
+    string_lookup: dict[str, int],
+) -> list[dict[str, Any]]:
+    files_payload: list[dict[str, Any]] = []
+    for file_pack in sorted(
+        run.pack_result.files,
+        key=lambda item: item.path.relative_to(run.pack_result.root).as_posix(),
+    ):
+        rel = file_pack.path.relative_to(run.pack_result.root).as_posix()
+        file_entry: dict[str, Any] = {
+            "p": _table_index(rel, table=path_table, lookup=path_lookup),
+        }
+        part_index = _table_index(
+            file_to_part.get(rel),
+            table=part_table,
+            lookup=part_lookup,
+        )
+        if part_index is not None:
+            file_entry["part"] = part_index
+        language = _table_index(
+            file_pack.language_detected or _fence_lang_for(rel),
+            table=string_table,
+            lookup=string_lookup,
+        )
+        if language is not None:
+            file_entry["lang"] = language
+        module = _table_index(
+            file_pack.module or None,
+            table=string_table,
+            lookup=string_lookup,
+        )
+        if module is not None:
+            file_entry["mod"] = module
+        if analysis_metadata:
+            imports = imports_by_source.get(rel, [])
+            if imports:
+                file_entry["imp"] = [
+                    _normalized_import_entry(
+                        item,
+                        path_table=path_table,
+                        path_lookup=path_lookup,
+                        string_table=string_table,
+                        string_lookup=string_lookup,
+                    )
+                    for item in imports
+                ]
+            if file_pack.exports:
+                file_entry["exp"] = _indexed_values(
+                    file_pack.exports,
+                    table=string_table,
+                    lookup=string_lookup,
+                )
+            module_docstring = _normalized_line_range(file_pack.module_docstring)
+            if module_docstring is not None:
+                file_entry["doc"] = module_docstring
+            role_hint = _table_index(
+                role_hints.get(rel),
+                table=string_table,
+                lookup=string_lookup,
+            )
+            if role_hint is not None:
+                file_entry["role"] = role_hint
+        files_payload.append(file_entry)
+    return files_payload
+
+
+def _normalized_class_payload(
+    run: PackRun,
+    *,
+    file_to_part: dict[str, str],
+    path_table: list[str],
+    path_lookup: dict[str, int],
+    part_table: list[str],
+    part_lookup: dict[str, int],
+    qualname_table: list[str],
+    qualname_lookup: dict[str, int],
+    string_table: list[str],
+    string_lookup: dict[str, int],
+) -> list[dict[str, Any]]:
+    class_machine_ids, _ = _class_id_maps(run)
+    classes_payload: list[dict[str, Any]] = []
+    for class_ref in sorted(
+        run.pack_result.classes,
+        key=lambda item: (
+            item.path.relative_to(run.pack_result.root).as_posix(),
+            item.class_line,
+            item.qualname,
+        ),
+    ):
+        rel = class_ref.path.relative_to(run.pack_result.root).as_posix()
+        entry: dict[str, Any] = {
+            "i": class_machine_ids[class_ref.id],
+            "p": _table_index(rel, table=path_table, lookup=path_lookup),
+            "q": _table_index(
+                class_ref.qualname,
+                table=qualname_table,
+                lookup=qualname_lookup,
+            ),
+            "l1": class_ref.class_line,
+            "l2": class_ref.end_line,
+        }
+        part_index = _table_index(
+            file_to_part.get(rel),
+            table=part_table,
+            lookup=part_lookup,
+        )
+        if part_index is not None:
+            entry["part"] = part_index
+        if class_ref.base_classes:
+            entry["b"] = _indexed_values(
+                class_ref.base_classes,
+                table=string_table,
+                lookup=string_lookup,
+            )
+        if class_ref.decorators:
+            entry["d"] = _indexed_values(
+                class_ref.decorators,
+                table=string_table,
+                lookup=string_lookup,
+            )
+        classes_payload.append(entry)
+    return classes_payload
+
+
+def _normalized_symbol_payload(
+    run: PackRun,
+    *,
+    file_to_part: dict[str, str],
+    class_ids_by_path_qualname: dict[tuple[str, str], dict[str, str]],
+    include_canonical_ids: bool,
+    analysis_metadata: bool,
+    path_table: list[str],
+    path_lookup: dict[str, int],
+    part_table: list[str],
+    part_lookup: dict[str, int],
+    qualname_table: list[str],
+    qualname_lookup: dict[str, int],
+    string_table: list[str],
+    string_lookup: dict[str, int],
+) -> list[dict[str, Any]]:
+    local_machine_ids, canonical_machine_ids = _strong_id_maps(run)
+    symbols_payload: list[dict[str, Any]] = []
+    for defn in sorted(
+        run.pack_result.defs,
+        key=lambda item: (
+            item.path.relative_to(run.pack_result.root).as_posix(),
+            item.def_line,
+            item.qualname,
+            item.local_id,
+        ),
+    ):
+        rel = defn.path.relative_to(run.pack_result.root).as_posix()
+        entry: dict[str, Any] = {
+            "i": local_machine_ids[defn.local_id],
+            "p": _table_index(rel, table=path_table, lookup=path_lookup),
+            "q": _table_index(
+                defn.qualname,
+                table=qualname_table,
+                lookup=qualname_lookup,
+            ),
+            "k": _table_index(
+                defn.kind,
+                table=string_table,
+                lookup=string_lookup,
+            ),
+            "l1": defn.def_line,
+            "l2": defn.end_line,
+        }
+        part_index = _table_index(
+            file_to_part.get(rel),
+            table=part_table,
+            lookup=part_lookup,
+        )
+        if part_index is not None:
+            entry["part"] = part_index
+        if include_canonical_ids:
+            entry["c"] = canonical_machine_ids[defn.id]
+        if analysis_metadata:
+            owner_class = (
+                class_ids_by_path_qualname.get((rel, defn.owner_class), {}).get(
+                    "local_id"
+                )
+                if defn.owner_class
+                else None
+            )
+            if owner_class is not None:
+                entry["o"] = owner_class
+            if defn.decorators:
+                entry["d"] = _indexed_values(
+                    defn.decorators,
+                    table=string_table,
+                    lookup=string_lookup,
+                )
+        symbols_payload.append(entry)
+    return symbols_payload
+
+
+def _normalized_repository_payload(
+    run: PackRun,
+    *,
+    repo_markdown_path: str | None,
+    parts: list[dict[str, Any]],
+    file_to_part: dict[str, str],
+    import_edges: list[dict[str, Any]],
+    test_links: list[dict[str, str]],
+    guide: dict[str, list[str]],
+    imports_by_source: dict[str, list[dict[str, Any]]],
+    role_hints: dict[str, str | None],
+    analysis_metadata: bool,
+) -> dict[str, Any]:
+    path_table: list[str] = []
+    path_lookup: dict[str, int] = {}
+    part_table: list[str] = []
+    part_lookup: dict[str, int] = {}
+    qualname_table: list[str] = []
+    qualname_lookup: dict[str, int] = {}
+    string_table: list[str] = []
+    string_lookup: dict[str, int] = {}
+    for part in parts:
+        _table_index(
+            str(part.get("path") or ""),
+            table=part_table,
+            lookup=part_lookup,
+        )
+
+    _, class_ids_by_path_qualname = _class_id_maps(run)
+    include_canonical_ids = _should_include_canonical_ids(run)
+    files_payload = _normalized_file_payload(
+        run,
+        file_to_part=file_to_part,
+        imports_by_source=imports_by_source,
+        role_hints=role_hints,
+        analysis_metadata=analysis_metadata,
+        path_table=path_table,
+        path_lookup=path_lookup,
+        part_table=part_table,
+        part_lookup=part_lookup,
+        string_table=string_table,
+        string_lookup=string_lookup,
+    )
+    classes_payload = (
+        _normalized_class_payload(
+            run,
+            file_to_part=file_to_part,
+            path_table=path_table,
+            path_lookup=path_lookup,
+            part_table=part_table,
+            part_lookup=part_lookup,
+            qualname_table=qualname_table,
+            qualname_lookup=qualname_lookup,
+            string_table=string_table,
+            string_lookup=string_lookup,
+        )
+        if analysis_metadata
+        else []
+    )
+    symbols_payload = _normalized_symbol_payload(
+        run,
+        file_to_part=file_to_part,
+        class_ids_by_path_qualname=class_ids_by_path_qualname,
+        include_canonical_ids=include_canonical_ids,
+        analysis_metadata=analysis_metadata,
+        path_table=path_table,
+        path_lookup=path_lookup,
+        part_table=part_table,
+        part_lookup=part_lookup,
+        qualname_table=qualname_table,
+        qualname_lookup=qualname_lookup,
+        string_table=string_table,
+        string_lookup=string_lookup,
+    )
+
+    repository = {
+        **_repository_common_payload(
+            run,
+            repo_markdown_path=repo_markdown_path,
+            parts=parts,
+            import_edges=[],
+            test_links=[],
+            guide={},
+            analysis_metadata=False,
+        ),
+        "tables": {
+            "paths": path_table,
+            "parts": part_table,
+            "qualnames": qualname_table,
+            "strings": string_table,
+        },
+        "files": files_payload,
+        "symbols": symbols_payload,
+    }
+    if analysis_metadata:
+        repository["classes"] = classes_payload
+        repository.update(
+            _normalized_analysis_payload(
+                import_edges,
+                test_links,
+                guide,
+                path_table=path_table,
+                path_lookup=path_lookup,
+                string_table=string_table,
+                string_lookup=string_lookup,
+            )
+        )
+    return repository
+
+
 def _repository_common_payload(
     run: PackRun,
     *,
     repo_markdown_path: str | None,
     parts: list[dict[str, Any]],
+    import_edges: list[dict[str, Any]],
+    test_links: list[dict[str, str]],
+    guide: dict[str, list[str]],
+    analysis_metadata: bool,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "label": run.label,
         "slug": run.slug,
         "profile": run.options.profile,
@@ -1040,6 +1710,11 @@ def _repository_common_payload(
         "parts": parts,
         "safety": _safety_payload(run),
     }
+    if analysis_metadata:
+        payload["graph"] = {"import_edges": import_edges}
+        payload["test_links"] = test_links
+        payload["guide"] = guide
+    return payload
 
 
 def build_index_payload(
@@ -1072,6 +1747,27 @@ def build_index_payload(
             repo_output_parts=parts_input,
             base_dir=base_dir,
         )
+        import_edges = (
+            import_edges_payload(run.pack_result)
+            if run.options.analysis_metadata
+            else []
+        )
+        test_links = (
+            test_links_payload(run.pack_result) if run.options.analysis_metadata else []
+        )
+        guide = (
+            build_repository_guide(
+                root=run.root,
+                pack=run.pack_result,
+                file_bytes=run.file_bytes,
+            )
+            if run.options.analysis_metadata
+            else {}
+        )
+        imports_by_source = (
+            _imports_by_source(run) if run.options.analysis_metadata else {}
+        )
+        role_hints = _role_hints_by_path(run) if run.options.analysis_metadata else {}
         all_output_files.extend(part["path"] for part in parts)
         repo_markdown_path = parts[0]["path"] if len(parts) == 1 else None
         if index_json_mode == "full":
@@ -1081,7 +1777,17 @@ def build_index_payload(
                 file_index_to_part=file_index_to_part,
                 markdown_path=markdown_path,
                 file_markdown_ranges=file_markdown_ranges,
+                imports_by_source=imports_by_source,
+                role_hints=role_hints,
+                analysis_metadata=run.options.analysis_metadata,
             )
+            classes_payload = _class_payload(
+                run,
+                file_to_part=file_to_part,
+                markdown_path=markdown_path,
+                file_markdown_ranges=file_markdown_ranges,
+                include_display_ids=True,
+            ) if run.options.analysis_metadata else []
             symbols_payload = _full_symbol_payload(
                 run,
                 file_to_part=file_to_part,
@@ -1090,12 +1796,17 @@ def build_index_payload(
                 file_markdown_ranges=file_markdown_ranges,
                 symbol_index_ranges=symbol_index_ranges,
                 canonical_markdown_ranges=canonical_markdown_ranges,
+                analysis_metadata=run.options.analysis_metadata,
             )
             repository = {
                 **_repository_common_payload(
                     run,
                     repo_markdown_path=repo_markdown_path,
                     parts=parts,
+                    import_edges=import_edges,
+                    test_links=test_links,
+                    guide=guide,
+                    analysis_metadata=run.options.analysis_metadata,
                 ),
                 "effective_layout": run.effective_layout,
                 "contains_manifest": run.options.include_manifest,
@@ -1103,6 +1814,21 @@ def build_index_payload(
                 "symbols": symbols_payload,
                 "lookup": _full_lookup_indexes(files_payload, symbols_payload),
             }
+            if run.options.analysis_metadata:
+                repository["classes"] = classes_payload
+        elif index_json_mode == "normalized":
+            repository = _normalized_repository_payload(
+                run,
+                repo_markdown_path=repo_markdown_path,
+                parts=parts,
+                file_to_part=file_to_part,
+                import_edges=import_edges,
+                test_links=test_links,
+                guide=guide,
+                imports_by_source=imports_by_source,
+                role_hints=role_hints,
+                analysis_metadata=run.options.analysis_metadata,
+            )
         else:
             features = _v2_feature_payload(run, index_json_mode=index_json_mode)
             files_payload = _compact_file_payload(
@@ -1112,7 +1838,17 @@ def build_index_payload(
                 markdown_path=markdown_path,
                 file_markdown_ranges=file_markdown_ranges,
                 index_json_mode=index_json_mode,
+                imports_by_source=imports_by_source,
+                role_hints=role_hints,
+                analysis_metadata=run.options.analysis_metadata,
             )
+            classes_payload = _class_payload(
+                run,
+                file_to_part=file_to_part,
+                markdown_path=markdown_path,
+                file_markdown_ranges=file_markdown_ranges,
+                include_display_ids=index_json_mode == "compact",
+            ) if run.options.analysis_metadata else []
             symbols_payload = _compact_symbol_payload(
                 run,
                 file_to_part=file_to_part,
@@ -1122,17 +1858,24 @@ def build_index_payload(
                 canonical_markdown_ranges=canonical_markdown_ranges,
                 index_json_mode=index_json_mode,
                 include_symbol_index_lines=features["symbol_index_lines"],
+                analysis_metadata=run.options.analysis_metadata,
             )
             repository = {
                 **_repository_common_payload(
                     run,
                     repo_markdown_path=repo_markdown_path,
                     parts=parts,
+                    import_edges=import_edges,
+                    test_links=test_links,
+                    guide=guide,
+                    analysis_metadata=run.options.analysis_metadata,
                 ),
                 "index_json_features": features,
                 "files": files_payload,
                 "symbols": symbols_payload,
             }
+            if run.options.analysis_metadata:
+                repository["classes"] = classes_payload
             if features["lookup"]:
                 repository["lookup"] = _compact_lookup_indexes(
                     files_payload,
@@ -1145,7 +1888,11 @@ def build_index_payload(
         "format": (
             INDEX_JSON_FORMAT_VERSION_V1
             if index_json_mode == "full"
-            else INDEX_JSON_FORMAT_VERSION_V2
+            else (
+                INDEX_JSON_FORMAT_VERSION_V3
+                if index_json_mode == "normalized"
+                else INDEX_JSON_FORMAT_VERSION_V2
+            )
         ),
         "mode": index_json_mode,
         "generated_by": {

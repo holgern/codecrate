@@ -5,6 +5,7 @@ PATCH_FORMAT_VERSION = "codecrate.patch.v1"
 MANIFEST_JSON_FORMAT_VERSION = "codecrate.manifest-json.v1"
 INDEX_JSON_FORMAT_VERSION_V1 = "codecrate.index-json.v1"
 INDEX_JSON_FORMAT_VERSION_V2 = "codecrate.index-json.v2"
+INDEX_JSON_FORMAT_VERSION_V3 = "codecrate.index-json.v3"
 INDEX_JSON_FORMAT_VERSION = INDEX_JSON_FORMAT_VERSION_V1
 
 FENCE_MACHINE_HEADER = "codecrate-machine-header"

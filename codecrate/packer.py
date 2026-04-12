@@ -6,9 +6,9 @@ from functools import partial
 from pathlib import Path
 
 from .ids import stable_body_hash
-from .model import ClassRef, DefRef, FilePack, PackResult
+from .model import ClassRef, DefRef, FilePack, ImportRef, PackResult
 from .ordering import sort_paths
-from .parse import module_name_for, parse_symbols
+from .parse import parse_symbols
 from .stubber import stub_file_text
 from .symbol_backend import extract_non_python_symbols
 
@@ -52,6 +52,9 @@ def _pack_one_file(
     str,
     str,
     str,
+    list[ImportRef],
+    list[str],
+    tuple[int, int] | None,
 ]:
     text = file_texts[path] if file_texts is not None and path in file_texts else ""
     if file_texts is None or path not in file_texts:
@@ -66,10 +69,13 @@ def _pack_one_file(
 
     if path.suffix.lower() == ".py":
         try:
-            classes, defs = parse_symbols(path=path, root=root, text=text)
+            parsed = parse_symbols(path=path, root=root, text=text)
         except SyntaxError:
             classes = []
             defs = []
+            imports = []
+            exports = []
+            module_docstring = None
             file_module = ""
             stubbed = text
             language_detected = "python"
@@ -77,7 +83,12 @@ def _pack_one_file(
             symbol_backend_used = "python-ast"
             symbol_extraction_status = "syntax-error"
         else:
-            file_module = module_name_for(path, root)
+            classes = parsed.classes
+            defs = parsed.defs
+            imports = parsed.imports
+            exports = parsed.exports
+            module_docstring = parsed.module_docstring
+            file_module = parsed.module
 
             for d in defs:
                 local_canon[d.local_id] = _extract_canonical_source(text, d)
@@ -96,6 +107,9 @@ def _pack_one_file(
             backend=symbol_backend,
         )
         defs = sym.defs
+        imports = sym.imports
+        exports = sym.exports
+        module_docstring = sym.module_docstring
         file_module = defs[0].module if defs else ""
         stubbed = text
         language_detected = sym.language_detected
@@ -115,6 +129,9 @@ def _pack_one_file(
         symbol_backend_requested,
         symbol_backend_used,
         symbol_extraction_status,
+        imports,
+        exports,
+        module_docstring,
     )
 
 
@@ -163,6 +180,9 @@ def pack_repo(
         symbol_backend_requested,
         symbol_backend_used,
         symbol_extraction_status,
+        imports,
+        exports,
+        module_docstring,
     ) in packed_data:
         local_canon.update(canon_for_file)
         fp = FilePack(
@@ -173,6 +193,9 @@ def pack_repo(
             line_count=_line_count(text),
             classes=classes,
             defs=defs,
+            imports=imports,
+            exports=exports,
+            module_docstring=module_docstring,
             language_detected=language_detected,
             symbol_backend_requested=symbol_backend_requested,
             symbol_backend_used=symbol_backend_used,
@@ -232,6 +255,9 @@ def pack_repo(
                     line_count=fp.line_count,
                     classes=fp.classes,
                     defs=defs2,
+                    imports=fp.imports,
+                    exports=fp.exports,
+                    module_docstring=fp.module_docstring,
                     language_detected=fp.language_detected,
                     symbol_backend_requested=fp.symbol_backend_requested,
                     symbol_backend_used=fp.symbol_backend_used,

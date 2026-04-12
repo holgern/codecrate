@@ -18,6 +18,11 @@ class PackOptions:
     index_json_mode: str | None
     index_json_include_lookup: bool
     index_json_include_symbol_index_lines: bool
+    analysis_metadata: bool
+    focus_file: list[str]
+    focus_symbol: list[str]
+    include_import_neighbors: int
+    include_tests: bool
     respect_gitignore: bool
     security_check: bool
     security_content_sniff: bool
@@ -72,12 +77,12 @@ def resolve_index_json_mode(
     cli_value = getattr(args, "index_json_mode", None)
     if cli_value is not None:
         value = str(cli_value).strip().lower()
-        return value if value in {"full", "compact", "minimal"} else None
+        return value if value in {"full", "compact", "minimal", "normalized"} else None
 
     cfg_value = getattr(cfg, "index_json_mode", None)
     if isinstance(cfg_value, str):
         value = cfg_value.strip().lower()
-        if value in {"full", "compact", "minimal"}:
+        if value in {"full", "compact", "minimal", "normalized"}:
             return value
 
     if args.index_json is not None:
@@ -137,6 +142,32 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         bool(getattr(cfg, "index_json_include_symbol_index_lines", True))
         if getattr(args, "index_json_symbol_index_lines", None) is None
         else bool(args.index_json_symbol_index_lines)
+    )
+    analysis_metadata = (
+        bool(getattr(cfg, "analysis_metadata", True))
+        if getattr(args, "analysis_metadata", None) is None
+        else bool(args.analysis_metadata)
+    )
+    focus_file = (
+        list(getattr(cfg, "focus_file", []))
+        if getattr(args, "focus_file", None) is None
+        else [str(item) for item in args.focus_file]
+    )
+    focus_symbol = (
+        list(getattr(cfg, "focus_symbol", []))
+        if getattr(args, "focus_symbol", None) is None
+        else [str(item) for item in args.focus_symbol]
+    )
+    include_import_neighbors = (
+        int(getattr(cfg, "include_import_neighbors", 0) or 0)
+        if getattr(args, "include_import_neighbors", None) is None
+        else int(args.include_import_neighbors or 0)
+    )
+    include_import_neighbors = max(0, include_import_neighbors)
+    include_tests = (
+        bool(getattr(cfg, "include_tests", False))
+        if getattr(args, "include_tests", None) is None
+        else bool(args.include_tests)
     )
     respect_gitignore = (
         cfg.respect_gitignore
@@ -295,6 +326,11 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         index_json_mode=index_json_mode,
         index_json_include_lookup=index_json_include_lookup,
         index_json_include_symbol_index_lines=index_json_include_symbol_index_lines,
+        analysis_metadata=analysis_metadata,
+        focus_file=focus_file,
+        focus_symbol=focus_symbol,
+        include_import_neighbors=include_import_neighbors,
+        include_tests=include_tests,
         respect_gitignore=respect_gitignore,
         security_check=security_check,
         security_content_sniff=security_content_sniff,

@@ -110,12 +110,18 @@ class Config:
     # - "full": current v1-compatible sidecar
     # - "compact": slimmer v2 retrieval sidecar
     # - "minimal": smallest practical v2 retrieval sidecar
-    index_json_mode: Literal["full", "compact", "minimal"] | None = None
+    index_json_mode: Literal["full", "compact", "minimal", "normalized"] | None = None
     # Optional v2 payload trimming controls.
     # - index_json_include_lookup: include lookup maps in v2 sidecars
     # - index_json_include_symbol_index_lines: include unsplit symbol index lines
     index_json_include_lookup: bool = True
     index_json_include_symbol_index_lines: bool = True
+    # Analysis metadata and focused packing controls.
+    analysis_metadata: bool = True
+    focus_file: list[str] = field(default_factory=list)
+    focus_symbol: list[str] = field(default_factory=list)
+    include_import_neighbors: int = 0
+    include_tests: bool = False
     # Optional symbol extraction backend for non-Python files.
     # Python files always use the built-in AST parser.
     symbol_backend: Literal["auto", "python", "tree-sitter", "none"] = "auto"
@@ -349,7 +355,7 @@ def load_config_with_warnings(root: Path) -> tuple[Config, list[ConfigWarning]]:
     index_json_mode = section.get("index_json_mode", cfg.index_json_mode)
     if isinstance(index_json_mode, str):
         index_json_mode = index_json_mode.strip().lower()
-        if index_json_mode in {"full", "compact", "minimal"}:
+        if index_json_mode in {"full", "compact", "minimal", "normalized"}:
             cfg.index_json_mode = index_json_mode  # type: ignore[assignment]
     cfg.index_json_include_lookup = bool(
         section.get("index_json_include_lookup", cfg.index_json_include_lookup)
@@ -360,6 +366,26 @@ def load_config_with_warnings(root: Path) -> tuple[Config, list[ConfigWarning]]:
             cfg.index_json_include_symbol_index_lines,
         )
     )
+    cfg.analysis_metadata = bool(
+        section.get("analysis_metadata", cfg.analysis_metadata)
+    )
+    focus_file = section.get("focus_file", cfg.focus_file)
+    if isinstance(focus_file, list):
+        cfg.focus_file = [str(item) for item in focus_file if str(item).strip()]
+    elif isinstance(focus_file, str) and focus_file.strip():
+        cfg.focus_file = [focus_file.strip()]
+    focus_symbol = section.get("focus_symbol", cfg.focus_symbol)
+    if isinstance(focus_symbol, list):
+        cfg.focus_symbol = [str(item) for item in focus_symbol if str(item).strip()]
+    elif isinstance(focus_symbol, str) and focus_symbol.strip():
+        cfg.focus_symbol = [focus_symbol.strip()]
+    cfg.include_import_neighbors = _load_int_value(
+        section,
+        "include_import_neighbors",
+        cfg.include_import_neighbors,
+        warnings=warnings,
+    )
+    cfg.include_tests = bool(section.get("include_tests", cfg.include_tests))
 
     backend = section.get("symbol_backend", cfg.symbol_backend)
     if isinstance(backend, str):

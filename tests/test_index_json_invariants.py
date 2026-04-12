@@ -135,6 +135,37 @@ def test_index_json_minimal_v2_hrefs_and_validation(tmp_path: Path) -> None:
     assert validate_index_payload(payload, base_dir=tmp_path) == []
 
 
+def test_index_json_normalized_v3_validation(tmp_path: Path) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "pkg" / "service.py").write_text(
+        "from .helpers import helper\n\n"
+        "def run() -> int:\n"
+        "    return helper()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pkg" / "helpers.py").write_text(
+        "def helper() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--index-json-mode",
+            "normalized",
+        ]
+    )
+
+    payload = _load_payload(tmp_path)
+    assert payload["format"] == "codecrate.index-json.v3"
+    assert payload["mode"] == "normalized"
+    assert validate_index_payload(payload, base_dir=tmp_path) == []
+
+
 def test_index_json_compact_v2_without_lookup_hrefs_and_validation(
     tmp_path: Path,
 ) -> None:

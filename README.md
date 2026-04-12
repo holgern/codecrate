@@ -16,7 +16,7 @@
 
 - **Markdown-native output**: Generates self-contained Markdown files with syntax highlighting
 - **Symbol index**: Quick navigation to functions and classes
-- **Versioned retrieval sidecar**: Optional JSON index output with full v1 and compact/minimal v2 modes
+- **Versioned retrieval sidecar**: Optional JSON index output with full v1, compact/minimal v2, and normalized v3 modes
 - **Deduplication**: Optionally deduplicate identical function bodies to save tokens
 - **Two layout modes**:
   - `stubs`: Compact file stubs with function bodies in a separate "Function Library"
@@ -30,6 +30,7 @@
 - **Gitignore support**: Respect `.gitignore` when scanning files
 - **Tool ignore support**: Respect `.codecrateignore` (always)
 - **Targeted packing**: Optional `--stdin` / `--stdin0` mode to pack an explicit file list
+- **Focused packs**: Narrow output to selected files or symbols and optionally expand to import neighbors and related tests
 - **Include presets**: `python-only`, `python+docs` (default), `everything`
 - **Debug visibility**: Optional `--print-files` and `--print-skipped` diagnostics
 - **Token diagnostics**: Optional CLI token reports (encoding, tree, top files)
@@ -116,13 +117,22 @@ codecrate pack . -o my_project.md --manifest-json --index-json
 ```
 
 Explicit `--index-json` defaults to the full v1-compatible sidecar. Use
-`--index-json-mode compact` or `--index-json-mode minimal` when you want the
-leaner v2 machine-first sidecars.
+`--index-json-mode compact`, `--index-json-mode minimal`, or
+`--index-json-mode normalized` when you want leaner machine-first sidecars.
 
 Generate the smallest practical retrieval sidecar:
 
 ```bash
-codecrate pack . -o context.md --index-json-mode minimal
+codecrate pack . -o context.md --index-json-mode normalized
+```
+
+Focus a pack around one symbol plus nearby imports and tests:
+
+```bash
+codecrate pack . -o context.md \
+  --focus-symbol codecrate.cli:main \
+  --include-import-neighbors 1 \
+  --include-tests
 ```
 
 ### Unpack to Reconstruct Files
@@ -186,15 +196,24 @@ exclude = ["**/test_*.py", "**/tests/**"]
 # Output profile: "human" | "agent" | "hybrid" | "portable"
 profile = "human"
 
-# Retrieval sidecar mode: "full" | "compact" | "minimal"
+# Retrieval sidecar mode: "full" | "compact" | "minimal" | "normalized"
 # - explicit mode also enables index-json output
 # - agent defaults to "minimal"
 # - hybrid defaults to "full"
 index_json_mode = "minimal"
 
+# Include or omit analysis-oriented sidecar/markdown metadata
+analysis_metadata = true
+
 # Optional v2 sidecar trimming knobs
 index_json_include_lookup = true
 index_json_include_symbol_index_lines = true
+
+# Optional focus controls
+focus_file = ["codecrate/cli.py"]
+focus_symbol = ["codecrate.cli:main"]
+include_import_neighbors = 1
+include_tests = true
 
 # Deduplicate identical function bodies (default: false)
 dedupe = true
@@ -276,7 +295,7 @@ codecrate pack <root> [OPTIONS]
 
 - `-o, --output PATH`: Output markdown path (default: `context.md`)
 - `--dedupe` / `--no-dedupe`: Enable or disable deduplication
-- `--profile {human,agent,hybrid}`: Output defaults profile (`agent` implies compact nav + minimal v2 index-json)
+- `--profile {human,agent,hybrid,portable}`: Output defaults profile (`agent` implies compact nav + minimal v2 index-json)
 - `--layout {auto,stubs,full}`: Output layout mode
 - `--nav-mode {auto,compact,full}`: Navigation density mode
 - `--symbol-backend {auto,python,tree-sitter,none}`: Non-Python symbol backend
@@ -298,6 +317,11 @@ codecrate pack <root> [OPTIONS]
 - `--include GLOB`: Include glob pattern (repeatable)
 - `--include-preset {python-only,python+docs,everything}`: Select include preset
 - `--exclude GLOB`: Exclude glob pattern (repeatable)
+- `--analysis-metadata` / `--no-analysis-metadata`: Include repository guide plus analysis-oriented sidecar metadata
+- `--focus-file PATH`: Focus the pack on a repo-relative file path (repeatable)
+- `--focus-symbol MODULE:QUALNAME`: Focus the pack on a symbol (repeatable)
+- `--include-import-neighbors N`: Expand focused packs by N local import-graph hops
+- `--include-tests` / `--no-include-tests`: Include heuristically related tests for focused packs
 - `--stdin`: Read file paths from stdin (one per line)
 - `--stdin0`: Read file paths from stdin as NUL-separated entries
 - `--print-files`: Debug-print selected files after filtering
@@ -319,7 +343,7 @@ codecrate pack <root> [OPTIONS]
 - `--max-workers N`: Max worker threads for IO/parsing/token counting
 - `--manifest-json [PATH]`: Write manifest JSON for tooling
 - `--index-json [PATH]`: Write retrieval-oriented index JSON for agents and tools (`--index-json` alone defaults to full v1 compatibility mode)
-- `--index-json-mode {full,compact,minimal}`: Select sidecar mode and enable index-json output (`agent` defaults to `minimal`, `hybrid` defaults to `full`)
+- `--index-json-mode {full,compact,minimal,normalized}`: Select sidecar mode and enable index-json output (`agent` defaults to `minimal`, `hybrid` defaults to `full`)
 - `--index-json-lookup` / `--no-index-json-lookup`: Include or trim v2 lookup maps
 - `--index-json-symbol-index-lines` / `--no-index-json-symbol-index-lines`: Include or trim compact v2 symbol index line ranges
 - `--no-index-json`: Disable index JSON output, including profile-implied defaults
@@ -598,7 +622,7 @@ codecrate pack . --dedupe
 - Pack format version: `codecrate.v4`
 - Patch metadata format: `codecrate.patch.v1`
 - Manifest JSON format: `codecrate.manifest-json.v1`
-- Index JSON format: `codecrate.index-json.v1`
+- Index JSON format: `codecrate.index-json.v1` / `v2` / `v3`
 - Exactly one `codecrate-machine-header` and one `codecrate-manifest` fence per repository section
 - Ordering is deterministic by normalized relative path and stable ID ordering
 

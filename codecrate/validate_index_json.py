@@ -4,7 +4,11 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .formats import INDEX_JSON_FORMAT_VERSION_V1, INDEX_JSON_FORMAT_VERSION_V2
+from .formats import (
+    INDEX_JSON_FORMAT_VERSION_V1,
+    INDEX_JSON_FORMAT_VERSION_V2,
+    INDEX_JSON_FORMAT_VERSION_V3,
+)
 
 _ANCHOR_RE = re.compile(r'<a id="([^"]+)"></a>')
 
@@ -322,6 +326,367 @@ def _v2_features(repo: dict[str, Any], *, mode: Any) -> dict[str, bool]:
     }
 
 
+def _validate_table_index(
+    errors: list[str],
+    *,
+    repo_label: str,
+    index: Any,
+    table_name: str,
+    table_size: int,
+    detail: str,
+) -> None:
+    if not isinstance(index, int) or index < 0 or index >= table_size:
+        _append_error(errors, repo_label, f"invalid {detail} index in {table_name}")
+
+
+def _normalized_tables(
+    errors: list[str],
+    *,
+    repo: dict[str, Any],
+    repo_label: str,
+) -> tuple[list[Any], list[Any], list[Any], list[Any]] | None:
+    tables = repo.get("tables")
+    if not isinstance(tables, dict):
+        _append_error(errors, repo_label, "missing tables payload for normalized mode")
+        return None
+    paths = tables.get("paths")
+    parts_table = tables.get("parts")
+    qualnames = tables.get("qualnames")
+    strings = tables.get("strings")
+    if not all(
+        isinstance(table, list) for table in (paths, parts_table, qualnames, strings)
+    ):
+        _append_error(errors, repo_label, "normalized tables must all be arrays")
+        return None
+    return paths, parts_table, qualnames, strings
+
+
+def _validate_normalized_file_entries(
+    errors: list[str],
+    *,
+    repo_label: str,
+    files: list[dict[str, Any]],
+    paths: list[Any],
+    parts_table: list[Any],
+    strings: list[Any],
+) -> dict[str, dict[str, Any]]:
+    files_by_path: dict[str, dict[str, Any]] = {}
+    for file_entry in files:
+        path_index = file_entry.get("p")
+        _validate_table_index(
+            errors,
+            repo_label=repo_label,
+            index=path_index,
+            table_name="paths",
+            table_size=len(paths),
+            detail="file path",
+        )
+        if not isinstance(path_index, int) or not 0 <= path_index < len(paths):
+            continue
+        path = paths[path_index]
+        if not isinstance(path, str):
+            _append_error(errors, repo_label, "path table contains non-string entry")
+            continue
+        files_by_path[path] = file_entry
+        if file_entry.get("part") is not None:
+            _validate_table_index(
+                errors,
+                repo_label=repo_label,
+                index=file_entry.get("part"),
+                table_name="parts",
+                table_size=len(parts_table),
+                detail="file part",
+            )
+        for key in ("lang", "mod", "role"):
+            if file_entry.get(key) is not None:
+                _validate_table_index(
+                    errors,
+                    repo_label=repo_label,
+                    index=file_entry.get(key),
+                    table_name="strings",
+                    table_size=len(strings),
+                    detail=f"file {key}",
+                )
+        for import_entry in file_entry.get("imp", []):
+            for key in ("k", "m", "r", "n", "a"):
+                if import_entry.get(key) is not None:
+                    _validate_table_index(
+                        errors,
+                        repo_label=repo_label,
+                        index=import_entry.get(key),
+                        table_name="strings",
+                        table_size=len(strings),
+                        detail=f"import {key}",
+                    )
+            if import_entry.get("t") is not None:
+                _validate_table_index(
+                    errors,
+                    repo_label=repo_label,
+                    index=import_entry.get("t"),
+                    table_name="paths",
+                    table_size=len(paths),
+                    detail="import target",
+                )
+        for export_index in file_entry.get("exp", []):
+            _validate_table_index(
+                errors,
+                repo_label=repo_label,
+                index=export_index,
+                table_name="strings",
+                table_size=len(strings),
+                detail="file export",
+            )
+    return files_by_path
+
+
+def _validate_normalized_symbol_entries(
+    errors: list[str],
+    *,
+    repo_label: str,
+    symbols: list[dict[str, Any]],
+    classes: list[dict[str, Any]],
+    files_by_path: dict[str, dict[str, Any]],
+    paths: list[Any],
+    parts_table: list[Any],
+    qualnames: list[Any],
+    strings: list[Any],
+) -> None:
+    class_ids = {entry.get("i") for entry in classes if isinstance(entry, dict)}
+    for symbol_entry in symbols:
+        for key, table_name, table_size, detail in (
+            ("p", "paths", len(paths), "symbol path"),
+            ("q", "qualnames", len(qualnames), "symbol qualname"),
+            ("k", "strings", len(strings), "symbol kind"),
+        ):
+            _validate_table_index(
+                errors,
+                repo_label=repo_label,
+                index=symbol_entry.get(key),
+                table_name=table_name,
+                table_size=table_size,
+                detail=detail,
+            )
+        if symbol_entry.get("part") is not None:
+            _validate_table_index(
+                errors,
+                repo_label=repo_label,
+                index=symbol_entry.get("part"),
+                table_name="parts",
+                table_size=len(parts_table),
+                detail="symbol part",
+            )
+        owner_class = symbol_entry.get("o")
+        if owner_class is not None and owner_class not in class_ids:
+            _append_error(
+                errors,
+                repo_label,
+                "symbol owner_class references unknown class",
+            )
+        for decorator_index in symbol_entry.get("d", []):
+            _validate_table_index(
+                errors,
+                repo_label=repo_label,
+                index=decorator_index,
+                table_name="strings",
+                table_size=len(strings),
+                detail="symbol decorator",
+            )
+        path_index = symbol_entry.get("p")
+        if isinstance(path_index, int) and 0 <= path_index < len(paths):
+            if paths[path_index] not in files_by_path:
+                _append_error(
+                    errors,
+                    repo_label,
+                    "symbol path missing from files array",
+                )
+
+
+def _validate_normalized_class_entries(
+    errors: list[str],
+    *,
+    repo_label: str,
+    classes: list[dict[str, Any]],
+    paths: list[Any],
+    parts_table: list[Any],
+    qualnames: list[Any],
+    strings: list[Any],
+) -> None:
+    for class_entry in classes:
+        _validate_table_index(
+            errors,
+            repo_label=repo_label,
+            index=class_entry.get("p"),
+            table_name="paths",
+            table_size=len(paths),
+            detail="class path",
+        )
+        _validate_table_index(
+            errors,
+            repo_label=repo_label,
+            index=class_entry.get("q"),
+            table_name="qualnames",
+            table_size=len(qualnames),
+            detail="class qualname",
+        )
+        if class_entry.get("part") is not None:
+            _validate_table_index(
+                errors,
+                repo_label=repo_label,
+                index=class_entry.get("part"),
+                table_name="parts",
+                table_size=len(parts_table),
+                detail="class part",
+            )
+        for key in ("b", "d"):
+            for string_index in class_entry.get(key, []):
+                _validate_table_index(
+                    errors,
+                    repo_label=repo_label,
+                    index=string_index,
+                    table_name="strings",
+                    table_size=len(strings),
+                    detail=f"class {key}",
+                )
+
+
+def _validate_normalized_analysis_sections(
+    errors: list[str],
+    *,
+    repo: dict[str, Any],
+    repo_label: str,
+    paths: list[Any],
+    strings: list[Any],
+) -> None:
+    for edge in (repo.get("graph") or {}).get("import_edges", []):
+        for key in ("s", "t"):
+            if edge.get(key) is not None:
+                _validate_table_index(
+                    errors,
+                    repo_label=repo_label,
+                    index=edge.get(key),
+                    table_name="paths",
+                    table_size=len(paths),
+                    detail=f"graph {key}",
+                )
+        for key in ("m", "r", "n", "a", "k"):
+            if edge.get(key) is not None:
+                _validate_table_index(
+                    errors,
+                    repo_label=repo_label,
+                    index=edge.get(key),
+                    table_name="strings",
+                    table_size=len(strings),
+                    detail=f"graph {key}",
+                )
+
+    for link in repo.get("test_links", []):
+        for key in ("s", "t"):
+            if link.get(key) is not None:
+                _validate_table_index(
+                    errors,
+                    repo_label=repo_label,
+                    index=link.get(key),
+                    table_name="paths",
+                    table_size=len(paths),
+                    detail=f"test link {key}",
+                )
+        if link.get("r") is not None:
+            _validate_table_index(
+                errors,
+                repo_label=repo_label,
+                index=link.get("r"),
+                table_name="strings",
+                table_size=len(strings),
+                detail="test link reason",
+            )
+
+    for key, values in (repo.get("guide") or {}).items():
+        table_name = "strings" if key == "main_workflows" else "paths"
+        table_size = len(strings) if key == "main_workflows" else len(paths)
+        for value in values:
+            _validate_table_index(
+                errors,
+                repo_label=repo_label,
+                index=value,
+                table_name=table_name,
+                table_size=table_size,
+                detail=f"guide {key}",
+            )
+
+
+def _validate_normalized_repo(
+    errors: list[str],
+    *,
+    repo: dict[str, Any],
+    repo_label: str,
+    output_files: set[str],
+) -> None:
+    normalized_tables = _normalized_tables(errors, repo=repo, repo_label=repo_label)
+    if normalized_tables is None:
+        return
+    paths, parts_table, qualnames, strings = normalized_tables
+    files = repo.get("files", [])
+    symbols = repo.get("symbols", [])
+    classes = repo.get("classes", [])
+    parts = repo.get("parts", [])
+    files_by_path = _validate_normalized_file_entries(
+        errors,
+        repo_label=repo_label,
+        files=files,
+        paths=paths,
+        parts_table=parts_table,
+        strings=strings,
+    )
+
+    parts_by_path = _validate_parts(
+        errors,
+        repo_label=repo_label,
+        output_files=output_files,
+        parts=parts,
+        files_by_path=files_by_path,
+    )
+    part_paths = {entry.get("path") for entry in parts_by_path.values()}
+    indexed_part_paths = {
+        parts_table[index]
+        for index in range(len(parts_table))
+        if isinstance(parts_table[index], str)
+    }
+    if part_paths != indexed_part_paths:
+        _append_error(
+            errors,
+            repo_label,
+            "normalized parts table does not match parts payload paths",
+        )
+
+    _validate_normalized_symbol_entries(
+        errors,
+        repo_label=repo_label,
+        symbols=symbols,
+        classes=classes,
+        files_by_path=files_by_path,
+        paths=paths,
+        parts_table=parts_table,
+        qualnames=qualnames,
+        strings=strings,
+    )
+    _validate_normalized_class_entries(
+        errors,
+        repo_label=repo_label,
+        classes=classes,
+        paths=paths,
+        parts_table=parts_table,
+        qualnames=qualnames,
+        strings=strings,
+    )
+    _validate_normalized_analysis_sections(
+        errors,
+        repo=repo,
+        repo_label=repo_label,
+        paths=paths,
+        strings=strings,
+    )
+
+
 def validate_index_payload(
     payload: dict[str, Any],
     *,
@@ -335,6 +700,9 @@ def validate_index_payload(
             errors.append(f"invalid mode for {format_version}: {mode}")
     elif format_version == INDEX_JSON_FORMAT_VERSION_V2:
         if mode not in {"compact", "minimal"}:
+            errors.append(f"invalid mode for {format_version}: {mode}")
+    elif format_version == INDEX_JSON_FORMAT_VERSION_V3:
+        if mode != "normalized":
             errors.append(f"invalid mode for {format_version}: {mode}")
     else:
         errors.append(f"unsupported index-json format: {format_version}")
@@ -357,6 +725,14 @@ def validate_index_payload(
 
     for repo in payload.get("repositories", []):
         repo_label = str(repo.get("label") or repo.get("slug") or "repo")
+        if format_version == INDEX_JSON_FORMAT_VERSION_V3:
+            _validate_normalized_repo(
+                errors,
+                repo=repo,
+                repo_label=repo_label,
+                output_files=output_files,
+            )
+            continue
         files = repo.get("files", [])
         symbols = repo.get("symbols", [])
         parts = repo.get("parts", [])

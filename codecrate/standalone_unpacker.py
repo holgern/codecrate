@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import inspect
 import json
 import textwrap
+from typing import Any
 
+from . import fences, mdparse, repositories, udiff, unpacker
 from .formats import FENCE_MACHINE_HEADER, FENCE_MANIFEST, MISSING_MANIFEST_ERROR
 
 _SCRIPT_TEMPLATE = r"""
@@ -14,6 +17,7 @@ import hashlib
 import json
 import re
 import warnings
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,270 +34,9 @@ DEFAULT_PACK_FILENAME = "__DEFAULT_PACK_FILENAME__"
 _FENCE_OPEN_RE = re.compile(
     r"^(?P<fence>`{3,})[ \t]*(?P<info>[A-Za-z0-9_-]+)(?:[ \t]+.*)?$"
 )
-_LAYOUT_RE = re.compile(r"^Layout:\s*`(?P<layout>[^`]+)`$")
 _MARK_RE = re.compile(r"FUNC:(?:v\d+:)?(?P<id>[0-9A-Fa-f]{8})")
 
-
-def normalize_newlines(text: str) -> str:
-    return text.replace("\r\n", "\n").replace("\r", "\n")
-
-
-def parse_fence_open(line: str) -> tuple[str, str] | None:
-    match = _FENCE_OPEN_RE.match(line.strip())
-    if not match:
-        return None
-    return match.group("fence"), match.group("info")
-
-
-def is_fence_close(line: str, fence: str) -> bool:
-    return line.strip() == fence
-
-
-@dataclass(frozen=True)
-class RepositorySection:
-    label: str
-    slug: str
-    content: str
-
-
-@dataclass(frozen=True)
-class PackedMarkdown:
-    manifest: dict[str, Any]
-    machine_header: dict[str, Any] | None
-    canonical_sources: dict[str, str]
-    stubbed_files: dict[str, str]
-
-
-def slugify_repo_label(label: str) -> str:
-    safe: list[str] = []
-    for ch in label:
-        if ch.isalnum() or ch in {"-", "_"}:
-            safe.append(ch)
-        else:
-            safe.append("-")
-    slug = "".join(safe).strip("-")
-    while "--" in slug:
-        slug = slug.replace("--", "-")
-    return slug or "repo"
-
-
-def _unique_slug(base_label: str, used: set[str]) -> str:
-    base = slugify_repo_label(base_label)
-    slug = base
-    idx = 2
-    while slug in used:
-        slug = f"{base}-{idx}"
-        idx += 1
-    used.add(slug)
-    return slug
-
-
-def split_repository_sections(markdown_text: str) -> list[RepositorySection]:
-    lines = markdown_text.splitlines(keepends=True)
-    fence: str | None = None
-    headers: list[tuple[int, str]] = []
-
-    for idx, line in enumerate(lines):
-        if fence is None:
-            opened = parse_fence_open(line)
-            if opened is not None:
-                fence = opened[0]
-                continue
-            if line.startswith("# Repository:"):
-                label = line.split(":", 1)[1].strip() or f"repo-{len(headers) + 1}"
-                headers.append((idx, label))
-            continue
-
-        if is_fence_close(line, fence):
-            fence = None
-
-    if not headers:
-        return []
-
-    used_slugs: set[str] = set()
-    sections: list[RepositorySection] = []
-    for pos, (start_idx, label) in enumerate(headers):
-        body_start = start_idx + 1
-        body_end = headers[pos + 1][0] if pos + 1 < len(headers) else len(lines)
-        content = "".join(lines[body_start:body_end]).lstrip("\r\n")
-        sections.append(
-            RepositorySection(
-                label=label,
-                slug=_unique_slug(label, used_slugs),
-                content=content,
-            )
-        )
-    return sections
-
-
-def _iter_fenced_blocks(lines: list[str]) -> list[tuple[str, str]]:
-    out: list[tuple[str, str]] = []
-    i = 0
-    while i < len(lines):
-        opened = parse_fence_open(lines[i])
-        if opened is None:
-            i += 1
-            continue
-        fence, lang = opened
-        i += 1
-        buf: list[str] = []
-        while i < len(lines) and not is_fence_close(lines[i], fence):
-            buf.append(lines[i])
-            i += 1
-        if i < len(lines) and is_fence_close(lines[i], fence):
-            i += 1
-        out.append((lang, "".join(buf)))
-    return out
-
-
-def _section_bounds(title: str, text_lines: list[str]) -> tuple[int, int]:
-    start = None
-    fence: str | None = None
-    for idx, line in enumerate(text_lines):
-        if fence is None:
-            opened = parse_fence_open(line)
-            if opened is not None:
-                fence = opened[0]
-                continue
-            if line.strip() == title:
-                start = idx + 1
-                break
-        elif is_fence_close(line, fence):
-            fence = None
-    if start is None:
-        return (0, len(text_lines))
-
-    fence = None
-    end = len(text_lines)
-    for idx in range(start, len(text_lines)):
-        line = text_lines[idx]
-        if fence is None:
-            opened = parse_fence_open(line)
-            if opened is not None:
-                fence = opened[0]
-                continue
-            if line.startswith("## ") and line.strip() != title:
-                end = idx
-                break
-        elif is_fence_close(line, fence):
-            fence = None
-    return (start, end)
-
-
-def _parse_layout(text_lines: list[str]) -> str:
-    for line in text_lines:
-        match = _LAYOUT_RE.match(line.strip())
-        if match:
-            return match.group("layout").strip().lower()
-    return ""
-
-
-def _parse_machine_header_and_manifest(
-    text_lines: list[str],
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    manifest: dict[str, Any] | None = None
-    machine_header: dict[str, Any] | None = None
-    for lang, body in _iter_fenced_blocks(text_lines):
-        if lang == FENCE_MACHINE_HEADER and machine_header is None:
-            try:
-                parsed = json.loads(body)
-            except json.JSONDecodeError:
-                parsed = None
-            if isinstance(parsed, dict):
-                machine_header = parsed
-        if lang == FENCE_MANIFEST:
-            manifest = json.loads(body)
-            break
-    if manifest is None:
-        raise ValueError(MISSING_MANIFEST_ERROR)
-    return manifest, machine_header
-
-
-def _parse_function_library(text_lines: list[str]) -> dict[str, str]:
-    canonical_sources: dict[str, str] = {}
-    lib_start, lib_end = _section_bounds("## Function Library", text_lines)
-    for idx in range(lib_start, lib_end):
-        line = text_lines[idx]
-        if not line.startswith("### "):
-            continue
-
-        title = line.replace("###", "", 1).strip()
-        maybe_id = title.split(" — ", 1)[0].strip()
-        if not maybe_id:
-            continue
-
-        scan = idx + 1
-        fence = ""
-        while scan < lib_end:
-            opened = parse_fence_open(text_lines[scan])
-            if opened is not None and opened[1] == "python":
-                fence = opened[0]
-                break
-            scan += 1
-        if scan < lib_end and fence:
-            block_end = scan + 1
-            buf: list[str] = []
-            while block_end < lib_end and not is_fence_close(
-                text_lines[block_end], fence
-            ):
-                buf.append(text_lines[block_end])
-                block_end += 1
-            chunk = normalize_newlines("".join(buf))
-            if chunk and not chunk.endswith("\n"):
-                chunk += "\n"
-            canonical_sources[maybe_id] = chunk
-    return canonical_sources
-
-
-def _parse_file_blocks(text_lines: list[str]) -> dict[str, str]:
-    files: dict[str, str] = {}
-    files_start, files_end = _section_bounds("## Files", text_lines)
-    idx = files_start
-    while idx < files_end:
-        line = text_lines[idx]
-        if line.startswith("### `") and "`" in line:
-            start = line.find("`") + 1
-            end = line.find("`", start)
-            rel = line[start:end]
-            parts: list[str] = []
-            scan = idx + 1
-            while scan < files_end and not (
-                text_lines[scan].startswith("### `") and "`" in text_lines[scan]
-            ):
-                opened = parse_fence_open(text_lines[scan])
-                if opened is not None:
-                    fence = opened[0]
-                    block_end = scan + 1
-                    buf: list[str] = []
-                    while block_end < files_end and not is_fence_close(
-                        text_lines[block_end], fence
-                    ):
-                        buf.append(text_lines[block_end])
-                        block_end += 1
-                    chunk = normalize_newlines("".join(buf))
-                    if chunk and not chunk.endswith("\n"):
-                        chunk += "\n"
-                    parts.append(chunk)
-                    scan = block_end + 1
-                    continue
-                scan += 1
-            files[rel] = "".join(parts)
-            idx = scan
-            continue
-        idx += 1
-    return files
-
-
-def parse_packed_markdown(text: str) -> PackedMarkdown:
-    text_norm = normalize_newlines(text)
-    text_lines = text_norm.splitlines(keepends=True)
-    manifest, machine_header = _parse_machine_header_and_manifest(text_lines)
-    return PackedMarkdown(
-        manifest=manifest,
-        machine_header=machine_header,
-        canonical_sources=_parse_function_library(text_lines),
-        stubbed_files=_parse_file_blocks(text_lines),
-    )
+__SHARED_RUNTIME__
 
 
 def manifest_sha256(manifest: dict[str, Any]) -> str:
@@ -328,108 +71,12 @@ def _verify_machine_header(
         )
 
 
-def _ws_len(s: str) -> int:
-    return len(s) - len(s.lstrip(" \t"))
-
-
-def _apply_canonical_into_stub(
-    stub: str,
-    defs: list[dict[str, Any]],
-    canonical: dict[str, str],
-    *,
-    strict: bool = False,
-    issues: list[str] | None = None,
-) -> str:
-    lines = stub.splitlines(keepends=True)
-    marker_lines_for: dict[str, list[int]] = {}
-
-    def _record_issue(message: str) -> None:
-        if issues is not None:
-            issues.append(message)
-        if strict:
-            raise ValueError(message)
-
-    for idx, line in enumerate(lines):
-        match = _MARK_RE.search(line)
-        if match:
-            marker_lines_for.setdefault(match.group("id").upper(), []).append(idx)
-
-    work: list[tuple[int, dict[str, Any], str]] = []
-    for item in defs:
-        cid = item.get("id") or item.get("local_id")
-        if not cid:
-            _record_issue("definition missing both id and local_id")
-            continue
-
-        marker_key = item.get("local_id") or cid
-        idxs = marker_lines_for.get(str(marker_key).upper())
-        if not idxs and str(cid).upper() != str(marker_key).upper():
-            idxs = marker_lines_for.get(str(cid).upper())
-        if not idxs:
-            _record_issue(
-                "missing marker for "
-                f"{item.get('qualname') or '<unknown>'} "
-                f"(local_id={item.get('local_id') or '∅'}, id={cid})"
-            )
-            continue
-
-        work.append((idxs.pop(), item, str(cid)))
-
-    work.sort(key=lambda entry: entry[0], reverse=True)
-
-    for marker_idx, item, cid in work:
-        code = canonical.get(cid)
-        if code is None:
-            alt = item.get("local_id")
-            if alt:
-                code = canonical.get(str(alt))
-        if code is None:
-            _record_issue(
-                "missing canonical source for "
-                f"{item.get('qualname') or '<unknown>'} "
-                f"(id={cid}, local_id={item.get('local_id') or '∅'})"
-            )
-            continue
-
-        def_idx = marker_idx
-        while def_idx >= 0:
-            stripped = lines[def_idx].lstrip(" \t")
-            if stripped.startswith("def ") or stripped.startswith("async def "):
-                break
-            def_idx -= 1
-        if def_idx < 0:
-            _record_issue(
-                "unable to locate def line above marker for "
-                f"{item.get('qualname') or '<unknown>'}"
-            )
-            continue
-
-        def_indent = _ws_len(lines[def_idx])
-        start_idx = def_idx
-        scan = def_idx - 1
-        while scan >= 0:
-            stripped = lines[scan].lstrip(" \t")
-            if _ws_len(lines[scan]) == def_indent and stripped.startswith("@"):
-                start_idx = scan
-                scan -= 1
-                continue
-            break
-
-        end_idx = (def_idx + 1) if marker_idx == def_idx else (marker_idx + 1)
-        repl = code.splitlines(keepends=True)
-        if repl and not repl[-1].endswith("\n"):
-            repl[-1] = repl[-1] + "\n"
-        lines[start_idx:end_idx] = repl
-
-    return "".join(lines)
-
-
 def _write_text_file(root: Path, rel: str, text: str) -> None:
     out_root = root.resolve()
     target = (out_root / rel).resolve()
     if out_root != target and out_root not in target.parents:
         raise ValueError(f"Refusing to write outside out_dir: {rel}")
-    target.parent.mkdir(parents=True, exist_ok=True)
+    ensure_parent_dir(target)
     target.write_text(text, encoding="utf-8", newline="\n")
 
 
@@ -618,6 +265,32 @@ def _render_wrapped_string_assignment(name: str, value: str) -> str:
     return f"{name} = (\n{rendered_chunks})"
 
 
+def _render_source(obj: Any) -> str:
+    return textwrap.dedent(inspect.getsource(obj)).strip() + "\n\n"
+
+
+def _shared_runtime_source() -> str:
+    parts = [
+        _render_source(udiff.normalize_newlines),
+        _render_source(udiff.ensure_parent_dir),
+        _render_source(fences.parse_fence_open),
+        _render_source(fences.is_fence_close),
+        _render_source(repositories.RepositorySection),
+        _render_source(repositories.slugify_repo_label),
+        _render_source(repositories._unique_slug),
+        _render_source(repositories.split_repository_sections),
+        _render_source(mdparse.PackedMarkdown),
+        _render_source(mdparse._iter_fenced_blocks),
+        _render_source(mdparse._section_bounds),
+        _render_source(mdparse._parse_function_library),
+        _render_source(mdparse._parse_stubbed_files),
+        _render_source(mdparse.parse_packed_markdown),
+        _render_source(unpacker._ws_len),
+        _render_source(unpacker._apply_canonical_into_stub),
+    ]
+    return "".join(parts).rstrip()
+
+
 def render_standalone_unpacker(
     *, pack_format_version: str, default_pack_filename: str
 ) -> str:
@@ -632,5 +305,6 @@ def render_standalone_unpacker(
             ),
         )
         .replace("__DEFAULT_PACK_FILENAME__", default_pack_filename)
+        .replace("__SHARED_RUNTIME__", _shared_runtime_source())
     )
     return textwrap.dedent(rendered).lstrip()

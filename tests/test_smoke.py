@@ -24,6 +24,9 @@ def test_pack_basic_function(tmp_path: Path) -> None:
     file_pack = pack.files[0]
     assert file_pack.path == root / "a.py"
     assert file_pack.module == "a"
+    assert file_pack.imports == []
+    assert file_pack.exports == []
+    assert file_pack.module_docstring is None
     assert "def f(x):" in file_pack.original_text
     assert "# ↪ FUNC:" in file_pack.stubbed_text
     assert "FUNC:v1:" in file_pack.stubbed_text
@@ -35,6 +38,8 @@ def test_pack_basic_function(tmp_path: Path) -> None:
     assert func_def.doc_start == 2
     assert func_def.doc_end == 2
     assert func_def.is_single_line is False
+    assert func_def.decorators == []
+    assert func_def.owner_class is None
 
 
 def test_pack_class_with_methods(tmp_path: Path) -> None:
@@ -66,10 +71,12 @@ def test_pack_class_with_methods(tmp_path: Path) -> None:
     method1 = next(d for d in pack.defs if d.qualname == "C.method1")
     assert method1.doc_start == 5
     assert method1.doc_end == 5
+    assert method1.owner_class == "C"
 
     method2 = next(d for d in pack.defs if d.qualname == "C.method2")
     assert method2.doc_start is None
     assert method2.doc_end is None
+    assert method2.owner_class == "C"
 
 
 def test_pack_keep_docstrings_false(tmp_path: Path) -> None:
@@ -208,3 +215,40 @@ def test_pack_non_python_file_verbatim(tmp_path: Path) -> None:
     assert fp.original_text == "# Hello\n"
     assert fp.stubbed_text == fp.original_text
     assert canonical == {}
+
+
+def test_pack_tracks_module_semantics(tmp_path: Path) -> None:
+    root = tmp_path
+    (root / "a.py").write_text(
+        '"""Module docs."""\n'
+        "import os\n"
+        "from pkg import thing as alias\n"
+        '__all__ = ["exported"]\n'
+        "@decorator\n"
+        "class C(Base):\n"
+        "    @staticmethod\n"
+        "    def method() -> int:\n"
+        "        return 1\n",
+        encoding="utf-8",
+    )
+
+    pack, _canonical = pack_repo(
+        root,
+        [root / "a.py"],
+        keep_docstrings=True,
+        dedupe=False,
+    )
+
+    fp = pack.files[0]
+    cls = pack.classes[0]
+    method = pack.defs[0]
+
+    assert fp.module_docstring == (1, 1)
+    assert fp.exports == ["exported"]
+    assert [imp.module for imp in fp.imports] == ["os", "pkg"]
+    assert fp.imports[1].imported_name == "thing"
+    assert fp.imports[1].alias == "alias"
+    assert cls.base_classes == ["Base"]
+    assert cls.decorators == ["decorator"]
+    assert method.decorators == ["staticmethod"]
+    assert method.owner_class == "C"

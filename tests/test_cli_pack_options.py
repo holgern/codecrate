@@ -520,6 +520,105 @@ def test_pack_max_total_bytes_fails_when_exceeded(tmp_path: Path) -> None:
     assert "max_total_bytes" in str(excinfo.value)
 
 
+def test_pack_focus_file_expands_neighbors_and_tests(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text(
+        "import b\n\ndef a() -> int:\n    return b.b()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "b.py").write_text("def b() -> int:\n    return 1\n", encoding="utf-8")
+    (tmp_path / "c.py").write_text("def c() -> int:\n    return 2\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("# Demo\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_a.py").write_text(
+        "from a import a\n\n"
+        "def test_a() -> None:\n"
+        "    assert a() == 1\n",
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--focus-file",
+            "a.py",
+            "--include-import-neighbors",
+            "1",
+            "--include-tests",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `a.py`" in text
+    assert "### `b.py`" in text
+    assert "### `tests/test_a.py`" in text
+    assert "### `README.md`" in text
+    assert "### `c.py`" not in text
+
+
+def test_pack_focus_symbol_selects_owning_file(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text(
+        "def target() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "b.py").write_text(
+        "def other() -> int:\n    return 2\n",
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--focus-symbol",
+            "a:target",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `a.py`" in text
+    assert "### `b.py`" not in text
+
+
+def test_pack_no_analysis_metadata_omits_guide_and_sidecar_analysis(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "a.py").write_text(
+        "class C:\n    def run(self) -> int:\n        return 1\n",
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "--index-json",
+            "--no-analysis-metadata",
+            "-o",
+            str(out_path),
+        ]
+    )
+
+    text = out_path.read_text(encoding="utf-8")
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+
+    assert "## Repository Guide" not in text
+    repo = payload["repositories"][0]
+    assert "guide" not in repo
+    assert "graph" not in repo
+    assert "test_links" not in repo
+    assert "classes" not in repo
+    assert "imports" not in repo["files"][0]
+    assert "owner_class" not in repo["symbols"][0]
+
+
 def test_pack_max_file_tokens_skips_large_token_files(tmp_path: Path, capsys) -> None:
     (tmp_path / "small.py").write_text("x = 1\n", encoding="utf-8")
     (tmp_path / "big.py").write_text("x = 1\n" * 600, encoding="utf-8")

@@ -48,6 +48,11 @@ def test_config_defaults() -> None:
     assert cfg.nav_mode == "auto"
     assert cfg.index_json_include_lookup is True
     assert cfg.index_json_include_symbol_index_lines is True
+    assert cfg.analysis_metadata is True
+    assert cfg.focus_file == []
+    assert cfg.focus_symbol == []
+    assert cfg.include_import_neighbors == 0
+    assert cfg.include_tests is False
     assert cfg.symbol_backend == "auto"
     assert cfg.encoding_errors == "replace"
     assert cfg.include_preset == "python+docs"
@@ -233,6 +238,27 @@ symbol_backend = "bad"
     cfg = load_config(tmp_path)
     assert cfg.nav_mode == "auto"
     assert cfg.symbol_backend == "auto"
+
+
+def test_load_config_analysis_and_focus_values(tmp_path: Path) -> None:
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+analysis_metadata = false
+focus_file = ["pkg/a.py"]
+focus_symbol = ["pkg.mod:run"]
+include_import_neighbors = 2
+include_tests = true
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path)
+
+    assert cfg.analysis_metadata is False
+    assert cfg.focus_file == ["pkg/a.py"]
+    assert cfg.focus_symbol == ["pkg.mod:run"]
+    assert cfg.include_import_neighbors == 2
+    assert cfg.include_tests is True
 
 
 def test_load_config_invalid_token_count_numeric_values(tmp_path: Path) -> None:

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import inspect
 import re
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
 
+from codecrate import mdparse, repositories, unpacker
 from codecrate.cli import main
+from codecrate.standalone_unpacker import render_standalone_unpacker
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PACKS = FIXTURES / "packs"
@@ -111,6 +115,20 @@ def test_pack_emit_standalone_unpacker_writes_deterministic_script(
     assert "Supported pack format: codecrate.v4" in first
     assert 'DEFAULT_PACK_FILENAME = "context.md"' in first
     assert "import codecrate" not in first
+
+
+def test_standalone_unpacker_embeds_shared_runtime_sources() -> None:
+    script = render_standalone_unpacker(
+        pack_format_version="codecrate.v4",
+        default_pack_filename="context.md",
+    )
+
+    for obj in (
+        repositories.split_repository_sections,
+        mdparse.parse_packed_markdown,
+        unpacker._apply_canonical_into_stub,
+    ):
+        assert textwrap.dedent(inspect.getsource(obj)).strip() in script
 
 
 def test_standalone_unpacker_reconstructs_single_repo_from_sibling_pack(

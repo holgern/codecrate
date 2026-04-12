@@ -28,6 +28,11 @@ def test_resolve_pack_options_uses_profile_defaults(tmp_path: Path) -> None:
     assert options.index_json_mode == "minimal"
     assert options.index_json_include_lookup is True
     assert options.index_json_include_symbol_index_lines is True
+    assert options.analysis_metadata is True
+    assert options.focus_file == []
+    assert options.focus_symbol == []
+    assert options.include_import_neighbors == 0
+    assert options.include_tests is False
     assert options.include_manifest is True
 
 
@@ -99,6 +104,20 @@ def test_resolve_pack_options_index_json_mode_enables_sidecar(tmp_path: Path) ->
 
     assert options.index_json_enabled is True
     assert options.index_json_mode == "minimal"
+
+
+def test_resolve_pack_options_normalized_index_json_mode_enables_sidecar(
+    tmp_path: Path,
+) -> None:
+    cfg = Config()
+
+    options = resolve_pack_options(
+        cfg,
+        _parse_pack_args(tmp_path, "--index-json-mode", "normalized"),
+    )
+
+    assert options.index_json_enabled is True
+    assert options.index_json_mode == "normalized"
 
 
 def test_resolve_pack_options_portable_profile_defaults_to_full_without_index_json(
@@ -192,3 +211,48 @@ def test_resolve_pack_options_rejects_conflicting_index_json_mode_flags(
                 "--no-index-json",
             ),
         )
+
+
+def test_resolve_pack_options_focus_controls_from_cli(tmp_path: Path) -> None:
+    cfg = Config()
+
+    options = resolve_pack_options(
+        cfg,
+        _parse_pack_args(
+            tmp_path,
+            "--focus-file",
+            "a.py",
+            "--focus-file",
+            "b.py",
+            "--focus-symbol",
+            "pkg.mod:run",
+            "--include-import-neighbors",
+            "2",
+            "--include-tests",
+            "--no-analysis-metadata",
+        ),
+    )
+
+    assert options.analysis_metadata is False
+    assert options.focus_file == ["a.py", "b.py"]
+    assert options.focus_symbol == ["pkg.mod:run"]
+    assert options.include_import_neighbors == 2
+    assert options.include_tests is True
+
+
+def test_resolve_pack_options_focus_controls_from_config(tmp_path: Path) -> None:
+    cfg = Config(
+        analysis_metadata=False,
+        focus_file=["a.py"],
+        focus_symbol=["pkg.mod:run"],
+        include_import_neighbors=1,
+        include_tests=True,
+    )
+
+    options = resolve_pack_options(cfg, _parse_pack_args(tmp_path))
+
+    assert options.analysis_metadata is False
+    assert options.focus_file == ["a.py"]
+    assert options.focus_symbol == ["pkg.mod:run"]
+    assert options.include_import_neighbors == 1
+    assert options.include_tests is True

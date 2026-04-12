@@ -199,6 +199,85 @@ def test_pack_index_json_default_path_single_repo(tmp_path: Path) -> None:
     )
 
 
+def test_pack_index_json_includes_analysis_metadata(tmp_path: Path) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "pkg" / "helpers.py").write_text(
+        "def helper() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pkg" / "service.py").write_text(
+        '"""Service module."""\n'
+        "from pkg import helpers\n"
+        '__all__ = ["Service"]\n'
+        "@decorator\n"
+        "class Service(Base):\n"
+        "    @staticmethod\n"
+        "    def run() -> int:\n"
+        "        return helpers.helper()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "tests" / "test_service.py").write_text(
+        "from pkg.service import Service\n\n"
+        "def test_run() -> None:\n"
+        "    assert Service.run() == 1\n",
+        encoding="utf-8",
+    )
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--index-json",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo = payload["repositories"][0]
+    files_by_path = {entry["path"]: entry for entry in repo["files"]}
+
+    service_file = files_by_path["pkg/service.py"]
+    assert service_file["exports"] == ["Service"]
+    assert service_file["module_docstring_lines"] == {"start_line": 1, "end_line": 1}
+    assert service_file["role_hint"] is None
+    assert service_file["imports"][0]["module"] == "pkg"
+    assert service_file["imports"][0]["imported_name"] == "helpers"
+    assert service_file["imports"][0]["target_path"] == "pkg/helpers.py"
+
+    test_file = files_by_path["tests/test_service.py"]
+    assert test_file["role_hint"] == "test"
+
+    assert repo["classes"][0]["qualname"] == "Service"
+    assert repo["classes"][0]["base_classes"] == ["Base"]
+    assert repo["classes"][0]["decorators"] == ["decorator"]
+
+    method_symbol = next(
+        symbol for symbol in repo["symbols"] if symbol["qualname"] == "Service.run"
+    )
+    assert method_symbol["owner_class"] == repo["classes"][0]["local_id"]
+    assert method_symbol["decorators"] == ["staticmethod"]
+
+    assert repo["graph"]["import_edges"]
+    assert {
+        (entry["source_path"], entry["target_path"])
+        for entry in repo["graph"]["import_edges"]
+        if entry["target_path"] is not None
+    } >= {
+        ("pkg/service.py", "pkg/helpers.py"),
+        ("tests/test_service.py", "pkg/service.py"),
+    }
+    assert repo["test_links"] == [
+        {
+            "source_path": "pkg/service.py",
+            "test_path": "tests/test_service.py",
+            "match_reason": "import-heuristic",
+        }
+    ]
+
+
 def test_pack_index_json_compact_v2_shape(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     out_path = tmp_path / "context.md"
@@ -279,6 +358,70 @@ def test_pack_index_json_minimal_v2_shape(tmp_path: Path) -> None:
     assert "canonical_id" not in symbol_entry
 
 
+def test_pack_index_json_normalized_v3_shape(tmp_path: Path) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "pkg" / "service.py").write_text(
+        '"""Service module."""\n'
+        "from . import helpers\n"
+        '__all__ = ["Service"]\n'
+        "@decorator\n"
+        "class Service(Base):\n"
+        "    @staticmethod\n"
+        "    def run() -> int:\n"
+        "        return helpers.helper()\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pkg" / "helpers.py").write_text(
+        "def helper() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--index-json-mode",
+            "normalized",
+        ]
+    )
+
+    payload = json.loads((tmp_path / "context.index.json").read_text(encoding="utf-8"))
+    repo = payload["repositories"][0]
+    tables = repo["tables"]
+    file_entry = next(
+        entry
+        for entry in repo["files"]
+        if tables["paths"][entry["p"]] == "pkg/service.py"
+    )
+    class_entry = repo["classes"][0]
+    symbol_entry = next(
+        entry
+        for entry in repo["symbols"]
+        if tables["qualnames"][entry["q"]] == "Service.run"
+    )
+
+    assert payload["format"] == "codecrate.index-json.v3"
+    assert payload["mode"] == "normalized"
+    assert payload["pack"]["index_json_mode"] == "normalized"
+    assert set(tables) == {"paths", "parts", "qualnames", "strings"}
+    assert tables["paths"][file_entry["p"]] == "pkg/service.py"
+    assert tables["strings"][file_entry["lang"]] == "python"
+    assert tables["strings"][file_entry["mod"]] == "pkg.service"
+    assert tables["paths"][file_entry["imp"][0]["t"]] == "pkg/helpers.py"
+    assert tables["strings"][file_entry["exp"][0]] == "Service"
+    assert file_entry["doc"] == [1, 1]
+    assert tables["qualnames"][class_entry["q"]] == "Service"
+    assert tables["strings"][class_entry["b"][0]] == "Base"
+    assert tables["strings"][class_entry["d"][0]] == "decorator"
+    assert tables["qualnames"][symbol_entry["q"]] == "Service.run"
+    assert symbol_entry["o"] == class_entry["i"]
+    assert tables["strings"][symbol_entry["d"][0]] == "staticmethod"
+    assert repo["graph"]["import_edges"]
+
+
 def test_pack_index_json_compact_without_lookup_shape(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     out_path = tmp_path / "context.md"
@@ -334,7 +477,7 @@ def test_pack_index_json_compact_without_symbol_index_lines_shape(
     assert "index_markdown_lines" not in symbol_entry
 
 
-def test_pack_index_json_compact_and_minimal_are_smaller_than_full(
+def test_pack_index_json_compact_minimal_and_normalized_are_smaller_than_full(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "a.py").write_text(
@@ -376,13 +519,28 @@ def test_pack_index_json_compact_and_minimal_are_smaller_than_full(
     minimal_payload = json.loads(
         (tmp_path / "minimal.index.json").read_text(encoding="utf-8")
     )
+    main(
+        [
+            "pack",
+            str(tmp_path),
+            "-o",
+            str(tmp_path / "normalized.md"),
+            "--index-json-mode",
+            "normalized",
+        ]
+    )
+    normalized_payload = json.loads(
+        (tmp_path / "normalized.index.json").read_text(encoding="utf-8")
+    )
 
     full_text = json.dumps(full_payload, sort_keys=True)
     compact_text = json.dumps(compact_payload, sort_keys=True)
     minimal_text = json.dumps(minimal_payload, sort_keys=True)
+    normalized_text = json.dumps(normalized_payload, sort_keys=True)
 
     assert len(compact_text) < len(full_text)
     assert len(minimal_text) < len(compact_text)
+    assert len(normalized_text) < len(minimal_text)
 
 
 def test_pack_profile_agent_minimal_sidecar_stays_below_markdown_ratio(

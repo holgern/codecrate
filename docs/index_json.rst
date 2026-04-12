@@ -32,10 +32,12 @@ Or choose a specific sidecar mode:
 
    codecrate pack . -o context.md --index-json-mode compact
    codecrate pack . -o context.md --index-json-mode minimal
+   codecrate pack . -o context.md --index-json-mode normalized
 
 ``--index-json`` alone defaults to the full compatibility surface. Use
-``--index-json-mode compact`` or ``--index-json-mode minimal`` when you want a
-v2 machine-first sidecar explicitly.
+``--index-json-mode compact``, ``--index-json-mode minimal``, or
+``--index-json-mode normalized`` when you want a machine-first sidecar
+explicitly.
 
 By default, the sidecar is written next to the markdown output as
 ``<output>.index.json``.
@@ -48,15 +50,18 @@ The sidecar is versioned independently:
 
 * ``codecrate.index-json.v1``: full sidecar surface
 * ``codecrate.index-json.v2``: compact or minimal sidecar surface
+* ``codecrate.index-json.v3``: normalized sidecar surface
 
 The top-level ``mode`` field distinguishes ``full``, ``compact``, and
-``minimal`` output.
+``minimal``, and ``normalized`` output.
 
 Compatibility rules:
 
 * v1 remains the full-fidelity compatibility surface
 * v2 is a machine-first retrieval surface that removes redundant display and
   reverse-index duplication by default
+* v3 is the most compact analysis-oriented surface and interns repeated paths,
+  qualnames, and strings into shared tables
 * machine-facing lookups should prefer explicit IDs and lookup maps over
   markdown scraping
 
@@ -73,8 +78,8 @@ The payload has this high-level structure:
 .. code-block:: json
 
     {
-      "format": "codecrate.index-json.v2",
-      "mode": "minimal",
+      "format": "codecrate.index-json.v3",
+      "mode": "normalized",
       "pack": { ... },
       "repositories": [ ... ]
     }
@@ -158,7 +163,11 @@ Useful fields include:
    Symbol-level occurrence and canonical-body metadata.
 
 ``lookup``
-    Reverse indexes for direct access by path or ID.
+     Reverse indexes for direct access by path or ID.
+
+``graph`` / ``test_links`` / ``guide``
+    Optional analysis metadata: import edges, heuristic test coupling, and a
+    repository guide.
 
 
 Mode summary
@@ -184,6 +193,32 @@ Mode summary
 
    * ``file_by_path``
    * ``symbol_by_local_id``
+
+``normalized`` (v3)
+   Interns repeated strings into ``repositories[].tables`` and replaces
+   path/module/qualname references with integer indexes. It keeps the same
+   machine-facing essentials as the richer modes while omitting markdown href
+   duplication and v2 lookup maps.
+
+
+Analysis metadata
+-----------------
+
+When analysis metadata is enabled, the sidecar also exposes:
+
+* ``repositories[].classes[]`` with first-class class entries
+* ``repositories[].files[].imports``
+* ``repositories[].files[].exports``
+* ``repositories[].files[].module_docstring_lines``
+* ``repositories[].files[].role_hint``
+* ``repositories[].symbols[].owner_class``
+* ``repositories[].symbols[].decorators``
+* ``repositories[].graph.import_edges``
+* ``repositories[].test_links``
+* ``repositories[].guide``
+
+Use ``--no-analysis-metadata`` when you want a smaller sidecar and do not need
+those architecture-oriented hints.
 
 
 Part metadata
@@ -249,6 +284,11 @@ Useful fields include:
 ``symbol_ids`` / ``display_symbol_ids`` / ``symbol_canonical_ids``
    Direct symbol membership for the file.
 
+In normalized v3 payloads, file entries instead use indexed fields such as
+``p`` (path), ``part`` (part path), ``lang`` (language), ``mod`` (module), and
+optional analysis fields like ``imp`` (imports), ``exp`` (exports), ``doc``
+(``[start_line, end_line]``), and ``role``.
+
 
 Symbol metadata
 ---------------
@@ -285,6 +325,11 @@ Useful fields include:
 ``locators``
    Same locator-availability contract used by file entries.
 
+In normalized v3 payloads, symbol entries use compact indexed fields such as
+``i`` (local machine ID), ``c`` (canonical machine ID when needed), ``p`` (path
+index), ``q`` (qualname index), ``k`` (kind index), ``l1`` / ``l2`` (line
+range), plus optional ``o`` (owner class ID) and ``d`` (decorator indexes).
+
 
 Lookup maps
 -----------
@@ -318,6 +363,10 @@ directly instead of assuming ``lookup`` is present. If
 ``symbol_index_lines`` is false, compact payloads intentionally omit
 ``index_markdown_lines`` even for unsplit packs.
 
+Normalized v3 payloads intentionally do not include the v2 lookup maps. Use the
+intern tables plus ``files[]``, ``classes[]``, ``symbols[]``, and the optional
+analysis sections directly.
+
 
 Locator semantics
 -----------------
@@ -349,10 +398,11 @@ sidecar consistency.
 It checks:
 
 * output file existence when a base directory is provided
-* href targets and anchor existence
+* href targets and anchor existence for v1/v2 payloads
 * part/file/symbol cross references
 * line-range validity
-* lookup map consistency
+* lookup map consistency for v1/v2 payloads
+* normalized-table index validity for v3 payloads
 
 Example:
 

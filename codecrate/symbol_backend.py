@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import importlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
 from .ids import stable_location_id
-from .model import DefRef
+from .model import DefRef, ImportRef
 
 _LANG_BY_SUFFIX: dict[str, str] = {
     ".js": "javascript",
@@ -119,6 +119,9 @@ class SymbolExtractionResult:
     backend_used: str
     language_detected: str
     extraction_status: str
+    imports: list[ImportRef] = field(default_factory=list)
+    exports: list[str] = field(default_factory=list)
+    module_docstring: tuple[int, int] | None = None
 
 
 def detect_language(path: Path) -> str:
