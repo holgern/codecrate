@@ -17,6 +17,7 @@ def test_config_defaults() -> None:
     assert cfg.keep_docstrings is True
     assert cfg.dedupe is False
     assert cfg.respect_gitignore is True
+    assert cfg.gitignore_allow == []
     assert cfg.include == DEFAULT_INCLUDES
     assert cfg.exclude == []
     assert cfg.split_max_chars == 0
@@ -111,6 +112,7 @@ dedupe = true
 manifest = false
 profile = "agent"
 respect_gitignore = false
+gitignore_allow = ["fixtures/**", "ignored.py"]
 include = ["src/**/*.py"]
 exclude = ["tests/**"]
 split_max_chars = 100000
@@ -127,6 +129,7 @@ split_allow_cut_files = true
     assert cfg.manifest is False
     assert cfg.profile == "agent"
     assert cfg.respect_gitignore is False
+    assert cfg.gitignore_allow == ["fixtures/**", "ignored.py"]
     assert cfg.include == ["src/**/*.py"]
     assert cfg.exclude == ["tests/**"]
     assert cfg.split_max_chars == 100000
@@ -160,6 +163,7 @@ split_max_chars = 50000
     assert cfg.keep_docstrings is False
     assert cfg.dedupe is False  # Should use default
     assert cfg.respect_gitignore is True  # Should use default
+    assert cfg.gitignore_allow == []  # Should use default
     assert cfg.split_max_chars == 50000
 
 

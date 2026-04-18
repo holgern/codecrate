@@ -118,6 +118,22 @@ def test_discover_with_gitignore(tmp_path: Path) -> None:
     assert disc.files[0] == tmp_path / "a.py"
 
 
+def test_discover_with_gitignore_allow_reincludes_paths(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
+    (tmp_path / "a.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "ignored.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_python_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=True,
+        gitignore_allow=["ignored.py"],
+    )
+
+    assert disc.files == [tmp_path / "a.py", tmp_path / "ignored.py"]
+
+
 def test_discover_with_gitignore_disabled(tmp_path: Path) -> None:
     """Test file discovery not respecting .gitignore when disabled."""
     (tmp_path / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
@@ -245,6 +261,23 @@ def test_discover_files_explicit_respects_gitignore_when_enabled(
     assert disc.files == [tmp_path / "ok.py"]
 
 
+def test_discover_files_explicit_honors_gitignore_allow(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
+    (tmp_path / "ok.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "ignored.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=True,
+        gitignore_allow=["ignored.py"],
+        explicit_files=[Path("ok.py"), Path("ignored.py")],
+    )
+
+    assert disc.files == [tmp_path / "ignored.py", tmp_path / "ok.py"]
+
+
 def test_discover_files_explicit_rejects_outside_root_paths(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -359,6 +392,24 @@ def test_codecrateignore_can_override_gitignore_negation(tmp_path: Path) -> None
         include=["**/*.py"],
         exclude=[],
         respect_gitignore=True,
+    )
+
+    assert disc.files == []
+
+
+def test_codecrateignore_still_applies_when_gitignore_allow_matches(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
+    (tmp_path / ".codecrateignore").write_text("ignored.py\n", encoding="utf-8")
+    (tmp_path / "ignored.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_python_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=True,
+        gitignore_allow=["ignored.py"],
     )
 
     assert disc.files == []

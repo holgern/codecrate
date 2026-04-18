@@ -71,6 +71,7 @@ class Config:
     keep_docstrings: bool = True
     dedupe: bool = False
     respect_gitignore: bool = True
+    gitignore_allow: list[str] = field(default_factory=list)
     include: list[str] = field(default_factory=lambda: DEFAULT_INCLUDES.copy())
     include_preset: IncludePresetValue = DEFAULT_INCLUDE_PRESET
     exclude: list[str] = field(default_factory=list)
@@ -244,6 +245,11 @@ CONFIG_FIELD_METADATA: dict[str, ConfigFieldMetadata] = {
         type_name="boolean",
         description="Respect .gitignore during file discovery.",
         cli_flags=("--respect-gitignore", "--no-respect-gitignore"),
+    ),
+    "gitignore_allow": ConfigFieldMetadata(
+        type_name="list[string]",
+        description="Allowlist patterns that re-include matching .gitignore paths.",
+        access="config-only",
     ),
     "include": ConfigFieldMetadata(
         type_name="list[string]",

@@ -109,6 +109,14 @@ def _load_base_config(
         provenance=provenance,
         source=source,
     )
+    cfg.gitignore_allow = _load_string_list(
+        section,
+        "gitignore_allow",
+        cfg.gitignore_allow,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
     cfg.manifest = _load_bool_value(
         section,
         "manifest",

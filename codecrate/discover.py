@@ -18,7 +18,6 @@ DEFAULT_EXCLUDES = [
     "**/.pytest_cache/**",
     "**/build/**",
     "**/dist/**",
-    "**/_version.py",
 ]
 
 
@@ -48,11 +47,22 @@ def _load_gitignore(root: Path) -> pathspec.PathSpec:
     )
 
 
-def _load_combined_ignore(root: Path, *, respect_gitignore: bool) -> pathspec.PathSpec:
+def _load_combined_ignore(
+    root: Path,
+    *,
+    respect_gitignore: bool,
+    gitignore_allow: list[str] | None = None,
+) -> pathspec.PathSpec:
     # Order matters: patterns later in the list take precedence (e.g. negations).
     lines: list[str] = []
     if respect_gitignore:
         lines.extend(_load_ignore_lines(root, ".gitignore"))
+        # Allowlist entries re-include selected .gitignore matches.
+        for pattern in gitignore_allow or []:
+            value = str(pattern).strip()
+            if not value:
+                continue
+            lines.append(f"!{value.lstrip('!')}")
     # Tool-specific ignore is always respected and has higher priority.
     lines.extend(_load_ignore_lines(root, ".codecrateignore"))
     return pathspec.PathSpec.from_lines("gitignore", lines)
@@ -113,6 +123,7 @@ def discover_files(
     include: list[str] | None,
     exclude: list[str] | None,
     respect_gitignore: bool = True,
+    gitignore_allow: list[str] | None = None,
     *,
     explicit_files: Sequence[Path] | None = None,
 ) -> Discovery:
@@ -123,13 +134,19 @@ def discover_files(
     Notes:
     - If a ``.codecrateignore`` file exists in ``root``, its patterns are always
       respected (gitignore-style).
+    - ``gitignore_allow`` can re-include selected paths matched by ``.gitignore``
+      when ``respect_gitignore`` is enabled.
     - When ``explicit_files`` is provided, only those files are considered (after
       resolution + deduplication). Include patterns are not applied to the explicit
       list; exclude patterns and ignore files still are.
     """
     root = root.resolve()
 
-    ignore = _load_combined_ignore(root, respect_gitignore=respect_gitignore)
+    ignore = _load_combined_ignore(
+        root,
+        respect_gitignore=respect_gitignore,
+        gitignore_allow=gitignore_allow,
+    )
     inc = pathspec.PathSpec.from_lines("gitignore", include or ["**/*.py"])
 
     effective_exclude = DEFAULT_EXCLUDES + (exclude or [])
@@ -172,10 +189,15 @@ def discover_python_files(
     include: list[str] | None,
     exclude: list[str] | None,
     respect_gitignore: bool = True,
+    gitignore_allow: list[str] | None = None,
 ) -> Discovery:
     root = root.resolve()
 
-    ignore = _load_combined_ignore(root, respect_gitignore=respect_gitignore)
+    ignore = _load_combined_ignore(
+        root,
+        respect_gitignore=respect_gitignore,
+        gitignore_allow=gitignore_allow,
+    )
     inc = pathspec.PathSpec.from_lines("gitignore", include or ["**/*.py"])
 
     effective_exclude = DEFAULT_EXCLUDES + (exclude or [])

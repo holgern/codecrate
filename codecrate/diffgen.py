@@ -39,6 +39,7 @@ def generate_patch_markdown(
     include: list[str] | None = None,
     exclude: list[str] | None = None,
     respect_gitignore: bool = True,
+    gitignore_allow: list[str] | None = None,
     encoding_errors: str = "replace",
 ) -> str:
     # If caller doesn't pass include/exclude, use the same defaults as Config.
@@ -129,6 +130,7 @@ def generate_patch_markdown(
         include=include,
         exclude=exclude,
         respect_gitignore=respect_gitignore,
+        gitignore_allow=gitignore_allow,
     )
     for p in disc.files:
         rel = p.relative_to(root).as_posix()

@@ -53,6 +53,7 @@ class FocusOptions:
 @dataclass(frozen=True)
 class SafetyOptions:
     respect_gitignore: bool
+    gitignore_allow: list[str]
     security_check: bool
     security_content_sniff: bool
     security_redaction: bool
@@ -129,6 +130,7 @@ def focus_options_from_pack(options: PackOptions) -> FocusOptions:
 def safety_options_from_pack(options: PackOptions) -> SafetyOptions:
     return SafetyOptions(
         respect_gitignore=options.respect_gitignore,
+        gitignore_allow=options.gitignore_allow,
         security_check=options.security_check,
         security_content_sniff=options.security_content_sniff,
         security_redaction=options.security_redaction,

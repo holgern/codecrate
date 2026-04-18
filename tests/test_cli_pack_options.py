@@ -170,6 +170,35 @@ def test_pack_stdin0_applies_ignore_rules(tmp_path: Path, monkeypatch) -> None:
     assert "### `cc_ignored.py`" not in text
 
 
+def test_pack_stdin0_respects_gitignore_allow_from_config(
+    tmp_path: Path, monkeypatch
+) -> None:
+    (tmp_path / ".gitignore").write_text("git_ignored.py\n", encoding="utf-8")
+    (tmp_path / "codecrate.toml").write_text(
+        '[codecrate]\ngitignore_allow = ["git_ignored.py"]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "ok.py").write_text("def ok():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "git_ignored.py").write_text(
+        "def git_ignored():\n    return 2\n", encoding="utf-8"
+    )
+    out_path = tmp_path / "context.md"
+
+    monkeypatch.setattr(
+        sys,
+        "stdin",
+        io.TextIOWrapper(
+            io.BytesIO(b"ok.py\x00git_ignored.py\x00"),
+            encoding="utf-8",
+        ),
+    )
+    main(["pack", str(tmp_path), "--stdin0", "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `ok.py`" in text
+    assert "### `git_ignored.py`" in text
+
+
 def test_pack_stdin0_normalizes_dot_slash_paths(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "a.py").write_text("def a():\n    return 1\n", encoding="utf-8")
     out_path = tmp_path / "context.md"
@@ -369,6 +398,26 @@ def test_pack_stdin_applies_ignore_rules(tmp_path: Path, monkeypatch) -> None:
     assert "### `cc_ignored.py`" not in text
 
 
+def test_pack_config_gitignore_allow_does_not_bypass_codecrateignore(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".gitignore").write_text("git_ignored.py\n", encoding="utf-8")
+    (tmp_path / ".codecrateignore").write_text("git_ignored.py\n", encoding="utf-8")
+    (tmp_path / "codecrate.toml").write_text(
+        '[codecrate]\ngitignore_allow = ["git_ignored.py"]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "git_ignored.py").write_text(
+        "def git_ignored():\n    return 2\n", encoding="utf-8"
+    )
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "--include", "**/*.py", "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `git_ignored.py`" not in text
+
+
 def test_pack_stdin_rejects_paths_outside_root(tmp_path: Path, monkeypatch) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -497,6 +546,10 @@ def test_pack_print_skipped_debug_lists_reasons(tmp_path: Path, capsys) -> None:
 def test_pack_print_rules_shows_effective_rule_summary(tmp_path: Path, capsys) -> None:
     (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
     (tmp_path / ".codecrateignore").write_text("ignored.py\n", encoding="utf-8")
+    (tmp_path / "codecrate.toml").write_text(
+        '[codecrate]\ngitignore_allow = ["fixtures/**"]\n',
+        encoding="utf-8",
+    )
     out_path = tmp_path / "context.md"
 
     main(
@@ -518,6 +571,7 @@ def test_pack_print_rules_shows_effective_rule_summary(tmp_path: Path, capsys) -
     assert "include-source: cli --include-preset=python-only" in captured.err
     assert "ignore-files:" in captured.err
     assert ".codecrateignore=yes" in captured.err
+    assert "gitignore_allow=1" in captured.err
     assert "safety:" in captured.err
 
 

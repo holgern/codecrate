@@ -52,6 +52,7 @@ class PackOptions:
     include_entrypoints: bool
     include_tests: bool
     respect_gitignore: bool
+    gitignore_allow: list[str]
     security_check: bool
     security_content_sniff: bool
     security_redaction: bool
@@ -434,6 +435,7 @@ def _resolve_safety_options(cfg: Config, args: argparse.Namespace) -> dict[str, 
             if args.respect_gitignore is None
             else bool(args.respect_gitignore)
         ),
+        "gitignore_allow": list(getattr(cfg, "gitignore_allow", [])),
         "security_check": (
             bool(getattr(cfg, "security_check", True))
             if args.security_check is None

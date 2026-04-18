@@ -19,8 +19,7 @@ def _add_pack_inputs(pack: argparse.ArgumentParser) -> None:
         default=None,
         type=Path,
         help=(
-            "Additional repo root to pack "
-            "(repeatable; alternative to positional ROOTs)"
+            "Additional repo root to pack (repeatable; alternative to positional ROOTs)"
         ),
     )
     stdin_group = pack.add_mutually_exclusive_group()

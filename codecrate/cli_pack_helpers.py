@@ -450,7 +450,8 @@ def _print_effective_rules(*, label: str, root: Path, options: PackOptions) -> N
     print(
         "  ignore-files: "
         f".gitignore={'yes' if options.respect_gitignore else 'no'}, "
-        f".codecrateignore={'yes' if (root / '.codecrateignore').exists() else 'no'}",
+        f".codecrateignore={'yes' if (root / '.codecrateignore').exists() else 'no'}, "
+        f"gitignore_allow={len(options.gitignore_allow)}",
         file=sys.stderr,
     )
     print(

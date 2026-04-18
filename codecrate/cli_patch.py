@@ -54,6 +54,7 @@ def run_patch_command(parser: ArgumentParser, args: Namespace) -> None:
             include=cfg.include,
             exclude=cfg.exclude,
             respect_gitignore=cfg.respect_gitignore,
+            gitignore_allow=cfg.gitignore_allow,
             encoding_errors=patch_encoding_errors,
         )
     except ValueError as e:

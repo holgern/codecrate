@@ -205,6 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+.codex
+
 codecrate/_version.py
 context_codecrate.index.json
 context_codecrate.md

@@ -57,6 +57,7 @@ def test_resolve_pack_options_uses_profile_defaults(tmp_path: Path) -> None:
     assert options.include_same_package is False
     assert options.include_entrypoints is False
     assert options.include_tests is False
+    assert options.gitignore_allow == []
     assert options.include_manifest is True
 
 
@@ -110,7 +111,12 @@ def test_resolve_pack_options_cli_overrides_profile_defaults(tmp_path: Path) -> 
 
 
 def test_resolve_pack_options_config_overrides_defaults(tmp_path: Path) -> None:
-    cfg = Config(profile="hybrid", include_preset="python-only", include=["**/*.py"])
+    cfg = Config(
+        profile="hybrid",
+        include_preset="python-only",
+        include=["**/*.py"],
+        gitignore_allow=["fixtures/**"],
+    )
 
     options = resolve_pack_options(cfg, _parse_pack_args(tmp_path))
 
@@ -121,6 +127,7 @@ def test_resolve_pack_options_config_overrides_defaults(tmp_path: Path) -> None:
     assert options.index_json_mode == "full"
     assert options.include == ["**/*.py"]
     assert options.include_source == "config include/include_preset=python-only"
+    assert options.gitignore_allow == ["fixtures/**"]
 
 
 def test_resolve_pack_options_cli_overrides_config(tmp_path: Path) -> None:

@@ -299,6 +299,9 @@ keep_docstrings = true
 # Respect .gitignore when scanning (default: true)
 respect_gitignore = true
 
+# Re-include selected .gitignore matches (config-only, optional)
+gitignore_allow = ["fixtures/**", "ignored.py"]
+
 # Always respected when present (separate file, gitignore syntax):
 # .codecrateignore
 

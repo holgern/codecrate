@@ -77,6 +77,7 @@ Supported keys
    "keep_docstrings", "boolean", "true", "both", "--keep-docstrings, --no-keep-docstrings", "none", "none", "Keep docstrings in stubbed file output."
    "dedupe", "boolean", "false", "both", "--dedupe, --no-dedupe", "none", "none", "Deduplicate identical function bodies."
    "respect_gitignore", "boolean", "true", "both", "--respect-gitignore, --no-respect-gitignore", "none", "none", "Respect .gitignore during file discovery."
+   "gitignore_allow", "list[string]", "[]", "config-only", "none", "none", "none", "Allowlist patterns that re-include matching .gitignore paths."
    "include", "list[string]", "[""**/*.py"", ""pyproject.toml"", ""project.toml"", ""setup.cfg"", ""README*"", ""LICENSE*"", ""docs/**/*.rst"", ""docs/**/*.md""]", "both", "--include", "none", "none", "Include glob patterns."
    "include_preset", "enum", """python+docs""", "both", "--include-preset", "none", "python-only, python+docs, everything", "Fallback include preset when include is not set."
    "exclude", "list[string]", "[]", "both", "--exclude", "none", "none", "Exclude glob patterns."
