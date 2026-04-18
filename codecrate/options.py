@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from typing import Any, cast
 
 from .config import Config, include_patterns_for_preset
 
@@ -623,11 +624,11 @@ def resolve_pack_options(cfg: Config, args: argparse.Namespace) -> PackOptions:
         profile=profile,
         emit_standalone_unpacker=emit_standalone_unpacker,
         locator_space=locator_space,
-        **selection_options,
-        **output_targets,
-        **sidecar_and_markdown,
-        **focus_options,
-        **safety_options,
-        **render_options,
-        **budget_options,
+        **cast(dict[str, Any], selection_options),
+        **cast(dict[str, Any], output_targets),
+        **cast(dict[str, Any], sidecar_and_markdown),
+        **cast(dict[str, Any], focus_options),
+        **cast(dict[str, Any], safety_options),
+        **cast(dict[str, Any], render_options),
+        **cast(dict[str, Any], budget_options),
     )

@@ -15,7 +15,7 @@ def _repository_common_payload(
     locator_space, secondary_locator_space = _locator_space_order(
         run.options.locator_space
     )
-    payload = {
+    payload: dict[str, Any] = {
         "label": run.label,
         "slug": run.slug,
         "profile": run.options.profile,

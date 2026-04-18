@@ -6,6 +6,7 @@ from typing import Any, cast
 from .config import (
     PYPROJECT_FILENAME,
     Config,
+    ConfigValueProvenance,
     ConfigWarning,
     EncodingErrorsValue,
     IncludePresetValue,
@@ -46,7 +47,7 @@ def _load_output_config(
     section: dict[str, Any],
     *,
     warnings: list[ConfigWarning],
-    provenance: dict[str, object],
+    provenance: dict[str, ConfigValueProvenance],
     source: str,
 ) -> None:
     output_key, output_value = _raw_section_value(section, "output")
@@ -81,7 +82,7 @@ def _load_base_config(
     section: dict[str, Any],
     *,
     warnings: list[ConfigWarning],
-    provenance: dict[str, object],
+    provenance: dict[str, ConfigValueProvenance],
     source: str,
 ) -> None:
     cfg.keep_docstrings = _load_bool_value(
@@ -216,7 +217,7 @@ def _load_budget_and_safety_config(
     section: dict[str, Any],
     *,
     warnings: list[ConfigWarning],
-    provenance: dict[str, object],
+    provenance: dict[str, ConfigValueProvenance],
     source: str,
 ) -> None:
     cfg.token_count_encoding = _load_non_empty_string(
@@ -370,7 +371,7 @@ def _load_sidecar_config(
     section: dict[str, Any],
     *,
     warnings: list[ConfigWarning],
-    provenance: dict[str, object],
+    provenance: dict[str, ConfigValueProvenance],
     source: str,
 ) -> None:
     cfg.nav_mode = cast(
@@ -489,7 +490,7 @@ def _load_focus_and_runtime_config(
     section: dict[str, Any],
     *,
     warnings: list[ConfigWarning],
-    provenance: dict[str, object],
+    provenance: dict[str, ConfigValueProvenance],
     source: str,
 ) -> None:
     cfg.focus_file = _load_focus_list(
