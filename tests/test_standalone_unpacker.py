@@ -168,6 +168,45 @@ def test_standalone_unpacker_reconstructs_single_repo_from_sibling_pack(
     ).read_text(encoding="utf-8")
 
 
+def test_standalone_unpacker_reconstructs_empty_py_typed_file(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(
+        repo,
+        {
+            "pkg/a.py": "def alpha():\n    return 1\n",
+            "pkg/py.typed": "",
+        },
+    )
+
+    packed = tmp_path / "context.md"
+    main(
+        [
+            "pack",
+            str(repo),
+            "-o",
+            str(packed),
+            "--profile",
+            "portable",
+            "--include",
+            "**/*.py",
+            "--include",
+            "**/py.typed",
+            "--emit-standalone-unpacker",
+        ]
+    )
+
+    result = _run_script(tmp_path / "context.unpack.py", "-o", tmp_path / "out")
+
+    assert result.returncode == 0
+    assert (tmp_path / "out" / "pkg" / "a.py").read_text(encoding="utf-8") == (
+        repo / "pkg" / "a.py"
+    ).read_text(encoding="utf-8")
+    py_typed = tmp_path / "out" / "pkg" / "py.typed"
+    assert py_typed.exists()
+    assert py_typed.read_text(encoding="utf-8") == ""
+    assert py_typed.stat().st_size == 0
+
+
 def test_standalone_unpacker_reconstructs_markdown_with_internal_headings(
     tmp_path: Path,
 ) -> None:
