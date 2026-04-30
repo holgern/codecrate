@@ -118,6 +118,34 @@ def test_pack_emit_standalone_unpacker_writes_deterministic_script(
     assert "import codecrate" not in first
 
 
+def test_pack_prints_standalone_reconstruction_command(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo, {"a.py": "def alpha():\n    return 1\n"})
+
+    main(
+        [
+            "pack",
+            str(repo),
+            "-o",
+            str(tmp_path / "context.md"),
+            "--profile",
+            "portable-agent",
+        ]
+    )
+
+    out = capsys.readouterr().out
+    assert "Wrote" in out
+    assert "context.unpack.py" in out
+    assert "Reconstruct with:" in out
+    assert "python3 -S" in out
+    assert "context.md" in out
+    assert "--check-machine-header" in out
+    assert "--strict" in out
+    assert "--fail-on-warning" in out
+
+
 def test_standalone_unpacker_embeds_shared_runtime_sources() -> None:
     script = render_standalone_unpacker(
         pack_format_version="codecrate.v4",
@@ -166,6 +194,79 @@ def test_standalone_unpacker_reconstructs_single_repo_from_sibling_pack(
     assert (tmp_path / "out" / "README.md").read_text(encoding="utf-8") == (
         repo / "README.md"
     ).read_text(encoding="utf-8")
+
+
+def test_standalone_unpacker_progress_reports_stages(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo, {"a.py": "def alpha():\n    return 1\n"})
+
+    packed = tmp_path / "context.md"
+    main(
+        [
+            "pack",
+            str(repo),
+            "-o",
+            str(packed),
+            "--profile",
+            "portable",
+            "--emit-standalone-unpacker",
+        ]
+    )
+
+    result = _run_script(
+        tmp_path / "context.unpack.py",
+        str(packed),
+        "-o",
+        tmp_path / "out",
+        "--progress",
+    )
+
+    assert result.returncode == 0
+    assert "[codecrate-unpack] reading" in result.stderr
+    assert "[codecrate-unpack] parsing manifest" in result.stderr
+    assert "[codecrate-unpack] writing files to" in result.stderr
+    assert "[codecrate-unpack] done" in result.stderr
+
+
+def test_standalone_unpacker_fail_on_warning_fails_on_sha_mismatch(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    _write_repo(repo, {"a.py": "def alpha():\n    return 1\n"})
+
+    packed = tmp_path / "context.md"
+    main(
+        [
+            "pack",
+            str(repo),
+            "-o",
+            str(packed),
+            "--profile",
+            "portable",
+            "--emit-standalone-unpacker",
+        ]
+    )
+
+    text = packed.read_text(encoding="utf-8")
+    packed.write_text(text.replace("return 1", "return 2", 1), encoding="utf-8")
+
+    default_result = _run_script(
+        tmp_path / "context.unpack.py",
+        str(packed),
+        "-o",
+        tmp_path / "default-out",
+    )
+    strict_result = _run_script(
+        tmp_path / "context.unpack.py",
+        str(packed),
+        "-o",
+        tmp_path / "strict-out",
+        "--fail-on-warning",
+    )
+
+    assert default_result.returncode == 0
+    assert strict_result.returncode == 2
+    assert "SHA256 mismatch" in strict_result.stderr
 
 
 def test_standalone_unpacker_reconstructs_empty_py_typed_file(tmp_path: Path) -> None:

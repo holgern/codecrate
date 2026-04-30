@@ -127,10 +127,13 @@ Generate a standalone unpacker next to a portable pack:
 .. code-block:: console
 
    codecrate pack /path/to/repo -o context.md --profile portable --emit-standalone-unpacker
-   python context.unpack.py -o /tmp/reconstructed
+   python3 -S context.unpack.py context.md -o /tmp/reconstructed --check-machine-header --strict --fail-on-warning
 
 This standalone script uses only the Python standard library and reconstructs
 from the sibling unsplit markdown pack by default.
+
+On Windows, use ``py -3 -S context.unpack.py context.md -o reconstructed
+--check-machine-header --strict --fail-on-warning``.
 
 If you need a token-efficient portable pack instead, you can still emit the
 standalone unpacker with ``--layout stubs``.

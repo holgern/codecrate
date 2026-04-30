@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import sys
 from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass
@@ -415,6 +416,18 @@ def _write_standalone_unpacker_if_requested(
         encoding="utf-8",
     )
     print(f"Wrote {standalone_unpacker_path}.")
+    command = [
+        "python3",
+        "-S",
+        str(standalone_unpacker_path),
+        str(out_path),
+        "-o",
+        "reconstructed",
+        "--check-machine-header",
+        "--strict",
+        "--fail-on-warning",
+    ]
+    print(f"Reconstruct with: {' '.join(shlex.quote(part) for part in command)}")
 
 
 def _write_pack_outputs(

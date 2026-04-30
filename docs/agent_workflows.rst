@@ -102,6 +102,21 @@ The distinction is that ``portable`` chooses reconstruction-first defaults,
 while an explicit ``--layout stubs --emit-standalone-unpacker`` combination
 lets you keep the token-efficient stub layout and still reconstruct offline.
 
+For generated standalone unpackers, prefer ``python3 -S`` so Python skips user
+and global site initialization:
+
+.. code-block:: console
+
+   python3 -S context.unpack.py context.md -o reconstructed --check-machine-header --strict --fail-on-warning
+
+If ``python3`` is unavailable, try ``/usr/bin/python3`` or ``python -S``. On
+Windows, use ``py -3 -S context.unpack.py context.md -o reconstructed
+--check-machine-header --strict --fail-on-warning``. If the generated unpacker
+fails with a Codecrate error, use ``codecrate unpack PACK.md -o OUT`` when
+Codecrate is installed. Do not use whole-file regex extraction from packed
+markdown; fallback parsers need to match the generated unpacker's line-by-line
+fence parsing, manifest and file hash checks, and path traversal rejection.
+
 
 Use The Index Sidecar
 ---------------------

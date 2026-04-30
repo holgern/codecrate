@@ -49,7 +49,12 @@ def main(argv: list[str] | None = None) -> None:
         except ValueError as e:
             parser.error(f"unpack: {e}")
         try:
-            unpack_to_dir(md_text, args.out_dir, strict=bool(args.strict))
+            unpack_to_dir(
+                md_text,
+                args.out_dir,
+                strict=bool(args.strict),
+                fail_on_warning=bool(args.fail_on_warning),
+            )
         except ValueError as e:
             if _is_no_manifest_error(e):
                 _raise_no_manifest_error(parser, command_name="unpack")

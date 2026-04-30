@@ -10,6 +10,7 @@ INDEX_JSON_FORMAT_VERSION = INDEX_JSON_FORMAT_VERSION_V1
 
 FENCE_MACHINE_HEADER = "codecrate-machine-header"
 FENCE_MANIFEST = "codecrate-manifest"
+FENCE_AGENT_WORKFLOW = "codecrate-agent-workflow"
 FENCE_PATCH_META = "codecrate-patch-meta"
 
 MISSING_MANIFEST_ERROR = (

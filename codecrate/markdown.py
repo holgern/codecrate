@@ -8,7 +8,12 @@ from typing import Any, Literal
 from .analysis_metadata import build_repository_guide
 from .fences import choose_backtick_fence, is_fence_close, parse_fence_open
 from .focus import FocusSelectionResult
-from .formats import FENCE_MACHINE_HEADER, FENCE_MANIFEST, PACK_FORMAT_VERSION
+from .formats import (
+    FENCE_AGENT_WORKFLOW,
+    FENCE_MACHINE_HEADER,
+    FENCE_MANIFEST,
+    PACK_FORMAT_VERSION,
+)
 from .locators import (
     anchor_for_file_index,
     anchor_for_file_source,
@@ -17,7 +22,12 @@ from .locators import (
 from .manifest import machine_header, to_manifest
 from .model import ClassRef, FilePack, PackResult
 from .ordering import sort_paths
-from .output_model import LineRange, RenderedMarkdown, RenderMetadata
+from .output_model import (
+    LineRange,
+    MarkdownUsageContext,
+    RenderedMarkdown,
+    RenderMetadata,
+)
 from .parse import parse_symbols
 from .setup_metadata import detect_setup_metadata
 
@@ -404,6 +414,7 @@ def _render_how_to_use_section(
     include_repository_guide: bool,
     include_directory_tree: bool,
     include_symbol_index: bool,
+    usage_context: MarkdownUsageContext | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append("## How to Use This Pack\n\n")
@@ -411,6 +422,33 @@ def _render_how_to_use_section(
         "This pack is a read-only repository snapshot for analysis and patch "
         "proposals.\n\n"
     )
+    if usage_context and usage_context.standalone_unpacker_filename:
+        command = _reconstruct_command(usage_context)
+        command_text = " ".join(command)
+        lines.append("**Machine reconstruction**\n\n")
+        lines.append(
+            "This pack includes a generated standalone unpacker. Prefer "
+            "reconstructing the repo before analysis:\n\n"
+        )
+        _append_fenced_block(lines, command_text + "\n", "bash")
+        lines.append(
+            "If `python3` is not available, try `/usr/bin/python3`, `python3`, "
+            "or `python -S`. The standalone unpacker uses only the Python "
+            "standard library.\n\n"
+        )
+        lines.append(
+            "After reconstruction, inspect files under `reconstructed/`. Do not "
+            "scrape file bodies from this markdown unless the unpacker fails "
+            "with a Codecrate error.\n\n"
+        )
+        lines.append(
+            "Fallback: if the generated unpacker fails with a Codecrate error, "
+            "use `codecrate unpack PACK.md -o OUT` if Codecrate is installed. "
+            "Do not use whole-file regex extraction; any fallback parser must "
+            "copy the generated unpacker's line-by-line fence parsing, manifest "
+            "and file hash verification, and path traversal rejection.\n\n"
+        )
+
     lines.append("**Quick workflow**\n")
     step = 1
     if include_directory_tree:
@@ -451,6 +489,50 @@ def _render_how_to_use_section(
         "repo-relative paths.\n\n"
     )
 
+    return "".join(lines)
+
+
+def _reconstruct_command(usage_context: MarkdownUsageContext) -> list[str]:
+    command = [
+        "python3",
+        "-S",
+        usage_context.standalone_unpacker_filename or "context.unpack.py",
+        usage_context.markdown_filename,
+        "-o",
+        "reconstructed",
+    ]
+    if usage_context.include_machine_header:
+        command.append("--check-machine-header")
+    command.extend(["--strict", "--fail-on-warning"])
+    return command
+
+
+def _render_agent_workflow_block(
+    usage_context: MarkdownUsageContext | None,
+) -> str:
+    if usage_context is None or usage_context.standalone_unpacker_filename is None:
+        return ""
+    payload: dict[str, Any] = {
+        "schema": "codecrate.agent-workflow.v1",
+        "recommended_first_action": "reconstruct",
+        "markdown": usage_context.markdown_filename,
+        "standalone_unpacker": usage_context.standalone_unpacker_filename,
+        "reconstruct_command": _reconstruct_command(usage_context),
+        "fallback_interpreters": ["/usr/bin/python3", "python3", "python -S"],
+        "inspect_after_reconstruction": True,
+        "manual_markdown_scraping": "avoid-unless-unpacker-fails",
+    }
+    if usage_context.index_json_filename:
+        payload["index_json"] = usage_context.index_json_filename
+    if usage_context.manifest_json_filename:
+        payload["manifest_json"] = usage_context.manifest_json_filename
+
+    lines: list[str] = []
+    _append_fenced_block(
+        lines,
+        json.dumps(payload, indent=2, sort_keys=False) + "\n",
+        FENCE_AGENT_WORKFLOW,
+    )
     return "".join(lines)
 
 
@@ -560,6 +642,7 @@ def render_markdown_result(  # noqa: C901
     repo_label: str = "repo",
     repo_slug: str = "repo",
     focus_selection: FocusSelectionResult | None = None,
+    usage_context: MarkdownUsageContext | None = None,
 ) -> RenderedMarkdown:
     lines: list[str] = []
     lines.append("# Codecrate Context Pack\n\n")
@@ -656,8 +739,10 @@ def render_markdown_result(  # noqa: C901
                 include_repository_guide=bool(guide_section),
                 include_directory_tree=include_directory_tree,
                 include_symbol_index=include_symbol_index,
+                usage_context=usage_context,
             )
         )
+    lines.append(_render_agent_workflow_block(usage_context))
     if include_environment_setup:
         lines.append(_render_environment_setup_section(pack.root))
     lines.append(guide_section)
@@ -805,6 +890,7 @@ def render_markdown(  # noqa: C901
     manifest_data: dict[str, Any] | None = None,
     repo_label: str = "repo",
     repo_slug: str = "repo",
+    usage_context: MarkdownUsageContext | None = None,
 ) -> str:
     return render_markdown_result(
         pack,
@@ -825,4 +911,5 @@ def render_markdown(  # noqa: C901
         manifest_data=manifest_data,
         repo_label=repo_label,
         repo_slug=repo_slug,
+        usage_context=usage_context,
     ).markdown

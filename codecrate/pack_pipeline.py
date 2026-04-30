@@ -30,7 +30,7 @@ from .manifest import manifest_sha256, to_manifest
 from .markdown import render_markdown_result
 from .model import PackResult
 from .options import PackOptions, resolve_pack_options
-from .output_model import PackRun
+from .output_model import MarkdownUsageContext, PackRun
 from .packer import pack_repo
 from .security import SafetyFinding, apply_safety_filters, build_ruleset
 from .tokens import TokenCounter, approx_token_count
@@ -46,6 +46,56 @@ def _resolve_output_index_json_mode(pack_runs: list[PackRun]) -> str:
     if not modes:
         return "full"
     return max(modes, key=lambda item: priority.get(item, -1))
+
+
+def _display_sidecar_filename(path: Path, *, base_dir: Path) -> str:
+    if path.is_absolute():
+        return path.name
+    try:
+        return path.relative_to(base_dir).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _build_usage_context(
+    *,
+    cfg: object,
+    args: Namespace,
+    root: Path,
+    options: PackOptions,
+) -> MarkdownUsageContext:
+    output_path = _resolve_output_path(cfg, args, root)
+    output_dir = output_path.parent
+    standalone_path: Path | None = None
+    if options.emit_standalone_unpacker:
+        raw = options.standalone_unpacker_output
+        standalone_path = (
+            Path(raw)
+            if raw and raw.strip()
+            else output_path.with_name(f"{output_path.stem}.unpack.py")
+        )
+    index_path = (
+        output_path.with_name(f"{output_path.stem}.index.json")
+        if options.index_json_enabled
+        else None
+    )
+    return MarkdownUsageContext(
+        markdown_filename=output_path.name,
+        standalone_unpacker_filename=(
+            _display_sidecar_filename(standalone_path, base_dir=output_dir)
+            if standalone_path is not None
+            else None
+        ),
+        index_json_filename=(
+            _display_sidecar_filename(index_path, base_dir=output_dir)
+            if index_path is not None
+            else None
+        ),
+        manifest_json_filename=None,
+        profile=options.profile,
+        locator_space=options.locator_space,
+        include_machine_header=options.include_manifest,
+    )
 
 
 @dataclass(frozen=True)
@@ -669,6 +719,12 @@ def _build_single_pack_run(
         options.nav_mode,
         options.split_max_chars,
     )
+    usage_context = _build_usage_context(
+        cfg=cfg,
+        args=args,
+        root=root,
+        options=options,
+    )
     rendered = render_markdown_result(
         pack,
         canonical,
@@ -689,6 +745,7 @@ def _build_single_pack_run(
         repo_label=label,
         repo_slug=slug,
         focus_selection=focus_selection,
+        usage_context=usage_context,
     )
     md = rendered.markdown
 

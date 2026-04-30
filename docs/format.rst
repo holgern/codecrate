@@ -131,6 +131,11 @@ format:
 
 ``codecrate pack --profile portable --emit-standalone-unpacker`` writes a
 standard-library-only ``<output>.unpack.py`` beside the main markdown output.
+Generated portable-agent markdown also includes a non-authoritative
+``codecrate-agent-workflow`` JSON fence. It gives coding agents a deterministic
+first-action hint, including the recommended ``python3 -S`` reconstruction
+command, sidecar filenames, fallback interpreters, and a reminder to avoid
+manual markdown scraping unless unpacking fails with a Codecrate error.
 
 
 IDs and deduplication

@@ -64,6 +64,11 @@ def _add_unpack_parser(
         help="Fail when marker-based reconstruction cannot be fully resolved.",
     )
     unpack.add_argument(
+        "--fail-on-warning",
+        action="store_true",
+        help="Exit non-zero when unpack emits any warnings.",
+    )
+    unpack.add_argument(
         "--encoding-errors",
         choices=["replace", "strict"],
         default=None,

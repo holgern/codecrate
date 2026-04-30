@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import re
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from .formats import PACK_FORMAT_VERSION
 from .ids import MARKER_NAMESPACE
@@ -14,6 +16,27 @@ from .udiff import ensure_parent_dir, normalize_newlines
 _MARK_RE = re.compile(
     rf"{MARKER_NAMESPACE}:(?:v\d+:)?(?P<id>[0-9A-Fa-f]{{8}})",
 )
+
+
+@dataclass(frozen=True)
+class UnpackIssue:
+    severity: Literal["warning", "error"]
+    path: str | None
+    message: str
+
+
+def _record_warning(issues: list[UnpackIssue], path: str | None, message: str) -> None:
+    issues.append(UnpackIssue(severity="warning", path=path, message=message))
+    warnings.warn(message, RuntimeWarning, stacklevel=3)
+
+
+def _raise_if_warning_failure(issues: list[UnpackIssue]) -> None:
+    warnings_found = [issue for issue in issues if issue.severity == "warning"]
+    if not warnings_found:
+        return
+    first = warnings_found[0]
+    suffix = f": {first.message}" if first.message else ""
+    raise ValueError(f"Unpack warnings encountered{suffix}")
 
 
 def _ws_len(s: str) -> int:
@@ -136,7 +159,13 @@ def _apply_canonical_into_stub(
     return "".join(lines)
 
 
-def _unpack_single_markdown(markdown_text: str, out_dir: Path, *, strict: bool) -> None:
+def _unpack_single_markdown(
+    markdown_text: str,
+    out_dir: Path,
+    *,
+    strict: bool,
+    issues: list[UnpackIssue],
+) -> None:
     packed = parse_packed_markdown(markdown_text)
     manifest = packed.manifest
     if manifest.get("format") != PACK_FORMAT_VERSION:
@@ -169,16 +198,16 @@ def _unpack_single_markdown(markdown_text: str, out_dir: Path, *, strict: bool) 
                 + "; ".join(marker_issues[:5])
                 + ("; ..." if len(marker_issues) > 5 else "")
             )
-            warnings.warn(msg, RuntimeWarning, stacklevel=2)
+            _record_warning(issues, rel, msg)
 
         exp_sha = f.get("sha256_original")
         if exp_sha:
             got_sha = hashlib.sha256(reconstructed.encode("utf-8")).hexdigest()
             if got_sha != exp_sha:
-                warnings.warn(
+                _record_warning(
+                    issues,
+                    rel,
                     f"SHA256 mismatch for {rel}: expected {exp_sha}, got {got_sha}",
-                    RuntimeWarning,
-                    stacklevel=2,
                 )
 
         # Prevent path traversal / writing outside out_dir
@@ -193,15 +222,32 @@ def _unpack_single_markdown(markdown_text: str, out_dir: Path, *, strict: bool) 
         if len(missing) > 10:
             files_str += "..."
         msg = f"Missing stubbed file blocks for {len(missing)} file(s): {files_str}"
-        warnings.warn(msg, RuntimeWarning, stacklevel=2)
+        _record_warning(issues, None, msg)
 
 
-def unpack_to_dir(markdown_text: str, out_dir: Path, *, strict: bool = False) -> None:
+def unpack_to_dir(
+    markdown_text: str,
+    out_dir: Path,
+    *,
+    strict: bool = False,
+    fail_on_warning: bool = False,
+) -> list[UnpackIssue]:
+    issues: list[UnpackIssue] = []
     sections = split_repository_sections(markdown_text)
     if not sections:
-        _unpack_single_markdown(markdown_text, out_dir, strict=strict)
-        return
+        _unpack_single_markdown(markdown_text, out_dir, strict=strict, issues=issues)
+        if fail_on_warning:
+            _raise_if_warning_failure(issues)
+        return issues
 
     out_root = out_dir.resolve()
     for section in sections:
-        _unpack_single_markdown(section.content, out_root / section.slug, strict=strict)
+        _unpack_single_markdown(
+            section.content,
+            out_root / section.slug,
+            strict=strict,
+            issues=issues,
+        )
+    if fail_on_warning:
+        _raise_if_warning_failure(issues)
+    return issues

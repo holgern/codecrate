@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 import warnings
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -37,6 +38,32 @@ _FENCE_OPEN_RE = re.compile(
 _MARK_RE = re.compile(r"FUNC:(?:v\d+:)?(?P<id>[0-9A-Fa-f]{8})")
 
 __SHARED_RUNTIME__
+
+
+@dataclass(frozen=True)
+class UnpackIssue:
+    severity: str
+    path: str | None
+    message: str
+
+
+def _record_warning(issues: list[UnpackIssue], path: str | None, message: str) -> None:
+    issues.append(UnpackIssue(severity="warning", path=path, message=message))
+    warnings.warn(message, RuntimeWarning, stacklevel=3)
+
+
+def _raise_if_warning_failure(issues: list[UnpackIssue]) -> None:
+    warnings_found = [issue for issue in issues if issue.severity == "warning"]
+    if not warnings_found:
+        return
+    first = warnings_found[0]
+    suffix = f": {first.message}" if first.message else ""
+    raise ValueError(f"Unpack warnings encountered{suffix}")
+
+
+def _progress(enabled: bool, message: str) -> None:
+    if enabled:
+        print(f"[codecrate-unpack] {message}", file=sys.stderr)
 
 
 def manifest_sha256(manifest: dict[str, Any]) -> str:
@@ -86,6 +113,7 @@ def _unpack_single_markdown(
     *,
     strict: bool,
     check_machine_header: bool,
+    issues: list[UnpackIssue],
 ) -> None:
     packed = parse_packed_markdown(markdown_text)
     manifest = packed.manifest
@@ -123,16 +151,16 @@ def _unpack_single_markdown(
                 + "; ".join(marker_issues[:5])
                 + ("; ..." if len(marker_issues) > 5 else "")
             )
-            warnings.warn(msg, RuntimeWarning, stacklevel=2)
+            _record_warning(issues, rel, msg)
 
         exp_sha = str(item.get("sha256_original") or "")
         if exp_sha:
             got_sha = hashlib.sha256(reconstructed.encode("utf-8")).hexdigest()
             if got_sha != exp_sha:
-                warnings.warn(
+                _record_warning(
+                    issues,
+                    rel,
                     f"SHA256 mismatch for {rel}: expected {exp_sha}, got {got_sha}",
-                    RuntimeWarning,
-                    stacklevel=2,
                 )
         _write_text_file(out_dir, rel, reconstructed)
 
@@ -140,10 +168,10 @@ def _unpack_single_markdown(
         files_str = ", ".join(missing[:10])
         if len(missing) > 10:
             files_str += "..."
-        warnings.warn(
+        _record_warning(
+            issues,
+            None,
             f"Missing stubbed file blocks for {len(missing)} file(s): {files_str}",
-            RuntimeWarning,
-            stacklevel=2,
         )
 
 
@@ -153,25 +181,41 @@ def unpack_to_dir(
     *,
     strict: bool = False,
     check_machine_header: bool = False,
-) -> None:
+    fail_on_warning: bool = False,
+    progress: bool = False,
+) -> list[UnpackIssue]:
+    issues: list[UnpackIssue] = []
     sections = split_repository_sections(markdown_text)
     if not sections:
+        _progress(progress, "parsing manifest")
+        _progress(progress, "reconstructing files")
+        _progress(progress, f"writing files to {out_dir}")
         _unpack_single_markdown(
             markdown_text,
             out_dir.resolve(),
             strict=strict,
             check_machine_header=check_machine_header,
+            issues=issues,
         )
-        return
+        if fail_on_warning:
+            _raise_if_warning_failure(issues)
+        return issues
 
     out_root = out_dir.resolve()
+    _progress(progress, f"reconstructing {len(sections)} repositories")
     for section in sections:
+        _progress(progress, f"parsing manifest for {section.slug}")
+        _progress(progress, f"writing files to {out_root / section.slug}")
         _unpack_single_markdown(
             section.content,
             out_root / section.slug,
             strict=strict,
             check_machine_header=check_machine_header,
+            issues=issues,
         )
+    if fail_on_warning:
+        _raise_if_warning_failure(issues)
+    return issues
 
 
 def _default_pack_path() -> Path:
@@ -209,10 +253,21 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Verify the machine-header manifest checksum before writing files.",
     )
+    parser.add_argument(
+        "--fail-on-warning",
+        action="store_true",
+        help="Exit non-zero when unpack emits any warnings.",
+    )
+    parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Print compact unpack stage markers to stderr.",
+    )
     args = parser.parse_args(argv)
 
     pack_path = args.pack_path or _default_pack_path()
     try:
+        _progress(bool(args.progress), f"reading {pack_path}")
         markdown_text = pack_path.read_text(encoding="utf-8", errors="replace")
     except FileNotFoundError:
         parser.exit(2, f"error: pack file not found: {pack_path}\n")
@@ -225,10 +280,13 @@ def main(argv: list[str] | None = None) -> None:
             args.out_dir,
             strict=bool(args.strict),
             check_machine_header=bool(args.check_machine_header),
+            fail_on_warning=bool(args.fail_on_warning),
+            progress=bool(args.progress),
         )
     except ValueError as exc:
         parser.exit(2, f"error: {exc}\n")
 
+    _progress(bool(args.progress), "done")
     print(f"Unpacked into {args.out_dir}")
 
 

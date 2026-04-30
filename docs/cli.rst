@@ -158,11 +158,14 @@ Portable reconstruction example:
 .. code-block:: console
 
    codecrate pack . -o context.md --profile portable --emit-standalone-unpacker
-   python context.unpack.py -o reconstructed/
+   python3 -S context.unpack.py context.md -o reconstructed/ --check-machine-header --strict --fail-on-warning
 
 The emitted script uses only the Python standard library. It supports both
 ``full`` and ``stubs`` layouts; ``portable`` remains the recommended profile
 when you want a reconstruction-first ``full`` pack.
+
+On Windows, use ``py -3 -S context.unpack.py context.md -o reconstructed
+--check-machine-header --strict --fail-on-warning``.
 
 If you also emit ``index-json``, the default ``locator_space = "auto"``
 switches the sidecar to reconstructed locators so tools can target the unpacked

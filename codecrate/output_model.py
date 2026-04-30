@@ -32,6 +32,17 @@ class RenderedMarkdown:
 
 
 @dataclass(frozen=True)
+class MarkdownUsageContext:
+    markdown_filename: str
+    standalone_unpacker_filename: str | None = None
+    index_json_filename: str | None = None
+    manifest_json_filename: str | None = None
+    profile: str = "human"
+    locator_space: str = "markdown"
+    include_machine_header: bool = True
+
+
+@dataclass(frozen=True)
 class PackRun:
     root: Path
     label: str

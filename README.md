@@ -89,7 +89,7 @@ Pack for retrieval plus zero-install reconstruction workflows:
 
 ```bash
 codecrate pack . -o context.md --profile portable-agent
-python context.unpack.py -o reconstructed/
+python3 -S context.unpack.py context.md -o reconstructed/ --check-machine-header --strict --fail-on-warning
 ```
 
 This keeps a reconstructable `full` pack, emits a minified normalized sidecar,
@@ -106,11 +106,17 @@ Pack for zero-install reconstruction workflows:
 
 ```bash
 codecrate pack . -o context.md --profile portable --emit-standalone-unpacker
-python context.unpack.py -o reconstructed/
+python3 -S context.unpack.py context.md -o reconstructed/ --check-machine-header --strict --fail-on-warning
 ```
 
 This keeps the unsplit markdown as the authoritative reconstruction source and
 does not require `index-json`.
+
+On Windows, use:
+
+```powershell
+py -3 -S context.unpack.py context.md -o reconstructed --check-machine-header --strict --fail-on-warning
+```
 
 The generated standalone unpacker now reconstructs both manifest-enabled
 `full` and `stubs` packs. The `portable` profile remains the recommended
@@ -437,6 +443,12 @@ Include globs are not applied, but exclude patterns and ignore files still apply
 Outside-root and missing entries are skipped (see `--print-skipped`).
 With `--print-skipped`, explicit-file filtering also reports reasons such as
 `not-a-file`, `outside-root`, `duplicate`, `ignored`, and `excluded`.
+
+For agent workflows, prefer reconstructing with the generated unpacker before
+analysis. If it fails with a Codecrate error, use `codecrate unpack PACK.md -o
+OUT` when Codecrate is installed. Avoid whole-file regex extraction from packed
+markdown; fallback parsers need the generated unpacker's line-by-line fence
+parsing, manifest/hash checks, and path traversal rejection.
 
 By default, codecrate prints a compact pack summary (total files, total tokens,
 total chars, output path). Disable it with `--no-file-summary` or
