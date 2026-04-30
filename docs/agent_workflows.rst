@@ -113,9 +113,11 @@ If ``python3`` is unavailable, try ``/usr/bin/python3`` or ``python -S``. On
 Windows, use ``py -3 -S context.unpack.py context.md -o reconstructed
 --check-machine-header --strict --fail-on-warning``. If the generated unpacker
 fails with a Codecrate error, use ``codecrate unpack PACK.md -o OUT`` when
-Codecrate is installed. Do not use whole-file regex extraction from packed
-markdown; fallback parsers need to match the generated unpacker's line-by-line
-fence parsing, manifest and file hash checks, and path traversal rejection.
+Codecrate is installed, adding ``--check-machine-header --strict
+--fail-on-warning`` for the same integrity checks. Do not use whole-file regex
+extraction from packed markdown; fallback parsers need to match the generated
+unpacker's line-by-line fence parsing, manifest and file hash checks, and path
+traversal rejection.
 
 
 Use The Index Sidecar

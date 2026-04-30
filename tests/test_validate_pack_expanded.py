@@ -62,12 +62,40 @@ def test_validate_reports_repo_scope_marker_collisions(tmp_path: Path) -> None:
         },
         layout="stubs",
     )
-    ids = re.findall(r"FUNC:v1:([0-9A-F]{8})", text)
-    assert len(ids) >= 2
-    tampered = text.replace(f"FUNC:v1:{ids[1]}", f"FUNC:v1:{ids[0]}", 1)
+    local_ids = re.findall(r'"local_id": "([0-9A-F]{8})"', text)
+    assert len(local_ids) >= 2
+    tampered = text.replace(
+        f'"local_id": "{local_ids[1]}"',
+        f'"local_id": "{local_ids[0]}"',
+        1,
+    ).replace(f"FUNC:v1:{local_ids[1]}", f"FUNC:v1:{local_ids[0]}", 1)
 
     report = validate_pack_markdown(tampered)
     assert any("Repo-scope marker collision" in w for w in report.warnings)
+
+
+def test_validate_ignores_literal_marker_examples_for_repo_scope_collisions(
+    tmp_path: Path,
+) -> None:
+    text = _pack_text(
+        tmp_path,
+        {
+            "fixture.md": '"id": "DEADBEEF"\nexample FUNC:v1:DEADBEEF\n',
+            "test_example.py": (
+                'MARKER = "FUNC:v1:DEADBEEF"\n'
+                "\n"
+                "def active():\n"
+                "    return 1\n"
+            ),
+        },
+        layout="stubs",
+    )
+
+    report = validate_pack_markdown(text)
+
+    assert not any(
+        "Repo-scope marker collision for DEADBEEF" in w for w in report.warnings
+    )
 
 
 def test_manifest_marks_defs_with_has_marker_for_nested_defs(tmp_path: Path) -> None:

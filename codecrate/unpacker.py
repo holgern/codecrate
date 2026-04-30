@@ -9,6 +9,7 @@ from typing import Literal
 
 from .formats import PACK_FORMAT_VERSION
 from .ids import MARKER_NAMESPACE
+from .manifest import manifest_sha256
 from .mdparse import parse_packed_markdown
 from .repositories import split_repository_sections
 from .udiff import ensure_parent_dir, normalize_newlines
@@ -37,6 +38,23 @@ def _raise_if_warning_failure(issues: list[UnpackIssue]) -> None:
     first = warnings_found[0]
     suffix = f": {first.message}" if first.message else ""
     raise ValueError(f"Unpack warnings encountered{suffix}")
+
+
+def _verify_machine_header(machine_header: dict | None, manifest: dict) -> None:
+    if machine_header is None:
+        raise ValueError("Machine header check requested but no machine header found.")
+
+    got_manifest_sha = str(machine_header.get("manifest_sha256") or "")
+    if not got_manifest_sha:
+        raise ValueError(
+            "Machine header check requested but manifest_sha256 is missing."
+        )
+    exp_manifest_sha = manifest_sha256(manifest)
+    if got_manifest_sha != exp_manifest_sha:
+        raise ValueError(
+            "Machine header checksum mismatch: "
+            f"expected {exp_manifest_sha}, got {got_manifest_sha}"
+        )
 
 
 def _ws_len(s: str) -> int:
@@ -164,12 +182,15 @@ def _unpack_single_markdown(
     out_dir: Path,
     *,
     strict: bool,
+    check_machine_header: bool,
     issues: list[UnpackIssue],
 ) -> None:
     packed = parse_packed_markdown(markdown_text)
     manifest = packed.manifest
     if manifest.get("format") != PACK_FORMAT_VERSION:
         raise ValueError(f"Unsupported format: {manifest.get('format')}")
+    if check_machine_header:
+        _verify_machine_header(packed.machine_header, manifest)
 
     out_dir = out_dir.resolve()
     missing: list[str] = []
@@ -231,11 +252,18 @@ def unpack_to_dir(
     *,
     strict: bool = False,
     fail_on_warning: bool = False,
+    check_machine_header: bool = False,
 ) -> list[UnpackIssue]:
     issues: list[UnpackIssue] = []
     sections = split_repository_sections(markdown_text)
     if not sections:
-        _unpack_single_markdown(markdown_text, out_dir, strict=strict, issues=issues)
+        _unpack_single_markdown(
+            markdown_text,
+            out_dir,
+            strict=strict,
+            check_machine_header=check_machine_header,
+            issues=issues,
+        )
         if fail_on_warning:
             _raise_if_warning_failure(issues)
         return issues
@@ -246,6 +274,7 @@ def unpack_to_dir(
             section.content,
             out_root / section.slug,
             strict=strict,
+            check_machine_header=check_machine_header,
             issues=issues,
         )
     if fail_on_warning:

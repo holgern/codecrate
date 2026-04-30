@@ -168,7 +168,7 @@ codecrate pack . -o context.md \
 Reconstruct files from a packed Markdown:
 
 ```bash
-codecrate unpack context.md -o reconstructed/
+codecrate unpack context.md -o reconstructed/ --check-machine-header --strict --fail-on-warning
 ```
 
 Validate before acting in CI or autonomous loops:
@@ -446,8 +446,9 @@ With `--print-skipped`, explicit-file filtering also reports reasons such as
 
 For agent workflows, prefer reconstructing with the generated unpacker before
 analysis. If it fails with a Codecrate error, use `codecrate unpack PACK.md -o
-OUT` when Codecrate is installed. Avoid whole-file regex extraction from packed
-markdown; fallback parsers need the generated unpacker's line-by-line fence
+OUT --check-machine-header --strict --fail-on-warning` when Codecrate is
+installed. Avoid whole-file regex extraction from packed markdown; fallback
+parsers need the generated unpacker's line-by-line fence
 parsing, manifest/hash checks, and path traversal rejection.
 
 By default, codecrate prints a compact pack summary (total files, total tokens,
@@ -466,13 +467,15 @@ Use `--safety-report` to include file-level actions/reasons (`skipped`/`redacted
 ### `unpack` - Reconstruct Files from Markdown
 
 ```bash
-codecrate unpack <markdown> -o <out-dir>
+codecrate unpack <markdown> -o <out-dir> [--check-machine-header] [--strict]
 ```
 
 **Options:**
 
 - `-o, --out-dir PATH`: Output directory for reconstructed files (required)
+- `--check-machine-header`: Verify the machine-header manifest checksum before writing files
 - `--strict`: Fail on missing/broken part mappings
+- `--fail-on-warning`: Exit non-zero when unpack emits any warnings
 
 For combined packs (multiple `# Repository: ...` sections), files are unpacked to
 `<out-dir>/<repo-slug>/...` per repository section.

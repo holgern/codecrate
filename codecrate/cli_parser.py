@@ -69,6 +69,11 @@ def _add_unpack_parser(
         help="Exit non-zero when unpack emits any warnings.",
     )
     unpack.add_argument(
+        "--check-machine-header",
+        action="store_true",
+        help="Verify the machine-header manifest checksum before writing files.",
+    )
+    unpack.add_argument(
         "--encoding-errors",
         choices=["replace", "strict"],
         default=None,
@@ -261,7 +266,7 @@ def _print_top_level_help(parser: argparse.ArgumentParser) -> None:
     print()
     print("Quick start examples:")
     print("  codecrate pack . -o context.md")
-    print("  codecrate unpack context.md -o out/ --strict")
+    print("  codecrate unpack context.md -o out/ --check-machine-header --strict")
     print("  codecrate patch baseline.md . -o changes.md")
     print("  codecrate apply changes.md .")
     print("  codecrate validate-pack context.md --strict")

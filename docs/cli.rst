@@ -38,7 +38,7 @@ Overview
 
    codecrate --version
    codecrate pack [ROOT ...] [--repo REPO ...] [options]
-   codecrate unpack PACK.md -o OUT_DIR [--strict]
+   codecrate unpack PACK.md -o OUT_DIR [--check-machine-header] [--strict]
    codecrate patch OLD_PACK.md ROOT [-o patch.md]
    codecrate apply PATCH.md ROOT [--check-baseline|--ignore-baseline]
    codecrate validate-pack PACK.md [--root ROOT] [--strict] [policy flags]
@@ -218,9 +218,11 @@ Reconstruct files into an output directory:
 
 .. code-block:: console
 
-   codecrate unpack context.md -o /tmp/out
+   codecrate unpack context.md -o /tmp/out --check-machine-header --strict --fail-on-warning
 
-Use ``--strict`` to fail on missing/broken part mappings.
+Use ``--check-machine-header`` to verify the machine-header manifest checksum
+before writing files, ``--strict`` to fail on missing/broken part mappings, and
+``--fail-on-warning`` to make warning conditions exit non-zero.
 If the input pack omits the Manifest section (for example from
 ``codecrate pack --no-manifest``), unpack fails with a clear hint to re-pack with
 manifest enabled.

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
+
+import pytest
 
 from codecrate.cli import main
 from codecrate.discover import discover_python_files
@@ -34,6 +37,78 @@ def test_pack_unpack_roundtrip(tmp_path: Path):
     assert (out_dir / "a.py").read_text(encoding="utf-8") == (root / "a.py").read_text(
         encoding="utf-8"
     )
+
+
+def test_unpack_checks_machine_header_when_requested(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+
+    packed = tmp_path / "context.md"
+    main(["pack", str(root), "-o", str(packed), "--profile", "portable"])
+
+    out_dir = tmp_path / "out"
+    unpack_to_dir(
+        packed.read_text(encoding="utf-8"),
+        out_dir,
+        check_machine_header=True,
+    )
+
+    assert (out_dir / "a.py").read_text(encoding="utf-8") == (
+        root / "a.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_unpack_rejects_corrupt_machine_header_before_writing(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+
+    packed = tmp_path / "context.md"
+    main(["pack", str(root), "-o", str(packed), "--profile", "portable"])
+    text = packed.read_text(encoding="utf-8")
+    match = re.search(r'"manifest_sha256":\s*"([0-9a-f]{64})"', text)
+    assert match is not None
+    tampered = text.replace(match.group(1), "0" * 64, 1)
+
+    out_dir = tmp_path / "out"
+    with pytest.raises(ValueError, match="Machine header checksum mismatch"):
+        unpack_to_dir(tampered, out_dir, check_machine_header=True)
+
+    assert not out_dir.exists()
+
+
+def test_cli_unpack_rejects_missing_machine_header_when_requested(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
+
+    packed = tmp_path / "context.md"
+    main(["pack", str(root), "-o", str(packed), "--profile", "portable"])
+    packed.write_text(
+        packed.read_text(encoding="utf-8").replace(
+            "```codecrate-machine-header", "```json", 1
+        ),
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "out"
+    with pytest.raises(ValueError, match="no machine header found"):
+        main(
+            [
+                "unpack",
+                str(packed),
+                "-o",
+                str(out_dir),
+                "--check-machine-header",
+            ]
+        )
+
+    assert not out_dir.exists()
 
 
 def test_pack_unpack_roundtrip_nested_defs(tmp_path: Path):

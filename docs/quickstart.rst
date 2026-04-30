@@ -111,7 +111,7 @@ Reconstruct files from a pack into a directory:
 .. code-block:: console
 
    codecrate unpack context.md -o /tmp/reconstructed
-   codecrate unpack context.md -o /tmp/reconstructed --strict
+   codecrate unpack context.md -o /tmp/reconstructed --check-machine-header --strict --fail-on-warning
 
 .. note::
 

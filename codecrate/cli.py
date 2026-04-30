@@ -54,6 +54,7 @@ def main(argv: list[str] | None = None) -> None:
                 args.out_dir,
                 strict=bool(args.strict),
                 fail_on_warning=bool(args.fail_on_warning),
+                check_machine_header=bool(args.check_machine_header),
             )
         except ValueError as e:
             if _is_no_manifest_error(e):

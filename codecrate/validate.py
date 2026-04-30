@@ -65,6 +65,7 @@ class _FileValidationResult:
     errors: list[str]
     warnings: list[str]
     marker_ids: list[str]
+    active_marker_ids: list[str]
     root_drift_paths: list[str]
 
 
@@ -188,6 +189,7 @@ def _validate_file_entry(
             errors=["Manifest entry missing 'path'"],
             warnings=[],
             marker_ids=[],
+            active_marker_ids=[],
             root_drift_paths=[],
         )
 
@@ -197,6 +199,7 @@ def _validate_file_entry(
             errors=[f"Missing stubbed file block for {rel}"],
             warnings=[],
             marker_ids=[],
+            active_marker_ids=[],
             root_drift_paths=[],
         )
 
@@ -209,6 +212,7 @@ def _validate_file_entry(
         )
 
     marker_ids = [m.group("id").upper() for m in _MARK_RE.finditer(stub_norm)]
+    active_marker_ids: list[str] = []
     if marker_ids:
         c = Counter(marker_ids)
         dup = [k for k, v in c.items() if v > 1]
@@ -227,6 +231,10 @@ def _validate_file_entry(
 
         if d.get("has_marker") is False:
             continue
+
+        marker_key = lid or cid
+        if marker_key:
+            active_marker_ids.append(marker_key)
 
         if (lid and lid not in marker_ids) and (cid and cid not in marker_ids):
             msg = (
@@ -254,6 +262,7 @@ def _validate_file_entry(
             errors=errors,
             warnings=warnings,
             marker_ids=marker_ids,
+            active_marker_ids=active_marker_ids,
             root_drift_paths=root_drift_paths,
         )
 
@@ -300,6 +309,7 @@ def _validate_file_entry(
         errors=errors,
         warnings=warnings,
         marker_ids=marker_ids,
+        active_marker_ids=active_marker_ids,
         root_drift_paths=root_drift_paths,
     )
 
@@ -441,7 +451,7 @@ def _validate_single_pack_markdown(
         warnings.extend(result.warnings)
         root_drift_paths.extend(result.root_drift_paths)
         rel = str(f.get("path") or "")
-        for marker_id in result.marker_ids:
+        for marker_id in result.active_marker_ids:
             marker_owners.setdefault(marker_id, set()).add(rel)
 
     for marker_id in sorted(marker_owners):

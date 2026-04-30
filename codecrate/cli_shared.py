@@ -293,7 +293,7 @@ def _print_top_level_help(parser: argparse.ArgumentParser) -> None:
     print()
     print("Quick start examples:")
     print("  codecrate pack . -o context.md")
-    print("  codecrate unpack context.md -o out/ --strict")
+    print("  codecrate unpack context.md -o out/ --check-machine-header --strict")
     print("  codecrate patch baseline.md . -o changes.md")
     print("  codecrate apply changes.md .")
     print("  codecrate validate-pack context.md --strict")
