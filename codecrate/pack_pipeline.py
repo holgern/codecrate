@@ -23,7 +23,7 @@ from .cli_pack_helpers import (
     _unique_label,
     _unique_slug,
 )
-from .config import load_config
+from .config import Config, load_config
 from .discover import Discovery, discover_files
 from .focus import FocusSelectionResult, build_focus_selection
 from .manifest import manifest_sha256, to_manifest
@@ -59,7 +59,7 @@ def _display_sidecar_filename(path: Path, *, base_dir: Path) -> str:
 
 def _build_usage_context(
     *,
-    cfg: object,
+    cfg: Config,
     args: Namespace,
     root: Path,
     options: PackOptions,

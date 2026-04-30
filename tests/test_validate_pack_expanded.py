@@ -82,10 +82,7 @@ def test_validate_ignores_literal_marker_examples_for_repo_scope_collisions(
         {
             "fixture.md": '"id": "DEADBEEF"\nexample FUNC:v1:DEADBEEF\n',
             "test_example.py": (
-                'MARKER = "FUNC:v1:DEADBEEF"\n'
-                "\n"
-                "def active():\n"
-                "    return 1\n"
+                'MARKER = "FUNC:v1:DEADBEEF"\n' "\n" "def active():\n" "    return 1\n"
             ),
         },
         layout="stubs",

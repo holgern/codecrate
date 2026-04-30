@@ -299,6 +299,7 @@ def _validate_file_entry(
                     errors=errors,
                     warnings=warnings,
                     marker_ids=marker_ids,
+                    active_marker_ids=active_marker_ids,
                     root_drift_paths=root_drift_paths,
                 )
             if _sha256_text(disk_text) != got_orig:

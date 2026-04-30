@@ -54,9 +54,9 @@ def test_unpack_checks_machine_header_when_requested(tmp_path: Path) -> None:
         check_machine_header=True,
     )
 
-    assert (out_dir / "a.py").read_text(encoding="utf-8") == (
-        root / "a.py"
-    ).read_text(encoding="utf-8")
+    assert (out_dir / "a.py").read_text(encoding="utf-8") == (root / "a.py").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_unpack_rejects_corrupt_machine_header_before_writing(

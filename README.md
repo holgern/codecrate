@@ -445,8 +445,7 @@ With `--print-skipped`, explicit-file filtering also reports reasons such as
 `not-a-file`, `outside-root`, `duplicate`, `ignored`, and `excluded`.
 
 For agent workflows, prefer reconstructing with the generated unpacker before
-analysis. If it fails with a Codecrate error, use `codecrate unpack PACK.md -o
-OUT --check-machine-header --strict --fail-on-warning` when Codecrate is
+analysis. If it fails with a Codecrate error, use `codecrate unpack PACK.md -o OUT --check-machine-header --strict --fail-on-warning` when Codecrate is
 installed. Avoid whole-file regex extraction from packed markdown; fallback
 parsers need the generated unpacker's line-by-line fence
 parsing, manifest/hash checks, and path traversal rejection.
