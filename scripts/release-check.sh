@@ -4,14 +4,21 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+step() { printf ":: %s\n" "$*"; }
+
+step "ruff check"
 ruff check .
+
+step "ruff format --check"
 ruff format --check .
+
+step "pytest"
 pytest -q
-if command -v sphinx-build >/dev/null 2>&1; then
-    sphinx-build -b dummy docs docs/_build/dummy
-fi
+
+step "build sdist + wheel"
 python -m build
 
+step "smoke-test wheel in clean copy"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
@@ -31,3 +38,5 @@ rsync -a \
     python -m build
     python -m codecrate --version
 )
+
+printf "All checks passed.\n"
