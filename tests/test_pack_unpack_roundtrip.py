@@ -229,3 +229,46 @@ def test_unpack_portable_roundtrip_with_markdown_headings_in_file_content(
     assert (out_dir / "AGENTS.md").read_text(encoding="utf-8") == (
         root / "AGENTS.md"
     ).read_text(encoding="utf-8")
+
+
+def test_pack_unpack_empty_file_no_warning(tmp_path: Path) -> None:
+    """Empty files like py.typed should not trigger 'Missing stubbed file blocks'."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    pkg = root / "mypkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "py.typed").write_text("\n", encoding="utf-8")
+    (pkg / "mod.py").write_text(
+        "def hello():\n    return 42\n",
+        encoding="utf-8",
+    )
+
+    packed = tmp_path / "context.md"
+    main(
+        [
+            "pack",
+            str(root),
+            "-o",
+            str(packed),
+            "--include",
+            "**/*.py",
+            "--include",
+            "**/*.typed",
+        ]
+    )
+
+    out_dir = tmp_path / "out"
+    issues = unpack_to_dir(
+        packed.read_text(encoding="utf-8"),
+        out_dir,
+        fail_on_warning=False,
+    )
+
+    missing_warnings = [i for i in issues if "Missing stubbed file block" in i.message]
+    assert missing_warnings == []
+
+    assert (out_dir / "mypkg" / "py.typed").exists()
+    assert (out_dir / "mypkg" / "mod.py").read_text(encoding="utf-8") == (
+        root / "mypkg" / "mod.py"
+    ).read_text(encoding="utf-8")

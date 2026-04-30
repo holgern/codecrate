@@ -132,7 +132,8 @@ def _unpack_single_markdown(
         stub = packed.stubbed_files.get(rel)
         exp = item.get("line_count")
         exp_n = int(exp) if exp is not None else None
-        if stub is None or (exp_n and exp_n > 0 and not stub.strip()):
+        has_defs = bool(item.get("defs"))
+        if stub is None or (has_defs and exp_n and exp_n > 0 and not stub.strip()):
             missing.append(rel)
             continue
 
