@@ -89,6 +89,7 @@ Useful flags:
 * ``.codecrateignore``: gitignore-style ignore file in repo root (always respected)
 * ``--include GLOB`` (repeatable): include patterns
 * ``--include-preset python-only|python+docs|everything``: include preset
+* ``--include-root PATH`` (repeatable): scope discovery to a repo-relative directory or file root before include patterns
 * ``--exclude GLOB`` (repeatable): exclude patterns
 * ``--stdin``: read file paths from stdin (one per line) instead of scanning
 * ``--stdin0``: read file paths from stdin as NUL-separated entries
@@ -142,6 +143,11 @@ Useful flags:
    ``--emit-standalone-unpacker`` is enabled and otherwise to ``markdown``
 * ``--encoding-errors replace|strict``: UTF-8 decode policy when reading files
 * ``-o/--output PATH``: output markdown path (defaults to config ``output`` or ``context.md``)
+
+Directory whitelists
+~~~~~~~~~~~~~~~~~~~~
+
+Use ``--include-root`` or config ``include_roots`` to pack only selected directories while keeping broad suffix filters in ``--include`` or config ``include``. ``exclude`` is still applied last, so do not exclude parent directories that contain wanted files. ``gitignore_allow`` only affects ``.gitignore`` matches and does not override ``exclude`` or ``.codecrateignore``. Use ``--print-rules --print-files --print-skipped`` to inspect selection.
 
 Profile defaults:
 

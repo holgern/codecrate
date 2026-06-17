@@ -10,6 +10,7 @@ from .config import Config, include_patterns_for_preset
 @dataclass(frozen=True)
 class PackOptions:
     include: list[str] | None
+    include_roots: list[str]
     include_source: str
     exclude: list[str] | None
     keep_docstrings: bool
@@ -197,6 +198,11 @@ def _resolve_selection_options(
     else:
         include = cfg.include
         include_source = f"config include/include_preset={cfg.include_preset}"
+    include_roots = (
+        list(args.include_root)
+        if getattr(args, "include_root", None) is not None
+        else list(getattr(cfg, "include_roots", []))
+    )
     keep_docstrings = (
         cfg.keep_docstrings
         if args.keep_docstrings is None
@@ -204,6 +210,7 @@ def _resolve_selection_options(
     )
     return {
         "include": include,
+        "include_roots": include_roots,
         "include_source": include_source,
         "exclude": args.exclude if args.exclude is not None else cfg.exclude,
         "keep_docstrings": keep_docstrings,

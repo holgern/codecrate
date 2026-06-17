@@ -199,6 +199,15 @@ def _add_pack_safety_args(pack: argparse.ArgumentParser) -> None:
         help="Include glob (repeatable)",
     )
     pack.add_argument(
+        "--include-root",
+        action="append",
+        default=None,
+        help=(
+            "Scope discovery to a repo-relative directory or file root before "
+            "include globs are applied. Repeatable."
+        ),
+    )
+    pack.add_argument(
         "--include-preset",
         choices=sorted(INCLUDE_PRESETS),
         default=None,

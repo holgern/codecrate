@@ -46,6 +46,45 @@ def test_discover_files_includes_non_py_defaults(tmp_path: Path) -> None:
     assert "pyproject.toml" in rels
 
 
+def test_discover_files_include_roots_scopes_existing_include_patterns(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "addons" / "wanted").mkdir(parents=True)
+    (tmp_path / "addons" / "other").mkdir(parents=True)
+    (tmp_path / "addons" / "wanted" / "a.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "addons" / "wanted" / "a.txt").write_text("x\n", encoding="utf-8")
+    (tmp_path / "addons" / "other" / "b.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=False,
+        include_roots=["addons/wanted"],
+    )
+
+    assert [p.relative_to(tmp_path).as_posix() for p in disc.files] == [
+        "addons/wanted/a.py"
+    ]
+
+
+def test_discover_files_include_roots_still_respects_exclude(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "addons" / "wanted").mkdir(parents=True)
+    (tmp_path / "addons" / "wanted" / "a.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=["addons/wanted/**"],
+        respect_gitignore=False,
+        include_roots=["addons/wanted"],
+    )
+
+    assert disc.files == []
+
+
 def test_discover_nested_dirs(tmp_path: Path) -> None:
     """Test file discovery in nested directories."""
     (tmp_path / "sub1").mkdir()
@@ -241,6 +280,26 @@ def test_discover_files_explicit_respects_exclude_patterns(tmp_path: Path) -> No
     )
 
     assert disc.files == [tmp_path / "a.py"]
+
+
+def test_discover_files_include_roots_bypassed_for_explicit_files(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "wanted").mkdir()
+    (tmp_path / "other").mkdir()
+    (tmp_path / "wanted" / "a.py").write_text("pass\n", encoding="utf-8")
+    (tmp_path / "other" / "b.py").write_text("pass\n", encoding="utf-8")
+
+    disc = discover_files(
+        root=tmp_path,
+        include=["**/*.py"],
+        exclude=[],
+        respect_gitignore=False,
+        include_roots=["wanted"],
+        explicit_files=[Path("other/b.py")],
+    )
+
+    assert [p.relative_to(tmp_path).as_posix() for p in disc.files] == ["other/b.py"]
 
 
 def test_discover_files_explicit_respects_gitignore_when_enabled(

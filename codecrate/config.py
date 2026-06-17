@@ -73,6 +73,7 @@ class Config:
     respect_gitignore: bool = True
     gitignore_allow: list[str] = field(default_factory=list)
     include: list[str] = field(default_factory=lambda: DEFAULT_INCLUDES.copy())
+    include_roots: list[str] = field(default_factory=list)
     include_preset: IncludePresetValue = DEFAULT_INCLUDE_PRESET
     exclude: list[str] = field(default_factory=list)
     split_max_chars: int = 0  # 0 means no splitting
@@ -255,6 +256,14 @@ CONFIG_FIELD_METADATA: dict[str, ConfigFieldMetadata] = {
         type_name="list[string]",
         description="Include glob patterns.",
         cli_flags=("--include",),
+    ),
+    "include_roots": ConfigFieldMetadata(
+        type_name="list[string]",
+        description=(
+            "Repo-relative directory or file roots that scope discovery before "
+            "include patterns are applied. Empty means scan the whole root."
+        ),
+        cli_flags=("--include-root",),
     ),
     "include_preset": ConfigFieldMetadata(
         type_name="enum",

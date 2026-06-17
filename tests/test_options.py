@@ -128,6 +128,7 @@ def test_resolve_pack_options_config_overrides_defaults(tmp_path: Path) -> None:
     assert options.include == ["**/*.py"]
     assert options.include_source == "config include/include_preset=python-only"
     assert options.gitignore_allow == ["fixtures/**"]
+    assert options.include_roots == []
 
 
 def test_resolve_pack_options_cli_overrides_config(tmp_path: Path) -> None:
@@ -152,6 +153,33 @@ def test_resolve_pack_options_cli_overrides_config(tmp_path: Path) -> None:
     assert options.nav_mode == "full"
     assert options.include == ["**/*"]
     assert options.include_source == "cli --include-preset=everything"
+
+
+def test_resolve_pack_options_config_include_roots(tmp_path: Path) -> None:
+    cfg = Config(include_roots=["addons/a", "addons/b"])
+
+    options = resolve_pack_options(cfg, _parse_pack_args(tmp_path))
+
+    assert options.include_roots == ["addons/a", "addons/b"]
+
+
+def test_resolve_pack_options_cli_include_root_overrides_config(
+    tmp_path: Path,
+) -> None:
+    cfg = Config(include_roots=["addons/configured"])
+
+    options = resolve_pack_options(
+        cfg,
+        _parse_pack_args(
+            tmp_path,
+            "--include-root",
+            "addons/first",
+            "--include-root",
+            "addons/second",
+        ),
+    )
+
+    assert options.include_roots == ["addons/first", "addons/second"]
 
 
 def test_resolve_pack_options_explicit_index_json_preserves_profile_mode(

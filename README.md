@@ -227,6 +227,9 @@ Create a `.codecrate.toml` or `codecrate.toml` file in your repository root:
 # File patterns to include (default preset: "python+docs")
 include = ["**/*.py"]
 
+# Optional repo-relative directory or file roots to scan before include globs
+include_roots = ["addons/addon_a", "addons/addon_b"]
+
 # Include preset fallback when `include` is not set:
 # "python-only" | "python+docs" | "everything"
 include_preset = "python+docs"
@@ -367,6 +370,24 @@ max_workers = 0
 file_summary = true
 ```
 
+### Whitelist only selected directories
+
+To pack only selected directories, make `include_roots` the directory whitelist or scope `include` patterns directly. Do not exclude parent directories you want to keep. `exclude` is applied after `include_roots` and `include`, so an excluded parent such as `addons` removes all children even when a child path also appears in `include_roots`.
+
+Example:
+
+```toml
+[codecrate]
+include_roots = [
+  "addons/addon_a",
+  "addons/addon_b",
+]
+include = ["**/*.py", "**/*.md", "**/*.js", "**/*.css", "**/*.html"]
+exclude = ["context.md", "context.index.json", "context.unpack.py"]
+```
+
+If `.gitignore` ignores the selected directories, add `gitignore_allow` entries for them. This only affects `.gitignore`; it does not override `exclude` or `.codecrateignore`. If `.codecrateignore` excludes a wanted path, change `.codecrateignore` directly. Use `--print-rules --print-files --print-skipped` to diagnose selection.
+
 ## Command Reference
 
 ### `pack` - Pack Repository to Markdown
@@ -400,6 +421,7 @@ codecrate pack <root> [OPTIONS]
   `name=regex` or `regex`)
 - `--include GLOB`: Include glob pattern (repeatable)
 - `--include-preset {python-only,python+docs,everything}`: Select include preset
+- `--include-root PATH`: Scope discovery to a repo-relative directory or file root before include globs are applied (repeatable)
 - `--exclude GLOB`: Exclude glob pattern (repeatable)
 - `--analysis-metadata` / `--no-analysis-metadata`: Include repository guide plus analysis-oriented sidecar metadata
 - `--focus-file PATH`: Focus the pack on a repo-relative file path (repeatable)
@@ -439,7 +461,7 @@ codecrate pack <root> [OPTIONS]
 - `--encoding-errors {replace,strict}`: UTF-8 decode policy for input files
 
 When `--stdin`/`--stdin0` is used, only explicitly listed files are considered.
-Include globs are not applied, but exclude patterns and ignore files still apply.
+Include globs and include roots are not applied, but exclude patterns and ignore files still apply.
 Outside-root and missing entries are skipped (see `--print-skipped`).
 With `--print-skipped`, explicit-file filtering also reports reasons such as
 `not-a-file`, `outside-root`, `duplicate`, `ignored`, and `excluded`.

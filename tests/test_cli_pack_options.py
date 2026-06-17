@@ -289,6 +289,37 @@ def test_pack_include_overrides_include_preset(tmp_path: Path) -> None:
     assert "### `notes.txt`" not in text
 
 
+def test_pack_include_roots_scopes_configured_include_patterns(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "addons" / "wanted").mkdir(parents=True)
+    (tmp_path / "addons" / "other").mkdir(parents=True)
+    (tmp_path / "addons" / "wanted" / "a.py").write_text(
+        "def a():\n    return 1\n", encoding="utf-8"
+    )
+    (tmp_path / "addons" / "wanted" / "a.md").write_text("# wanted\n", encoding="utf-8")
+    (tmp_path / "addons" / "other" / "b.py").write_text(
+        "def b():\n    return 2\n", encoding="utf-8"
+    )
+    (tmp_path / "README.md").write_text("# root\n", encoding="utf-8")
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+include_roots = ["addons/wanted"]
+include = ["**/*.py", "**/*.md"]
+""",
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "context.md"
+
+    main(["pack", str(tmp_path), "-o", str(out_path)])
+
+    text = out_path.read_text(encoding="utf-8")
+    assert "### `addons/wanted/a.py`" in text
+    assert "### `addons/wanted/a.md`" in text
+    assert "### `addons/other/b.py`" not in text
+    assert "### `README.md`" not in text
+
+
 def test_pack_uses_config_for_index_json_mode_and_standalone_unpacker(
     tmp_path: Path,
 ) -> None:

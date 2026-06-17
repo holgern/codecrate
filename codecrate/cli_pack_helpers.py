@@ -436,11 +436,17 @@ def _print_skipped_files(*, label: str, skipped: list[tuple[str, str]]) -> None:
 
 def _print_effective_rules(*, label: str, root: Path, options: PackOptions) -> None:
     include = options.include or []
+    include_roots = options.include_roots or []
     exclude = DEFAULT_EXCLUDES + (options.exclude or [])
     print(f"Debug: effective rules for {label}:", file=sys.stderr)
     print(f"  include-source: {options.include_source}", file=sys.stderr)
     print(
         f"  include ({len(include)}): {', '.join(include) if include else '<none>'}",
+        file=sys.stderr,
+    )
+    print(
+        f"  include-roots ({len(include_roots)}): "
+        f"{', '.join(include_roots) if include_roots else '<none>'}",
         file=sys.stderr,
     )
     print(

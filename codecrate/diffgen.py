@@ -37,6 +37,7 @@ def generate_patch_markdown(
     root: Path,
     *,
     include: list[str] | None = None,
+    include_roots: list[str] | None = None,
     exclude: list[str] | None = None,
     respect_gitignore: bool = True,
     gitignore_allow: list[str] | None = None,
@@ -129,6 +130,7 @@ def generate_patch_markdown(
         root,
         include=include,
         exclude=exclude,
+        include_roots=include_roots,
         respect_gitignore=respect_gitignore,
         gitignore_allow=gitignore_allow,
     )

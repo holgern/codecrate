@@ -194,6 +194,7 @@ def _discover_and_filter_files(
         exclude=options.exclude,
         respect_gitignore=options.respect_gitignore,
         gitignore_allow=options.gitignore_allow,
+        include_roots=options.include_roots,
         explicit_files=stdin_files,
     )
     safe_files = disc.files

@@ -143,6 +143,40 @@ def render_config_reference_rst() -> str:
             field_spec["description"],
         ]
         lines.append("   " + ", ".join(_csv_cell(str(value)) for value in row))
+    lines.extend(
+        [
+            "",
+            "Directory whitelists",
+            "~~~~~~~~~~~~~~~~~~~~",
+            "",
+            (
+                "Use ``include_roots`` to pack only selected repo-relative "
+                "directories or files while keeping broad suffix filters in "
+                "``include``. ``exclude`` still wins after ``include_roots`` and "
+                "``include``, so do not exclude a parent directory that contains "
+                "files you want to keep."
+            ),
+            "",
+            ".. code-block:: toml",
+            "",
+            "   [codecrate]",
+            "   include_roots = [",
+            '     "addons/addon_a",',
+            '     "addons/addon_b",',
+            "   ]",
+            ('   include = ["**/*.py", "**/*.md", "**/*.js", "**/*.css", "**/*.html"]'),
+            ('   exclude = ["context.md", "context.index.json", "context.unpack.py"]'),
+            "",
+            (
+                "``gitignore_allow`` only re-includes paths ignored by "
+                "``.gitignore``. It does not override ``exclude`` or "
+                "``.codecrateignore``. If ``.codecrateignore`` excludes a "
+                "wanted path, update ``.codecrateignore`` directly. Use "
+                "``--print-rules --print-files --print-skipped`` to inspect "
+                "the effective selection."
+            ),
+        ]
+    )
     return "\n".join(lines).rstrip() + "\n"
 
 

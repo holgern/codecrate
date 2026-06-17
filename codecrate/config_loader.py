@@ -186,6 +186,14 @@ def _load_base_config(
                 source=source,
                 config_key=provenance["include_preset"].config_key,
             )
+    cfg.include_roots = _load_string_list(
+        section,
+        "include_roots",
+        cfg.include_roots,
+        warnings=warnings,
+        provenance=provenance,
+        source=source,
+    )
     cfg.exclude = _load_string_list(
         section,
         "exclude",

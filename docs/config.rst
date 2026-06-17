@@ -79,6 +79,7 @@ Supported keys
    "respect_gitignore", "boolean", "true", "both", "--respect-gitignore, --no-respect-gitignore", "none", "none", "Respect .gitignore during file discovery."
    "gitignore_allow", "list[string]", "[]", "config-only", "none", "none", "none", "Allowlist patterns that re-include matching .gitignore paths."
    "include", "list[string]", "[""**/*.py"", ""pyproject.toml"", ""project.toml"", ""setup.cfg"", ""README*"", ""LICENSE*"", ""docs/**/*.rst"", ""docs/**/*.md""]", "both", "--include", "none", "none", "Include glob patterns."
+   "include_roots", "list[string]", "[]", "both", "--include-root", "none", "none", "Repo-relative directory or file roots that scope discovery before include patterns are applied. Empty means scan the whole root."
    "include_preset", "enum", """python+docs""", "both", "--include-preset", "none", "python-only, python+docs, everything", "Fallback include preset when include is not set."
    "exclude", "list[string]", "[]", "both", "--exclude", "none", "none", "Exclude glob patterns."
    "split_max_chars", "integer", "0", "both", "--split-max-chars", "none", "none", "Split markdown output when it exceeds this many characters."
@@ -144,3 +145,20 @@ Supported keys
    "include_tests", "boolean", "false", "both", "--include-tests, --no-include-tests", "none", "none", "Include heuristically related tests in focused packs."
    "symbol_backend", "enum", """auto""", "both", "--symbol-backend", "none", "auto, python, tree-sitter, none", "Optional non-Python symbol extraction backend."
    "encoding_errors", "enum", """replace""", "both", "--encoding-errors", "none", "replace, strict", "UTF-8 decoding policy for repository and markdown reads."
+
+Directory whitelists
+~~~~~~~~~~~~~~~~~~~~
+
+Use ``include_roots`` to pack only selected repo-relative directories or files while keeping broad suffix filters in ``include``. ``exclude`` still wins after ``include_roots`` and ``include``, so do not exclude a parent directory that contains files you want to keep.
+
+.. code-block:: toml
+
+   [codecrate]
+   include_roots = [
+     "addons/addon_a",
+     "addons/addon_b",
+   ]
+   include = ["**/*.py", "**/*.md", "**/*.js", "**/*.css", "**/*.html"]
+   exclude = ["context.md", "context.index.json", "context.unpack.py"]
+
+``gitignore_allow`` only re-includes paths ignored by ``.gitignore``. It does not override ``exclude`` or ``.codecrateignore``. If ``.codecrateignore`` excludes a wanted path, update ``.codecrateignore`` directly. Use ``--print-rules --print-files --print-skipped`` to inspect the effective selection.

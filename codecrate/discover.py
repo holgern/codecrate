@@ -118,12 +118,34 @@ def _resolve_explicit_files(
     return out, skipped
 
 
+def _normalize_include_root(value: str) -> str | None:
+    value = str(value).strip().replace("\\", "/")
+    value = value.lstrip("./").rstrip("/")
+    if not value or value.startswith("/") or value == ".." or value.startswith("../"):
+        return None
+    return value
+
+
+def _include_root_spec(include_roots: list[str] | None) -> pathspec.PathSpec | None:
+    patterns: list[str] = []
+    for raw in include_roots or []:
+        value = _normalize_include_root(raw)
+        if value is None:
+            continue
+        patterns.append(value)
+        patterns.append(f"{value}/**")
+    if not patterns:
+        return None
+    return pathspec.PathSpec.from_lines("gitignore", patterns)
+
+
 def discover_files(
     root: Path,
     include: list[str] | None,
     exclude: list[str] | None,
     respect_gitignore: bool = True,
     gitignore_allow: list[str] | None = None,
+    include_roots: list[str] | None = None,
     *,
     explicit_files: Sequence[Path] | None = None,
 ) -> Discovery:
@@ -149,6 +171,7 @@ def discover_files(
     )
     inc = pathspec.PathSpec.from_lines("gitignore", include or ["**/*.py"])
 
+    scope = _include_root_spec(include_roots)
     effective_exclude = DEFAULT_EXCLUDES + (exclude or [])
     exc = pathspec.PathSpec.from_lines("gitignore", effective_exclude)
 
@@ -171,6 +194,8 @@ def discover_files(
             if explicit_files is not None:
                 skipped.append(DiscoverySkip(path=rel_s, reason="ignored"))
             continue
+        if apply_inc and scope is not None and not scope.match_file(rel_s):
+            continue
         if apply_inc and not inc.match_file(rel_s):
             continue
         if exc.match_file(rel_s):
@@ -190,6 +215,7 @@ def discover_python_files(
     exclude: list[str] | None,
     respect_gitignore: bool = True,
     gitignore_allow: list[str] | None = None,
+    include_roots: list[str] | None = None,
 ) -> Discovery:
     root = root.resolve()
 
@@ -200,6 +226,7 @@ def discover_python_files(
     )
     inc = pathspec.PathSpec.from_lines("gitignore", include or ["**/*.py"])
 
+    scope = _include_root_spec(include_roots)
     effective_exclude = DEFAULT_EXCLUDES + (exclude or [])
     exc = pathspec.PathSpec.from_lines("gitignore", effective_exclude)
 
@@ -211,6 +238,8 @@ def discover_python_files(
         rel_s = rel.as_posix()
 
         if ignore.match_file(rel_s):
+            continue
+        if scope is not None and not scope.match_file(rel_s):
             continue
         if not inc.match_file(rel_s):
             continue

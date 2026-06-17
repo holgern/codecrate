@@ -19,6 +19,7 @@ def test_config_defaults() -> None:
     assert cfg.respect_gitignore is True
     assert cfg.gitignore_allow == []
     assert cfg.include == DEFAULT_INCLUDES
+    assert cfg.include_roots == []
     assert cfg.exclude == []
     assert cfg.split_max_chars == 0
     assert cfg.split_strict is False
@@ -114,6 +115,7 @@ profile = "agent"
 respect_gitignore = false
 gitignore_allow = ["fixtures/**", "ignored.py"]
 include = ["src/**/*.py"]
+include_roots = ["addons/a", "addons/b"]
 exclude = ["tests/**"]
 split_max_chars = 100000
 split_strict = true
@@ -131,6 +133,7 @@ split_allow_cut_files = true
     assert cfg.respect_gitignore is False
     assert cfg.gitignore_allow == ["fixtures/**", "ignored.py"]
     assert cfg.include == ["src/**/*.py"]
+    assert cfg.include_roots == ["addons/a", "addons/b"]
     assert cfg.exclude == ["tests/**"]
     assert cfg.split_max_chars == 100000
     assert cfg.split_strict is True
@@ -194,6 +197,18 @@ include = ["custom/*.txt"]
     cfg = load_config(tmp_path)
     assert cfg.include_preset == "everything"
     assert cfg.include == ["custom/*.txt"]
+
+
+def test_load_config_include_roots(tmp_path: Path) -> None:
+    (tmp_path / "codecrate.toml").write_text(
+        """[codecrate]
+include_roots = ["addons/a", "addons/b"]
+""",
+        encoding="utf-8",
+    )
+
+    cfg = load_config(tmp_path)
+    assert cfg.include_roots == ["addons/a", "addons/b"]
 
 
 def test_load_config_token_count_values(tmp_path: Path) -> None:
