@@ -1,0 +1,961 @@
+[
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "added",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.5.0",
+    "scopes": [],
+    "source_refs": [
+      "git:1d2a00e8c3fc87d95a08c86480c0d41a36ab0425"
+    ],
+    "status": "accepted",
+    "summary": "root parameter for pack to restrict output to a selected subdirectory of a repository instead of the whole tree"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "added",
+    "order": 1,
+    "record_revision": 2,
+    "release_version": "v0.1.0",
+    "scopes": [],
+    "source_refs": [
+      "git:0605e2ab9f1c87bc0ebe37d4c0dd126bc2205e57",
+      "git:25f4a147db21cb5bebd7c3dfdb2f2c90a28efb60"
+    ],
+    "status": "accepted",
+    "summary": "Initial codecrate release packing a Python repository into a Markdown context pack with symbol indexing, deduplication, stubs and full layouts, and gitignore-aware scanning"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "fixed",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.1.1",
+    "scopes": [],
+    "source_refs": [
+      "git:4591edb4cdf2667da871dfdd7da33416cb2af9e3"
+    ],
+    "status": "accepted",
+    "summary": "Clearer error reporting for invalid configuration and packing failures"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "added",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.1.2",
+    "scopes": [],
+    "source_refs": [
+      "git:3ede7bcd7a4afd7c992b7dab27d0e08286047bdf"
+    ],
+    "status": "accepted",
+    "summary": "Pack multiple repositories into a single context pack via repeated source paths"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "fixed",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.1.3",
+    "scopes": [],
+    "source_refs": [
+      "git:3bd4b1e3bb36b011d134bf570bd84df2b07b9c0e"
+    ],
+    "status": "accepted",
+    "summary": "Dropped lines when rendering numbered Markdown content in packs"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "added",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.2.0",
+    "scopes": [],
+    "source_refs": [
+      "git:3d623be081488e9fed765ec0577b3913ee9bce48"
+    ],
+    "status": "accepted",
+    "summary": "Token counting and a per-pack summary so total token cost is visible before sending to an LLM"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "added",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.3.0",
+    "scopes": [],
+    "source_refs": [
+      "git:2c477a127db923350a0497c634be588ea219e982"
+    ],
+    "status": "accepted",
+    "summary": "Secure symlink handling that bounds traversal to the packed root and rejects unsafe links"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "added",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.3.1",
+    "scopes": [],
+    "source_refs": [
+      "git:88019331887235217e26cae392c3d1ad48086914"
+    ],
+    "status": "accepted",
+    "summary": "Dry-run mode that previews a pack, patch, or validate operation without writing files"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "added",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.3.2",
+    "scopes": [],
+    "source_refs": [
+      "git:60422334a1334c119b0598c24497d6806cfe762a"
+    ],
+    "status": "accepted",
+    "summary": "--no-dedupe option to disable function-body deduplication, plus validation and patch improvements"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "added",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.3.3",
+    "scopes": [],
+    "source_refs": [
+      "git:2eb9d1a94b1c7e3c1cdf66db5d6b6212f0ca9025"
+    ],
+    "status": "accepted",
+    "summary": "Splitting of large repositories into multiple Markdown files with an index that links them"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "added",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.3.4",
+    "scopes": [],
+    "source_refs": [
+      "git:9bd1a122cd9504a2579601d14dd2be9f1d6c2473"
+    ],
+    "status": "accepted",
+    "summary": "Option to print the resolved configuration for a repository"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "added",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.4.0",
+    "scopes": [],
+    "source_refs": [
+      "git:61157ba7333cf7061019cb8f6f9f62b017610017",
+      "git:ff87356a8890115a18cc2cc0b19400828cedf155",
+      "git:0368a69a0052a16ee6b4b72f3238f5476a7efa8a"
+    ],
+    "status": "accepted",
+    "summary": "Coding-agent workflow support with a JSON index file describing packed content, symbol metadata, and token budgets for agent consumption"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "changed",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.4.1",
+    "scopes": [],
+    "source_refs": [
+      "git:1a76ed5b97da38bd3c3c396510329f431b7dc814"
+    ],
+    "status": "accepted",
+    "summary": "Reorganized CLI parser and configuration loading into dedicated modules and aligned documentation with current CLI behavior"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "added",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.4.2",
+    "scopes": [],
+    "source_refs": [
+      "git:76901b11e79bf3cc9d71a47d17ef6bdd21f5b381"
+    ],
+    "status": "accepted",
+    "summary": "gitignore_allow option to force-include gitignored paths and removal of _version.py from the default blocklist"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "added",
+    "order": 1,
+    "record_revision": 2,
+    "release_version": "v0.4.3",
+    "scopes": [],
+    "source_refs": [
+      "git:2fdebc8b8e5d6c4cc9b4b390a07f1fe16f868a00"
+    ],
+    "status": "accepted",
+    "summary": "--fail-on-warning and --check-machine-header for the installed unpack command, failing on SHA mismatches, unresolved markers, and bad machine headers"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0001",
+    "internal": false,
+    "kind": "fixed",
+    "order": 1,
+    "record_revision": 1,
+    "release_version": "v0.4.4",
+    "scopes": [],
+    "source_refs": [
+      "git:ec085cbe5380c4f9424d8715a96613e2ddb2ed0a"
+    ],
+    "status": "accepted",
+    "summary": "Packing and unpacking of empty files, which were dropped from round-trip output"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0002",
+    "internal": false,
+    "kind": "added",
+    "order": 2,
+    "record_revision": 1,
+    "release_version": "v0.1.0",
+    "scopes": [],
+    "source_refs": [
+      "git:b40262f2a2eb6ce6881144dd0cdbf9f3717964b4"
+    ],
+    "status": "accepted",
+    "summary": "Directory tree rendering in generated packs for at-a-glance repository navigation"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0002",
+    "internal": false,
+    "kind": "added",
+    "order": 2,
+    "record_revision": 1,
+    "release_version": "v0.2.0",
+    "scopes": [],
+    "source_refs": [
+      "git:424e5ff343a5b362b102d2118aafbaeadc7b763b"
+    ],
+    "status": "accepted",
+    "summary": "nav_mode option to reduce token usage by controlling how navigation metadata is emitted"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0002",
+    "internal": false,
+    "kind": "added",
+    "order": 2,
+    "record_revision": 1,
+    "release_version": "v0.3.0",
+    "scopes": [],
+    "source_refs": [
+      "git:918bca7125c7017979c047f298bfdf2c0dc4b5c2"
+    ],
+    "status": "accepted",
+    "summary": "Max byte and token limits to cap pack size and stay within model context windows"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0002",
+    "internal": false,
+    "kind": "added",
+    "order": 2,
+    "record_revision": 1,
+    "release_version": "v0.3.1",
+    "scopes": [],
+    "source_refs": [
+      "git:3e67a91fe484f0ea01916d4b8bc2ba25d8542512"
+    ],
+    "status": "accepted",
+    "summary": "Reporting of skipped files and additional packing diagnostics"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0002",
+    "internal": false,
+    "kind": "added",
+    "order": 2,
+    "record_revision": 1,
+    "release_version": "v0.3.2",
+    "scopes": [],
+    "source_refs": [
+      "git:b50862469ca823431be057b34d1b69c851cb6dfd"
+    ],
+    "status": "accepted",
+    "summary": "Output presets that bundle related format and layout options into named profiles"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0002",
+    "internal": false,
+    "kind": "added",
+    "order": 2,
+    "record_revision": 1,
+    "release_version": "v0.3.4",
+    "scopes": [],
+    "source_refs": [
+      "git:0986b04c53570ad017fb0f0635bdff7b3fe2e824"
+    ],
+    "status": "accepted",
+    "summary": "Add and remove path patterns for customizing include and exclude rules beyond gitignore"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0002",
+    "internal": false,
+    "kind": "added",
+    "order": 2,
+    "record_revision": 1,
+    "release_version": "v0.4.0",
+    "scopes": [],
+    "source_refs": [
+      "git:f47bffc75f1109af3ef3f63ad33cf90a9a3f8d53",
+      "git:44592454536797d38a9a8ecfbeda0d573ad7d8b7",
+      "git:b7ecda14ce9db6f6e7fffe858bd1a80f2388d4b2"
+    ],
+    "status": "accepted",
+    "summary": "Sidecar contract that carries pack metadata alongside the Markdown, with minimal and compact payload variants"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0002",
+    "internal": false,
+    "kind": "fixed",
+    "order": 2,
+    "record_revision": 1,
+    "release_version": "v0.4.2",
+    "scopes": [],
+    "source_refs": [
+      "git:fb99c2b6fce901c02938b5ec6149f78404834dae"
+    ],
+    "status": "accepted",
+    "summary": "Empty-file handling in the standalone unpacker round-trip tests"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0002",
+    "internal": false,
+    "kind": "added",
+    "order": 2,
+    "record_revision": 1,
+    "release_version": "v0.4.3",
+    "scopes": [],
+    "source_refs": [
+      "git:4988f4958acb66cd59dd64c175821cf451c44786"
+    ],
+    "status": "accepted",
+    "summary": "--fail-on-warning, --check-machine-header, and --progress for the standalone unpacker, with more verbose output and a printed reconstruction command"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0003",
+    "internal": false,
+    "kind": "added",
+    "order": 3,
+    "record_revision": 1,
+    "release_version": "v0.1.0",
+    "scopes": [],
+    "source_refs": [
+      "git:1bc5367192241954cd701b01a74593efb777c504"
+    ],
+    "status": "accepted",
+    "summary": "unpack, patch, and apply commands to reconstruct files from a pack and to generate or apply diff-only Markdown patches"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0003",
+    "internal": false,
+    "kind": "added",
+    "order": 3,
+    "record_revision": 1,
+    "release_version": "v0.2.0",
+    "scopes": [],
+    "source_refs": [
+      "git:941675bc7e24e3fe847e5eeb9ca26c69632f2bc5",
+      "git:e543e40795b813f13be2b8675fe7f06cc96e6c95"
+    ],
+    "status": "accepted",
+    "summary": "Line numbering and an improved how-to-use intro section in generated packs"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0003",
+    "internal": false,
+    "kind": "added",
+    "order": 3,
+    "record_revision": 1,
+    "release_version": "v0.3.0",
+    "scopes": [],
+    "source_refs": [
+      "git:a9013828ac7869556db5b6caf5e15534a711d03f"
+    ],
+    "status": "accepted",
+    "summary": "Pack versioning and a --strict mode that fails validation on inconsistencies"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0003",
+    "internal": false,
+    "kind": "added",
+    "order": 3,
+    "record_revision": 1,
+    "release_version": "v0.3.1",
+    "scopes": [],
+    "source_refs": [
+      "git:f5f08f565b9064d8a25abc34bebeb1e0a34b457b"
+    ],
+    "status": "accepted",
+    "summary": "doctor command to diagnose a codecrate installation and print command to inspect resolved configuration"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0003",
+    "internal": false,
+    "kind": "added",
+    "order": 3,
+    "record_revision": 1,
+    "release_version": "v0.3.2",
+    "scopes": [],
+    "source_refs": [
+      "git:1a843379e2e3c87ffb1ea4c3bd9265c423b384f4"
+    ],
+    "status": "accepted",
+    "summary": "Version reporting and rules printing for inspecting active scan and formatting rules"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0003",
+    "internal": false,
+    "kind": "added",
+    "order": 3,
+    "record_revision": 1,
+    "release_version": "v0.4.0",
+    "scopes": [],
+    "source_refs": [
+      "git:6fd5bddc45b1c91086bfd41ac25c23f4c6e5f4ea",
+      "git:f11ec911225fd2cf5889f3b1b786e67d7668d297"
+    ],
+    "status": "accepted",
+    "summary": "Standalone unpacker embedded in packs so files can be reconstructed with python3 alone, including stub reconstruction"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0003",
+    "internal": true,
+    "kind": "internal",
+    "order": 3,
+    "record_revision": 2,
+    "release_version": "v0.4.2",
+    "scopes": [],
+    "source_refs": [
+      "git:b1480caead4be12e21796d49bbe13772109f8a0e"
+    ],
+    "status": "accepted",
+    "summary": "Type-check fix accompanying the discovery and configuration changes"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0003",
+    "internal": true,
+    "kind": "internal",
+    "order": 3,
+    "record_revision": 2,
+    "release_version": "v0.4.3",
+    "scopes": [],
+    "source_refs": [
+      "git:151877c104f85bf19071f85690a37ad41f92d28f",
+      "git:50cfa9b56a0756f0238b8e67d2eca7790782caf8",
+      "git:4f4de5aea1799f995dda5687ba152ec0201b0d1a"
+    ],
+    "status": "accepted",
+    "summary": "Pre-commit, mypy, ruff, and release-script fixes"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0004",
+    "internal": false,
+    "kind": "added",
+    "order": 4,
+    "record_revision": 1,
+    "release_version": "v0.1.0",
+    "scopes": [],
+    "source_refs": [
+      "git:7a7afd96125d507573ae30492ad5bb6961373c72"
+    ],
+    "status": "accepted",
+    "summary": "Version 4 pack format with structured file fences and an embedded manifest"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0004",
+    "internal": false,
+    "kind": "added",
+    "order": 4,
+    "record_revision": 1,
+    "release_version": "v0.2.0",
+    "scopes": [],
+    "source_refs": [
+      "git:4353727634275a4cfcf7ef5a67421eeda939acf8"
+    ],
+    "status": "accepted",
+    "summary": "Tool configuration through a tool.codecrate section in pyproject.toml as an alternative to codecrate.toml"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0004",
+    "internal": false,
+    "kind": "added",
+    "order": 4,
+    "record_revision": 1,
+    "release_version": "v0.3.0",
+    "scopes": [],
+    "source_refs": [
+      "git:282d580418c0930a4667d51b6529f516911a266e"
+    ],
+    "status": "accepted",
+    "summary": "Top-level CLI help summarizing available commands"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0004",
+    "internal": false,
+    "kind": "fixed",
+    "order": 4,
+    "record_revision": 1,
+    "release_version": "v0.3.1",
+    "scopes": [],
+    "source_refs": [
+      "git:77c30f6ec3bcf1f7e84fc75429e8b69e3d489c7b"
+    ],
+    "status": "accepted",
+    "summary": "Windows-specific path handling in file discovery"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0004",
+    "internal": false,
+    "kind": "added",
+    "order": 4,
+    "record_revision": 1,
+    "release_version": "v0.4.0",
+    "scopes": [],
+    "source_refs": [
+      "git:1b7a88275c4df497e60dae5253d681a34b6a0e74"
+    ],
+    "status": "accepted",
+    "summary": "Context metadata sourced from installed package and project setup information"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0005",
+    "internal": false,
+    "kind": "added",
+    "order": 5,
+    "record_revision": 1,
+    "release_version": "v0.1.0",
+    "scopes": [],
+    "source_refs": [
+      "git:ba4e17edf70bab74662885015a9c77ff3d56cac3",
+      "git:e3ff18638d8742bf5a65add2bbb2c86b61f02424"
+    ],
+    "status": "accepted",
+    "summary": "Full layout mode that emits complete file contents alongside the existing stubs layout"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0005",
+    "internal": false,
+    "kind": "added",
+    "order": 5,
+    "record_revision": 1,
+    "release_version": "v0.2.0",
+    "scopes": [],
+    "source_refs": [
+      "git:7ff85732ce2ea1cb4c14a36193ad5b83b0ee2867"
+    ],
+    "status": "accepted",
+    "summary": "Symbol parsing for languages beyond Python plus a security filter that strips or fences sensitive content"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0005",
+    "internal": false,
+    "kind": "added",
+    "order": 5,
+    "record_revision": 1,
+    "release_version": "v0.3.0",
+    "scopes": [],
+    "source_refs": [
+      "git:d400c843bb185619f262378f6ee10047f76f48b8"
+    ],
+    "status": "accepted",
+    "summary": "Machine header for fast pack validation without parsing the full document"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0005",
+    "internal": true,
+    "kind": "internal",
+    "order": 5,
+    "record_revision": 2,
+    "release_version": "v0.3.1",
+    "scopes": [],
+    "source_refs": [
+      "git:cd1d4d703606e6b5c01da7e177f0be3ac23fb99a"
+    ],
+    "status": "accepted",
+    "summary": "Expanded unit-test coverage for strict mode, determinism, multi-repo, and round-trip behavior"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0005",
+    "internal": false,
+    "kind": "added",
+    "order": 5,
+    "record_revision": 1,
+    "release_version": "v0.4.0",
+    "scopes": [],
+    "source_refs": [
+      "git:1a5c9ab06c993273b0b5087e55f67db7ddd967c8"
+    ],
+    "status": "accepted",
+    "summary": "Fallback version resolution when the package version cannot be determined dynamically"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0006",
+    "internal": false,
+    "kind": "added",
+    "order": 6,
+    "record_revision": 1,
+    "release_version": "v0.1.0",
+    "scopes": [],
+    "source_refs": [
+      "git:1724e0f44b05249fc2d7afc1b20717a8f116b934"
+    ],
+    "status": "accepted",
+    "summary": "Manifest parameter and token-budget-aware splitting of large packs into multiple Markdown files"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0006",
+    "internal": false,
+    "kind": "added",
+    "order": 6,
+    "record_revision": 1,
+    "release_version": "v0.2.0",
+    "scopes": [],
+    "source_refs": [
+      "git:d2b74aa631549c88117aef89d4805551cae9f0d6"
+    ],
+    "status": "accepted",
+    "summary": "Multi-repository handling with per-repository validation and unpacking"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0006",
+    "internal": false,
+    "kind": "added",
+    "order": 6,
+    "record_revision": 1,
+    "release_version": "v0.3.0",
+    "scopes": [],
+    "source_refs": [
+      "git:149fef2beb4cb30463e22f635b9a7d8425e8665b"
+    ],
+    "status": "accepted",
+    "summary": "Configurable content-scanning rules governing which file contents are included or stubbed"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0006",
+    "internal": false,
+    "kind": "added",
+    "order": 6,
+    "record_revision": 1,
+    "release_version": "v0.4.0",
+    "scopes": [],
+    "source_refs": [
+      "git:4ba07be6010272be139c1cb54ac5b89f3841a3d3",
+      "git:74fc16eece37d05a1cd20a91e4bf641eb12ac79a"
+    ],
+    "status": "accepted",
+    "summary": "Sidecar version 3 with analysis metadata and a dedicated pack pipeline, plus configurable sidecar locator and index-JSON validation"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0007",
+    "internal": false,
+    "kind": "fixed",
+    "order": 7,
+    "record_revision": 1,
+    "release_version": "v0.1.0",
+    "scopes": [],
+    "source_refs": [
+      "git:d59a2ac9ef59499264be1c7496b4eff7d619eaec"
+    ],
+    "status": "accepted",
+    "summary": "Markdown rendering and line-handling bugs in generated pack output"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0007",
+    "internal": true,
+    "kind": "internal",
+    "order": 7,
+    "record_revision": 2,
+    "release_version": "v0.2.0",
+    "scopes": [],
+    "source_refs": [
+      "git:931f6ef8b836eb623720e40f6a5cc2eaf723cf3d"
+    ],
+    "status": "accepted",
+    "summary": "Test and type-check fixes accompanying the multi-language and token features"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0007",
+    "internal": false,
+    "kind": "changed",
+    "order": 7,
+    "record_revision": 1,
+    "release_version": "v0.3.0",
+    "scopes": [],
+    "source_refs": [
+      "git:2cf1f483f11a9e4002881594fb689c4d44b9f62e"
+    ],
+    "status": "accepted",
+    "summary": "File-discovery now uses pathspec 1.0.0 for gitignore matching"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0007",
+    "internal": false,
+    "kind": "added",
+    "order": 7,
+    "record_revision": 1,
+    "release_version": "v0.4.0",
+    "scopes": [],
+    "source_refs": [
+      "git:97db7ef4cec7bb97ecac6cc22e9dc44b7dccab3f",
+      "git:03e643086ec71c1d93e4876fbf89416b40ee6b3d",
+      "git:2b2de2e048209476a1c6de6750e5f25473e1fd04"
+    ],
+    "status": "accepted",
+    "summary": "Additional codecrate.toml configuration parameters and normalized index-JSON payloads generated from a shared intermediate representation"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0008",
+    "internal": false,
+    "kind": "docs",
+    "order": 8,
+    "record_revision": 1,
+    "release_version": "v0.1.0",
+    "scopes": [],
+    "source_refs": [
+      "git:9451fd6f5ec561b45bbe32422bb8260eca4f8a2f"
+    ],
+    "status": "accepted",
+    "summary": "Initial Sphinx documentation, CLI reference, and quickstart guide"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0008",
+    "internal": false,
+    "kind": "fixed",
+    "order": 8,
+    "record_revision": 1,
+    "release_version": "v0.3.0",
+    "scopes": [],
+    "source_refs": [
+      "git:0ec067bedd456fa9806383a6de44e6b7c8d66f6c",
+      "git:6b5b5708dd469aeccc84dc9be18cd0e1e626f84a"
+    ],
+    "status": "accepted",
+    "summary": "Parsing and packing bugs that broke output on Windows"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0008",
+    "internal": false,
+    "kind": "added",
+    "order": 8,
+    "record_revision": 1,
+    "release_version": "v0.4.0",
+    "scopes": [],
+    "source_refs": [
+      "git:d88ae833dc8da09f89f2767fba745d76db3dd1e5",
+      "git:56ac2a772d5b888c0f8bbb7da2e75ce66a183ac5"
+    ],
+    "status": "accepted",
+    "summary": "Lean agent and portable-agent profiles tuned for low-token and self-contained agent contexts"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0009",
+    "internal": true,
+    "kind": "internal",
+    "order": 9,
+    "record_revision": 2,
+    "release_version": "v0.1.0",
+    "scopes": [],
+    "source_refs": [
+      "git:4d402fe61f062a0a5aa9ec7c204b84b4fb2c18b7",
+      "git:88680d329e8d7fc1ba8e10c25e485405243a54b9",
+      "git:1fe2ef220b27eaf585a9c2bb352c730e858f7102",
+      "git:1e1bd810b4a67b476bfdb00761e802e44d7e2932",
+      "git:67fcf5a021ae1b539235b564ecda40677be2237f",
+      "git:9aaa28ed38ff321cf663cb4d8dabf58695126e97",
+      "git:5a39f685cdfadbed4a6b1ac8cfd08d7b678ee7a7",
+      "git:754f82dd41d3906e733f97f67831e91b9025a39a",
+      "git:bcb2c3a990e4408fc23e25b4857a3edb74978546"
+    ],
+    "status": "accepted",
+    "summary": "Project CI workflow and pre-commit, mypy, test, and dependency tooling setup"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0009",
+    "internal": false,
+    "kind": "fixed",
+    "order": 9,
+    "record_revision": 1,
+    "release_version": "v0.4.0",
+    "scopes": [],
+    "source_refs": [
+      "git:44d90f8021bd28878ad0e869954a05491dde652e"
+    ],
+    "status": "accepted",
+    "summary": "Standalone unpacker reconstruction bugs"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0010",
+    "internal": false,
+    "kind": "docs",
+    "order": 10,
+    "record_revision": 1,
+    "release_version": "v0.4.0",
+    "scopes": [],
+    "source_refs": [
+      "git:1edf2921004538d48e080f23f8227f097a8e75fd",
+      "git:48046aad08c2b8e38f5af96c9ffa48403c0bbdd1"
+    ],
+    "status": "accepted",
+    "summary": "Updated README and agent-workflow, format, and CLI documentation for the sidecar and index-JSON features"
+  },
+  {
+    "audience": null,
+    "breaking": false,
+    "entry_id": "entry-0011",
+    "internal": true,
+    "kind": "internal",
+    "order": 11,
+    "record_revision": 2,
+    "release_version": "v0.4.0",
+    "scopes": [],
+    "source_refs": [
+      "git:a44866869ec1b9fdf6e86a0c016761f99574bded",
+      "git:1f2625710e8ca1bb441a65ae00e4af595fa5418f",
+      "git:4d18797543a8e2be64fa2ad2add8876d26c32007",
+      "git:ddbecda0b24593aa648c9d0827f2d6ea835fff92",
+      "git:f191e2ac2293dceca61685a7165ce395c6194b25",
+      "git:2b33ac4c9914247dd0e0284ac99bcbc43c518ebf",
+      "git:8d77cdefc65f7b43f934a9fe5281cf162c40bd48",
+      "git:6812dfeba77579c8d7098ae3b88a4267de5aca87"
+    ],
+    "status": "accepted",
+    "summary": "Release tooling and code-quality fixes (mypy, pre-commit, ruff, formatting, gitignore)"
+  }
+]
